@@ -8,4 +8,5 @@ www-data:x:33:
 ftp:x:55:
 users:x:100:
 network:x:101:
+lede:x:1000:
 nogroup:x:65534:
