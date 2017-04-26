@@ -49,6 +49,17 @@ smb_header() {
 EOT
 	}
 
+	local password
+	local old_password
+	config_get password $1 password password
+	config_get old_password $1 old_password
+	local smbpass="`cat /etc/samba/smbpasswd`"
+	[ "x$old_password" = "x$password" ] && test -n "$smbpass" || {
+		(echo $password; echo $password;) | smbpasswd -a -s lede
+		uci set samba.@samba[0].old_password="$password"
+		uci commit samba
+	}
+
 	[ -L /etc/samba/smb.conf ] || ln -nsf /var/etc/smb.conf /etc/samba/smb.conf
 }
 
