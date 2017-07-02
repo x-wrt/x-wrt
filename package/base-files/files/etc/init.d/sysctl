@@ -38,7 +38,16 @@ apply_defaults() {
 
 start() {
 	apply_defaults
+	local CONF line
 	for CONF in /etc/sysctl.d/*.conf /etc/sysctl.conf; do
-		[ -f "$CONF" ] && sysctl -e -p "$CONF" >&-
+		[ -f "$CONF" ] || continue
+		sed -e '/^[[:space:]]*[#;]/d' \
+			-e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+			-e 's/[[:space:]]*=[[:space:]]*/=/' "$CONF" |
+		while IFS= read -r line || [ -n "$line" ]; do
+			case "$line" in
+				*=*) sysctl -qw "$line" ;;
+			esac
+		done
 	done
 }
