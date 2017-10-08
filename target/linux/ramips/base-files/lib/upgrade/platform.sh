@@ -264,6 +264,8 @@ platform_check_image() {
 		;;
 	hc5962|\
 	mir3g|\
+	r6220b|\
+	r6220a|\
 	r6220)
 		# these boards use metadata images
 		return 0
@@ -311,6 +313,8 @@ platform_do_upgrade() {
 	case "$board" in
 	hc5962|\
 	mir3g|\
+	r6220b|\
+	r6220a|\
 	r6220|\
 	ubnt-erx|\
 	ubnt-erx-sfp)
