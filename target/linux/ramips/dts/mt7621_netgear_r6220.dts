@@ -69,5 +69,11 @@
 			reg = <0x4200000 0x3c00000>;
 			read-only;
 		};
+
+		partition@2d00000 {
+			label = "factory_debug";
+			reg = <0x2d00000 0x200000>;
+			read-only;
+		};
 	};
 };

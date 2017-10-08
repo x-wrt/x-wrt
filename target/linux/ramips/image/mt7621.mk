@@ -524,7 +524,7 @@ define Device/netgear_r6220
   SERCOMM_SWVER := 0x0086
   IMAGE_SIZE := 28672k
   DEVICE_PACKAGES += kmod-mt76x2
-  SUPPORTED_DEVICES += r6220
+  SUPPORTED_DEVICES += r6220 netgear,r6220a netgear,r6220b netgear,r6220c netgear,r6220
 endef
 TARGET_DEVICES += netgear_r6220
 
