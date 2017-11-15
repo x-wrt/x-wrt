@@ -13,6 +13,8 @@ set_preinit_iface() {
 	ap135-020 |\
 	ap136-020 |\
 	ap147-010 |\
+	ac9531-010 |\
+	ac9531-020 |\
 	archer-c5 |\
 	archer-c7 |\
 	bhr-4grv2 |\
