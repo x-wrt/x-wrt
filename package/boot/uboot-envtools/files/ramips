@@ -13,6 +13,7 @@ touch /etc/config/ubootenv
 board=$(board_name)
 
 case "$board" in
+puppies|\
 all0239-3g|\
 all0256n-4M|\
 all0256n-8M|\
