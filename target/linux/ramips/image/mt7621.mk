@@ -84,6 +84,34 @@ define Build/wr1201-factory-header
 	mv $@.new $@
 endef
 
+define Build/xwrt_puppies-factory
+  -[ -f "$@" ] && \
+  mkdir -p "$@.tmp" && \
+  mv "$@" "$@.tmp/UploadBrush-bin.img" && \
+  binmd5=$$($(STAGING_DIR_HOST)/bin/mkhash md5 "$@.tmp/UploadBrush-bin.img" | head -c32) && \
+  oemmd5=$$(echo -n YL-AC9800-mt7621-AC-AC7621 | $(STAGING_DIR_HOST)/bin/mkhash md5 | head -c32) && \
+  echo -n $${binmd5}$${oemmd5} | $(STAGING_DIR_HOST)/bin/mkhash md5 | head -c32 >"$@.tmp/bin_random_oem.txt" && \
+  echo -n V4.4-201910201745 >"$@.tmp/version.txt" && \
+  $(TAR) -czf $@.tmp.tgz -C "$@.tmp" UploadBrush-bin.img bin_random_oem.txt version.txt && \
+  $(STAGING_DIR_HOST)/bin/openssl aes-256-cbc -md md5 -salt -in $@.tmp.tgz -out "$@" -k QiLunSmartWL && \
+  printf %32s AC7621 >>"$@" && \
+  rm -rf "$@.tmp"
+endef
+
+define Build/xwrt_nxc200p-factory
+  -[ -f "$@" ] && \
+  mkdir -p "$@.tmp" && \
+  mv "$@" "$@.tmp/UploadBrush-bin.img" && \
+  binmd5=$$($(STAGING_DIR_HOST)/bin/mkhash md5 "$@.tmp/UploadBrush-bin.img" | head -c32) && \
+  oemmd5=$$(echo -n QL-ML01-mt7621-AC-AC7621 | $(STAGING_DIR_HOST)/bin/mkhash md5 | head -c32) && \
+  echo -n $${binmd5}$${oemmd5} | $(STAGING_DIR_HOST)/bin/mkhash md5 | head -c32 >"$@.tmp/bin_random_oem.txt" && \
+  echo -n V4.4-201910201745 >"$@.tmp/version.txt" && \
+  $(TAR) -czf $@.tmp.tgz -C "$@.tmp" UploadBrush-bin.img bin_random_oem.txt version.txt && \
+  $(STAGING_DIR_HOST)/bin/openssl aes-256-cbc -md md5 -salt -in $@.tmp.tgz -out "$@" -k QiLunSmartWL && \
+  printf %32s AC7621 >>"$@" && \
+  rm -rf "$@.tmp"
+endef
+
 define Device/afoundry_ew1200
   MTK_SOC := mt7621
   IMAGE_SIZE := 16064k
@@ -819,6 +847,30 @@ define Device/xiaoyu_xy-c5
   DEVICE_PACKAGES := kmod-ata-core kmod-ata-ahci kmod-usb3
 endef
 TARGET_DEVICES += xiaoyu_xy-c5
+
+define Device/xwrt_nxc200p
+  MTK_SOC := mt7621
+  IMAGE_SIZE := 16064k
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := NXC200P
+  IMAGES += factory.bin
+  IMAGE/factory.bin := $$(IMAGE/sysupgrade.bin) | xwrt_nxc200p-factory $(1)
+  DEVICE_PACKAGES := uboot-envtools kmod-usb3 kmod-usb-ledtrig-usbport
+  SUPPORTED_DEVICES += nxc200p
+endef
+TARGET_DEVICES += xwrt_nxc200p
+
+define Device/xwrt_puppies
+  MTK_SOC := mt7621
+  IMAGE_SIZE := 16064k
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := PUPPIES
+  IMAGES += factory.bin
+  IMAGE/factory.bin := $$(IMAGE/sysupgrade.bin) | xwrt_puppies-factory $(1)
+  DEVICE_PACKAGES := uboot-envtools kmod-usb3 kmod-usb-ledtrig-usbport
+  SUPPORTED_DEVICES += puppies
+endef
+TARGET_DEVICES += xwrt_puppies
 
 define Device/xzwifi_creativebox-v1
   MTK_SOC := mt7621
