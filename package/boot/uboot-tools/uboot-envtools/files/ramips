@@ -33,6 +33,8 @@ allnet,all0256n-8m|\
 allnet,all5002|\
 asiarf,ap7621-004-v3|\
 plasmacloud,pax1800-lite|\
+xwrt,nxc200p|\
+xwrt,puppies|\
 yuncore,ax820)
 	ubootenv_add_uci_config "/dev/mtd1" "0x0" "0x10000" "0x10000"
 	;;
