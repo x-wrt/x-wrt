@@ -1,0 +1,1207 @@
+diff --git a/arch/x86/mm/pat.c b/arch/x86/mm/pat.c
+index 89d7907..34d95fd 100644
+--- a/arch/x86/mm/pat.c
++++ b/arch/x86/mm/pat.c
+@@ -756,6 +756,8 @@ static inline int range_is_allowed(unsigned long pfn, unsigned long size)
+ /* This check is needed to avoid cache aliasing when PAT is enabled */
+ static inline int range_is_allowed(unsigned long pfn, unsigned long size)
+ {
++/* Do not check devmem as nos track use this. */
++#if 0
+ 	u64 from = ((u64)pfn) << PAGE_SHIFT;
+ 	u64 to = from + size;
+ 	u64 cursor = from;
+@@ -769,6 +771,7 @@ static inline int range_is_allowed(unsigned long pfn, unsigned long size)
+ 		cursor += PAGE_SIZE;
+ 		pfn++;
+ 	}
++#endif
+ 	return 1;
+ }
+ #endif /* CONFIG_STRICT_DEVMEM */
+diff --git a/include/linux/nos_mempool.h b/include/linux/nos_mempool.h
+new file mode 100644
+index 0000000..c349810
+--- /dev/null
++++ b/include/linux/nos_mempool.h
+@@ -0,0 +1,64 @@
++#ifndef _NOS_MEMPOOL_H
++#define _NOS_MEMPOOL_H
++
++#include <linux/spinlock.h>
++#include <linux/kernel.h>
++#include <linux/ratelimit.h>
++
++struct nos_mempool {
++	spinlock_t lock;
++	void *head;
++	void **tail;
++	int nr_used;
++	int nr_free;
++	const char *name;
++};
++
++static __inline void
++nos_mempool_init(struct nos_mempool *pool, const char *name, int nr_used)
++{
++	spin_lock_init(&pool->lock);
++	pool->head = NULL;
++	pool->tail = &pool->head;
++	pool->nr_used = nr_used;
++	pool->nr_free = 0;
++	pool->name = name;
++}
++
++static __inline void *
++nos_mempool_get(struct nos_mempool *pool)
++{
++	void *data;
++
++	spin_lock_bh(&pool->lock);
++	data = pool->head;
++	if (data != NULL) {
++		pool->head = *(void **)data;
++		if (pool->head == NULL) {
++			pool->tail = &pool->head;
++		}
++		pool->nr_used++;
++		pool->nr_free--;
++	} else {
++		if (pool->nr_used != 0) {
++			pr_warn_ratelimited("nos_mempool oom: %s, nr_used: %d, nr_free: %d\n",
++					pool->name, pool->nr_used, pool->nr_free);
++		}
++	}
++	spin_unlock_bh(&pool->lock);
++	return data;
++}
++
++static __inline void
++nos_mempool_put(struct nos_mempool *pool, void *data)
++{
++	spin_lock_bh(&pool->lock);
++	*(void **)data = NULL;
++	*pool->tail = data;
++	pool->tail = (void **)data;
++	pool->nr_used--;
++	pool->nr_free++;
++	spin_unlock_bh(&pool->lock);
++}
++
++#endif /* _NOS_MEMPOOL_H */
+diff --git a/include/linux/nos_track.h b/include/linux/nos_track.h
+new file mode 100644
+index 0000000..5425992
+--- /dev/null
++++ b/include/linux/nos_track.h
+@@ -0,0 +1,12 @@
++#ifndef _NOS_TRACK_H
++#define _NOS_TRACK_H
++
++#ifdef __KERNEL__
++#include <linux/types.h>
++#endif
++#include <uapi/linux/nos_track.h>
++#ifdef __KERNEL__
++#include <linux/nos_track_priv.h>
++#endif
++
++#endif /* _NOS_TRACK_H */
+diff --git a/include/linux/nos_track_priv.h b/include/linux/nos_track_priv.h
+new file mode 100644
+index 0000000..a4cea06
+--- /dev/null
++++ b/include/linux/nos_track_priv.h
+@@ -0,0 +1,94 @@
++#ifndef _NOS_TRACK_PRIV_H__
++#define _NOS_TRACK_PRIV_H__
++
++#include <asm/atomic.h>
++#include <linux/list.h>
++#include <linux/types.h>
++#include <linux/rculist.h>
++#include <linux/spinlock.h>
++#include <linux/rbtree.h>
++#include <linux/timer.h>
++#include <linux/skbuff.h>
++
++struct tbq_backlog {
++	struct list_head list;
++	struct tbq_token_ctrl *tc;
++	uint32_t octets;
++	uint32_t weight;
++	int32_t drr_deficit;
++};
++
++struct tbq_flow_backlog {
++	struct tbq_backlog base;
++	struct list_head packets;
++	struct tbq_flow_track *tf;
++};
++
++struct tbq_flow_track {
++	struct list_head list;
++	uint16_t tbq_level;
++	uint16_t dummy;
++	uint16_t app_id;
++	uint16_t uname_match;	//mo
++	uint32_t rule_mask;
++	uint8_t weight[32];
++	struct tbq_flow_backlog backlog[2];
++};
++
++struct nos_track {
++	struct nos_flow_info *flow;
++	struct nos_user_info *ui_src;
++	struct nos_user_info *ui_dst;
++	struct tbq_flow_track tbq;
++};
++
++struct nos_user_track {
++	uint32_t ip;
++	uint32_t magic;
++	struct hlist_node hash_node;
++	struct timer_list timeout;
++	spinlock_t lock;
++	uint32_t refcnt;
++	uint32_t flags;
++	void *tbq;
++};
++
++struct nos_flow_track {
++	uint32_t magic;
++	struct nos_user_track *ut_src;
++	struct nos_user_track *ut_dst;
++};
++
++struct nos_track_event {
++	struct list_head list;
++	void (* on_user_free)(struct nos_user_track *);
++	void (* on_flow_free)(struct nos_track *);
++};
++
++struct nos_track_stats {
++	atomic64_t nr_flow_alloc;
++	atomic64_t nr_flow_free;
++	atomic64_t nr_flow_drop;
++};
++
++extern void* nos_track_cap_base;
++extern void* nos_stat_info_base;
++extern uint32_t nos_track_cap_size;
++extern uint32_t nos_user_info_max, nos_flow_info_max;
++
++extern uint32_t nos_auth_no_flow_timeout;
++
++int nos_track_init(void);
++int nos_track_alloc(struct nos_track *track, struct nos_flow_tuple *tuple, struct sk_buff *skb);
++void nos_track_free(struct nos_track *track);
++
++struct nos_user_track *nos_get_user_track(struct nos_track *track);
++struct nos_flow_track *nos_get_flow_track(struct nos_track *track);
++
++int nos_is_user(struct nos_user_info *ui);
++void nos_user_info_hold(struct nos_user_info *ui);
++
++void nos_track_event_register(struct nos_track_event *ev);
++void nos_track_event_unregister(struct nos_track_event *ev);
++
++#endif /* _NOS_TRACK_PRIV_H__ */
+diff --git a/include/linux/skbuff.h b/include/linux/skbuff.h
+index 56f4007..abb01b2 100644
+--- a/include/linux/skbuff.h
++++ b/include/linux/skbuff.h
+@@ -40,6 +40,9 @@
+ #include <linux/if_packet.h>
+ #include <net/flow.h>
+ 
++/* define skb/ntrack pkt priv size */
++#include <linux/nos_track.h>
++
+ /* The interface for checksum offload between the stack and networking drivers
+  * is as follows...
+  *
+@@ -807,6 +810,9 @@ struct sk_buff {
+ 				*data;
+ 	unsigned int		truesize;
+ 	atomic_t		users;
++
++	/* ntrack reserved for packet parser. */
++	unsigned char ntrack_priv[NTRACK_PKT_PRIV_SIZE];
+ };
+ 
+ #ifdef __KERNEL__
+diff --git a/include/net/netfilter/nf_conntrack.h b/include/net/netfilter/nf_conntrack.h
+index d9d52c0..d50a84c 100644
+--- a/include/net/netfilter/nf_conntrack.h
++++ b/include/net/netfilter/nf_conntrack.h
+@@ -19,6 +19,8 @@
+ #include <linux/atomic.h>
+ #include <linux/rhashtable.h>
+ 
++#include <linux/nos_track.h>
++
+ #include <linux/netfilter/nf_conntrack_tcp.h>
+ #include <linux/netfilter/nf_conntrack_dccp.h>
+ #include <linux/netfilter/nf_conntrack_sctp.h>
+@@ -120,6 +122,9 @@ struct nf_conn {
+ 	/* Extensions */
+ 	struct nf_ct_ext *ext;
+ 
++	/* nos track kernel private */
++	struct nos_track nos_track;
++
+ 	/* Storage reserved for other modules, must be the last member */
+ 	union nf_conntrack_proto proto;
+ };
+@@ -170,6 +175,18 @@ nf_ct_get(const struct sk_buff *skb, enum ip_conntrack_info *ctinfo)
+ 	return (struct nf_conn *)skb->nfct;
+ }
+ 
++static inline struct nos_track*
++nf_ct_get_nos(struct nf_conn *ct)
++{
++	struct nos_track* nos = &ct->nos_track;
++
++	/* FIXME: some more check need. */
++	if(nos->flow && nos->ui_src && nos->ui_dst) {
++		return nos;
++	}
++	return NULL;
++}
++
+ /* decrement reference count on a conntrack */
+ static inline void nf_ct_put(struct nf_conn *ct)
+ {
+diff --git a/include/uapi/linux/Kbuild b/include/uapi/linux/Kbuild
+index ccdd8d5..6d9a321 100644
+--- a/include/uapi/linux/Kbuild
++++ b/include/uapi/linux/Kbuild
+@@ -476,3 +476,4 @@ header-y += xilinx-v4l2-controls.h
+ header-y += zorro.h
+ header-y += zorro_ids.h
+ header-y += userfaultfd.h
++header-y += nos_track.h
+diff --git a/include/uapi/linux/nos_track.h b/include/uapi/linux/nos_track.h
+new file mode 100644
+index 0000000..0854147
+--- /dev/null
++++ b/include/uapi/linux/nos_track.h
+@@ -0,0 +1,95 @@
++#ifndef _UAPI_NOS_TRACK_H
++#define _UAPI_NOS_TRACK_H
++#include <linux/types.h>
++
++/* use alloc_bootmem, do not need this :-~) */
++// #define START_RESERVE_MEM 	(16<<20) //arm/mips
++// #define START_RESERVE_MEM 	(0x10000000) //for x86, the low addr reserved by IO.
++
++#ifdef CONFIG_NTRACK_BOOTM_SIZE
++ #define NTRACK_BOOTM_SIZE (CONFIG_NTRACK_BOOTM_SIZE * (0x1<<20))
++#else
++ #define NTRACK_BOOTM_SIZE (32 * (0x1<<20))
++#endif
++
++#define NTRACK_PKT_PRIV_SIZE (128)
++
++#define NOS_USER_INFO_SIZE			(128)
++#define NOS_FLOW_INFO_SIZE			(128)
++
++#define NOS_USER_FLAGS_TYPE_USER 	(1<<0)
++#define NOS_USER_TRACK_INTERVAL		(60 * HZ)
++
++typedef unsigned long utimes_t;
++
++/* kernel & user ... multi modules comm used */
++typedef struct nos_user_hdr {
++	uint32_t flags;
++	uint16_t type;
++	uint16_t status; /*bitmap, status.*/
++	utimes_t time_stamp; /* notify, statistics */
++	uint64_t recv_bytes, xmit_bytes; /* statisc */
++	uint64_t recv_pkts, xmit_pkts;
++
++	uint64_t ipgrp_bits;
++	uint32_t u_usr_crc;
++	uint8_t u_grp_id;
++	uint8_t zone_id;
++	uint8_t rule_id;
++	uint8_t tbq_level;
++	uint16_t rule_magic;
++	uint16_t zone_magic;
++	uint16_t ipgrp_magic;
++	uint8_t macaddr[6];
++} user_hdr_t;
++
++typedef struct nos_flow_hdr {
++	uint32_t flags;
++	uint16_t proto;
++	utimes_t time_stamp;
++	uint64_t recv_bytes, xmit_bytes;
++	uint64_t recv_pkts, xmit_pkts; /* statistics */
++} flow_hdr_t;
++/* end of comm */
++
++/* markup the only flow. */
++typedef struct nos_flow_tuple {
++	uint32_t ip_src;
++	uint32_t ip_dst;
++	uint16_t port_src;
++	uint16_t port_dst;
++	uint8_t  proto;
++	uint8_t  dummy_pad[3];
++} flow_tuple_t;
++
++/* each node have 16 byte header */
++#define NOS_USER_DATA_SIZE (NOS_USER_INFO_SIZE - 16 - sizeof(struct nos_user_hdr))
++#define NOS_FLOW_DATA_SIZE (NOS_FLOW_INFO_SIZE - 16 - sizeof(struct nos_flow_tuple) - sizeof(struct nos_flow_hdr))
++typedef struct nos_user_info {
++	/* !!! keep this 16 byte header sync, DO not modify !!! */
++	uint32_t magic;
++	uint32_t id;
++	uint32_t refcnt;
++	uint32_t ip;
++	/* end */
++
++	struct nos_user_hdr hdr;
++
++	char private[NOS_USER_DATA_SIZE];
++} user_info_t;
++
++typedef struct nos_flow_info {
++	/* !!! keep this 16 byte header sync, DO not modify !!! */
++	uint32_t magic;
++	uint32_t id;
++	uint32_t ui_src_id;
++	uint32_t ui_dst_id;
++	/* end */
++
++	struct nos_flow_tuple tuple;
++	struct nos_flow_hdr hdr;
++
++	char private[NOS_FLOW_DATA_SIZE];
++} flow_info_t;
++
++#endif /* _UAPI_NOS_TRACK_H */
+diff --git a/init/Kconfig b/init/Kconfig
+index 87125b7..72afceb 100644
+--- a/init/Kconfig
++++ b/init/Kconfig
+@@ -849,6 +849,13 @@ config LOG_BUF_SHIFT
+ 		     13 =>  8 KB
+ 		     12 =>  4 KB
+ 
++config NTRACK_BOOTM_SIZE
++	prompt "(Mbytes) nos track system reserved bottom memory."
++	int
++	default 64
++	help
++	 how meny M bytes reserved for ntrack memap area.
++
+ config LOG_CPU_MAX_BUF_SHIFT
+ 	int "CPU kernel log buffer size contribution (13 => 8 KB, 17 => 128KB)"
+ 	depends on SMP
+diff --git a/init/main.c b/init/main.c
+index 3855fa4..0e04245 100644
+--- a/init/main.c
++++ b/init/main.c
+@@ -499,6 +499,7 @@ static void __init mm_init(void)
+ 	ioremap_huge_init();
+ }
+ 
++extern void __init ntrack_mem_reserve(void);
+ asmlinkage __visible void __init start_kernel(void)
+ {
+ 	char *command_line;
+@@ -526,6 +527,7 @@ asmlinkage __visible void __init start_kernel(void)
+ 	page_address_init();
+ 	pr_notice("%s", linux_banner);
+ 	setup_arch(&command_line);
++	ntrack_mem_reserve();
+ 	mm_init_cpumask(&init_mm);
+ 	mangle_bootargs(command_line);
+ 	setup_command_line(command_line);
+diff --git a/kernel/Makefile b/kernel/Makefile
+index 5fe0d8c..fddef0b 100644
+--- a/kernel/Makefile
++++ b/kernel/Makefile
+@@ -11,6 +11,8 @@ obj-y     = fork.o exec_domain.o panic.o \
+ 	    notifier.o ksysfs.o cred.o reboot.o \
+ 	    async.o range.o smpboot.o ucount.o
+ 
++obj-y += nos_track.o
++
+ obj-$(CONFIG_MULTIUSER) += groups.o
+ 
+ ifdef CONFIG_FUNCTION_TRACER
+diff --git a/kernel/nos_track.c b/kernel/nos_track.c
+new file mode 100644
+index 0000000..1e45b87
+--- /dev/null
++++ b/kernel/nos_track.c
+@@ -0,0 +1,612 @@
++#include <linux/nos_track.h>
++#include <linux/nos_mempool.h>
++#include <linux/bootmem.h>
++#include <linux/kernel.h>
++#include <linux/vmalloc.h>
++#include <linux/module.h>
++#include <linux/ioport.h>
++#include <linux/slab.h>
++#include <linux/timer.h>
++
++
++/* for sysctl read */
++void		*nt_shm_base = NULL;
++uint32_t	nt_shm_size_prv = NTRACK_BOOTM_SIZE;
++uint32_t 	nt_shm_size = (NTRACK_BOOTM_SIZE >> 1) + NTRACK_BOOTM_SIZE;
++uint32_t 	nt_cap_block_sz = 0;
++uint32_t 	nt_user_offset = 0;
++uint32_t 	nt_flow_offset = 0;
++uint32_t 	nt_stat_offset = 0;
++uint32_t 	nt_stat_size = 0;
++
++/* for modules use */
++void 		*nos_track_cap_base = NULL;
++uint32_t 	nos_track_cap_size = 0;
++uint32_t 	nos_user_info_max, nos_flow_info_max;
++
++void*   nos_stat_info_base = NULL;
++struct  nos_track_stats nos_track_stats;
++
++EXPORT_SYMBOL(nt_cap_block_sz);
++EXPORT_SYMBOL(nos_track_cap_base);
++EXPORT_SYMBOL(nos_track_cap_size);
++EXPORT_SYMBOL(nos_track_stats);
++EXPORT_SYMBOL(nos_stat_info_base);
++EXPORT_SYMBOL(nos_user_info_max);
++EXPORT_SYMBOL(nos_flow_info_max);
++
++uint32_t	nos_auth_no_flow_timeout = 3600;
++EXPORT_SYMBOL(nos_auth_no_flow_timeout);
++
++/* for local use */
++static uint32_t nos_user_track_hash_size;
++static uint32_t nos_user_track_max;
++static uint32_t nos_flow_track_max;
++
++static struct nos_user_track *nos_user_tracks;
++static struct nos_flow_track *nos_flow_tracks;
++
++static struct nos_mempool nos_user_track_pool;
++static struct nos_mempool nos_flow_track_pool;
++
++static struct hlist_head *nos_user_track_hash;
++static spinlock_t nos_user_track_hash_lock;
++
++static atomic_t nos_user_magic = ATOMIC_INIT(0);
++static atomic_t nos_flow_magic = ATOMIC_INIT(0);
++
++static struct nos_user_info *nos_user_info_base = NULL;
++static struct nos_flow_info *nos_flow_info_base = NULL;
++
++static struct {
++	struct list_head list;
++	spinlock_t lock;
++} nos_track_events;
++
++static void nos_user_track_put(struct nos_user_track *);
++
++static void utrack_timeout_fn(unsigned long d)
++{
++	int user_id;
++	struct nos_user_info *ui;
++	struct nos_user_track *ut = (struct nos_user_track*)d;
++
++	user_id = ut - nos_user_tracks;
++	ui = nos_user_info_base + user_id;
++	if (time_after(jiffies, ui->hdr.time_stamp + nos_auth_no_flow_timeout * HZ)) {
++		//timeout
++		nos_user_track_put(ut);
++	} else {
++		mod_timer(&ut->timeout, jiffies + NOS_USER_TRACK_INTERVAL);
++	}
++}
++
++static struct nos_user_info *
++nos_user_info_init(struct nos_user_track *ut)
++{
++	int32_t user_id = ut - nos_user_tracks;
++	struct nos_user_info *ui = nos_user_info_base + user_id;
++
++	ui->id = user_id;
++	ui->ip = ut->ip;
++	ui->refcnt = ut->refcnt;
++
++	memset(&ui->hdr, 0, sizeof(ui->hdr));
++	memset(ui->private, 0, sizeof(ui->private));
++
++	smp_wmb();
++
++	ui->magic = ut->magic;
++
++	return ui;
++}
++
++static inline void
++nos_user_info_update_refcnt(struct nos_user_track *ut)
++{
++	int32_t user_id = ut - nos_user_tracks;
++	struct nos_user_info *ui = nos_user_info_base + user_id;
++	ui->refcnt = ut->refcnt;
++}
++
++static struct nos_flow_info *
++nos_flow_info_init(struct nos_flow_track *ft, struct nos_flow_tuple *tuple)
++{
++	int32_t flow_id = ft - nos_flow_tracks;
++	struct nos_flow_info *fi = nos_flow_info_base + flow_id;
++
++	fi->id = flow_id;
++	fi->ui_src_id = ft->ut_src - nos_user_tracks;
++	fi->ui_dst_id = ft->ut_dst - nos_user_tracks;
++	fi->tuple = *tuple;
++
++	memset(&fi->hdr, 0, sizeof(fi->hdr));
++	memset(fi->private, 0, sizeof(fi->private));
++
++	smp_wmb();
++
++	fi->magic = ft->magic;
++
++	return fi;
++}
++
++static struct nos_user_track *nos_user_track_get(uint32_t ip)
++{
++	struct nos_user_track *user;
++	struct hlist_head *slot;
++	uint32_t slot_index;
++
++	slot_index = ntohl(ip) % nos_user_track_hash_size;
++
++	spin_lock_bh(&nos_user_track_hash_lock);
++
++	slot = &nos_user_track_hash[slot_index];
++
++	hlist_for_each_entry(user, slot, hash_node) {
++		if (user->ip == ip) {
++			spin_lock_bh(&user->lock);
++			if (user->refcnt == 0) {
++				spin_unlock_bh(&user->lock);
++				break;
++			}
++			++user->refcnt;
++			nos_user_info_update_refcnt(user);
++			spin_unlock_bh(&user->lock);
++			goto out;
++		}
++	}
++
++	user = nos_mempool_get(&nos_user_track_pool);
++	if (user == NULL) {
++		goto out;
++	}
++
++	user->ip = ip;
++	user->refcnt = 1;
++	user->magic = atomic_add_return(2, &nos_user_magic);
++	user->flags = 0;
++	user->tbq = NULL;
++	spin_lock_init(&user->lock);
++
++	nos_user_info_init(user);
++
++	hlist_add_head(&user->hash_node, slot);
++
++#if 0
++	printk("[nos_track] ADD USER: %pI4h\t(%6d / %6d)\n",
++			&ip, nos_user_track_pool.nr_used, nos_user_track_pool.nr_free);
++#endif
++
++out:
++	spin_unlock_bh(&nos_user_track_hash_lock);
++	return user;
++}
++
++static void
++nos_user_track_put(struct nos_user_track *user)
++{
++	struct nos_track_event *ev;
++	int32_t refcnt;
++
++	BUG_ON(user == NULL);
++
++	spin_lock_bh(&user->lock);
++	refcnt = --user->refcnt;
++	nos_user_info_update_refcnt(user);
++	spin_unlock_bh(&user->lock);
++
++	BUG_ON(refcnt < 0);
++
++	if (refcnt != 0)
++		return;
++
++	spin_lock_bh(&nos_track_events.lock);
++	list_for_each_entry(ev, &nos_track_events.list, list) {
++		if(ev->on_user_free) {
++			ev->on_user_free(user);
++		}
++	}
++	spin_unlock_bh(&nos_track_events.lock);
++
++	BUG_ON(user->tbq != NULL);
++
++	// set delete mark
++	nos_user_info_base[user - nos_user_tracks].magic = user->magic | 1U;
++
++	spin_lock_bh(&nos_user_track_hash_lock);
++	hlist_del(&user->hash_node);
++	spin_unlock_bh(&nos_user_track_hash_lock);
++#if 0
++	printk("[nos_track] DEL: %pI4h\t(%6d / %6d)\n",
++			&user->ip, nos_user_track_pool.nr_used - 1, nos_user_track_pool.nr_free + 1);
++#endif
++	nos_mempool_put(&nos_user_track_pool, user);
++}
++
++static void
++nos_track_check(struct nos_track *track)
++{
++	struct nos_flow_info *fi = track->flow;
++	struct nos_user_info *ui_src = track->ui_src;
++	struct nos_user_info *ui_dst = track->ui_dst;
++	uint32_t ui_src_id = ui_src - nos_user_info_base;
++	uint32_t ui_dst_id = ui_dst - nos_user_info_base;
++
++	if (ui_src_id >= nos_user_track_max || ui_src_id != fi->ui_src_id) {
++		pr_warn_ratelimited("nos_flow_info error: %d, %d\n", ui_src_id, fi->ui_src_id);
++	}
++
++	if (ui_dst_id >= nos_user_track_max || ui_dst_id != fi->ui_dst_id) {
++		pr_warn_ratelimited("nos_flow_info error: %d, %d\n", ui_dst_id, fi->ui_dst_id);
++	}
++}
++
++int
++nos_track_alloc(struct nos_track *track, struct nos_flow_tuple *tuple, struct sk_buff *skb)
++{
++	struct nos_flow_track *flow = NULL;
++	struct nos_user_track *ut_src = NULL;
++	struct nos_user_track *ut_dst = NULL;
++
++	flow = nos_mempool_get(&nos_flow_track_pool);
++	if (flow == NULL)
++		goto fail;
++
++	ut_src = nos_user_track_get(tuple->ip_src);
++	ut_dst = nos_user_track_get(tuple->ip_dst);
++
++	if (ut_src == NULL || ut_dst == NULL)
++		goto fail;
++
++	flow->ut_src = ut_src;
++	flow->ut_dst = ut_dst;
++
++	flow->magic = atomic_add_return(2, &nos_flow_magic);
++
++	track->flow = nos_flow_info_init(flow, tuple);
++	track->ui_src = &nos_user_info_base[track->flow->ui_src_id];
++	track->ui_dst = &nos_user_info_base[track->flow->ui_dst_id];
++	atomic64_inc(&nos_track_stats.nr_flow_alloc);
++
++	memset(&track->tbq, 0, sizeof(track->tbq));
++
++	return 0;
++
++fail:
++	if (flow != NULL) {
++		if (ut_src != NULL)
++			nos_user_track_put(ut_src);
++		if (ut_dst != NULL)
++			nos_user_track_put(ut_dst);
++		nos_mempool_put(&nos_flow_track_pool, flow);
++	}
++	track->flow = NULL;
++	track->ui_src = NULL;
++	track->ui_dst = NULL;
++	atomic64_inc(&nos_track_stats.nr_flow_drop);
++	return -1;
++}
++EXPORT_SYMBOL(nos_track_alloc);
++
++void
++nos_track_free(struct nos_track *track)
++{
++	struct nos_flow_track *flow;
++	struct nos_track_event *ev;
++	int flow_id;
++
++	if (track->flow == NULL) {
++		return;
++	}
++
++	flow_id = track->flow - nos_flow_info_base;
++	BUG_ON(flow_id < 0 || flow_id >= nos_flow_track_max);
++
++	nos_track_check(track);
++
++	flow = &nos_flow_tracks[flow_id];
++
++	spin_lock_bh(&nos_track_events.lock);
++	list_for_each_entry(ev, &nos_track_events.list, list) {
++		if(ev->on_flow_free) {
++			ev->on_flow_free(track);
++		}
++	}
++	spin_unlock_bh(&nos_track_events.lock);
++
++	track->flow->magic = flow->magic | 1U; // delete mark
++
++	nos_user_track_put(flow->ut_src);
++	nos_user_track_put(flow->ut_dst);
++
++	nos_mempool_put(&nos_flow_track_pool, flow);
++
++	atomic64_inc(&nos_track_stats.nr_flow_free);
++}
++EXPORT_SYMBOL(nos_track_free);
++
++struct nos_user_track *
++nos_get_user_track(struct nos_track *track)
++{
++	int user_id;
++
++	BUG_ON(track->flow == NULL);
++	BUG_ON(track->ui_src == NULL);
++	BUG_ON(track->ui_dst == NULL);
++
++	//FIXME
++	user_id = track->ui_src - nos_user_info_base;
++	BUG_ON(user_id < 0 || user_id >= nos_user_track_max);
++	return nos_user_tracks + user_id;
++}
++EXPORT_SYMBOL(nos_get_user_track);
++
++struct nos_flow_track *
++nos_get_flow_track(struct nos_track *track)
++{
++	int flow_id;
++
++	BUG_ON(track->flow == NULL);
++	BUG_ON(track->ui_src == NULL);
++	BUG_ON(track->ui_dst == NULL);
++
++	flow_id = track->flow - nos_flow_info_base;
++	BUG_ON(flow_id < 0 || flow_id >= nos_flow_track_max);
++	return nos_flow_tracks + flow_id;
++}
++EXPORT_SYMBOL(nos_get_flow_track);
++
++static inline struct nos_user_track* ui_to_ut(struct nos_user_info *ui)
++{
++	int ut_id;
++
++	ut_id = ui - nos_user_info_base;
++	BUG_ON(ut_id < 0 || ut_id >= nos_user_track_max);
++	return nos_user_tracks + ut_id;
++}
++
++int nos_is_user(struct nos_user_info *ui)
++{
++	struct nos_user_track *ut;
++
++	ut = ui_to_ut(ui);
++	return ut->flags & NOS_USER_FLAGS_TYPE_USER;
++}
++EXPORT_SYMBOL(nos_is_user);
++
++void nos_user_info_hold(struct nos_user_info *ui)
++{
++	struct nos_user_track *ut;
++
++	ut = ui_to_ut(ui);
++	spin_lock_bh(&ut->lock);
++	if (ut->flags & NOS_USER_FLAGS_TYPE_USER)
++		goto out;
++	ut->flags |= NOS_USER_FLAGS_TYPE_USER;
++	++ ut->refcnt;
++	setup_timer(&ut->timeout, utrack_timeout_fn, (unsigned long)ut);
++	ut->timeout.expires = jiffies + NOS_USER_TRACK_INTERVAL;
++	add_timer(&ut->timeout);
++out:
++	spin_unlock_bh(&ut->lock);
++}
++EXPORT_SYMBOL(nos_user_info_hold);
++
++void nos_track_event_register(struct nos_track_event *ev)
++{
++	spin_lock_bh(&nos_track_events.lock);
++	list_add_tail(&ev->list, &nos_track_events.list);
++	spin_unlock_bh(&nos_track_events.lock);
++}
++EXPORT_SYMBOL(nos_track_event_register);
++
++void nos_track_event_unregister(struct nos_track_event *ev)
++{
++	spin_lock_bh(&nos_track_events.lock);
++	list_del(&ev->list);
++	spin_unlock_bh(&nos_track_events.lock);
++}
++EXPORT_SYMBOL(nos_track_event_unregister);
++
++/* just for view */
++static struct resource nosmem_res = {
++	.name  = "nos track",
++	.start = 0,
++	.end   = 0,
++	.flags = IORESOURCE_BUSY | IORESOURCE_MEM | IORESOURCE_DMA
++};
++
++static int nos_vars_init(void)
++{
++	nos_track_cap_size = nt_shm_size_prv / 4;
++	nos_user_track_max = nt_shm_size_prv / 2 / sizeof(user_info_t);
++	nos_flow_track_max = nt_shm_size_prv / 2 / sizeof(flow_info_t);
++
++	nos_user_track_hash_size = nos_user_track_max / 4;
++
++	nos_user_info_max = nos_user_track_max;
++	nos_flow_info_max = nos_flow_track_max;
++
++	if (nos_track_cap_size <= 0) {
++		return -1;
++	}
++
++	return 0;
++}
++
++static int nos_mmap_init(void)
++{
++	void *base;
++	if (nt_shm_size == 0) {
++		printk("nos no shm reserved\n");
++		return -1;
++	}
++	base = phys_to_virt((phys_addr_t)nt_shm_base);
++	nos_track_cap_base = base;
++	printk("nos_track_cap_base: %p, size: %x\n", nos_track_cap_base, nos_track_cap_size);
++
++	nos_user_info_base = base + nos_track_cap_size;
++	nos_flow_info_base = (void *)(nos_user_info_base + nos_user_track_max);
++	nos_stat_info_base = (void *)(nos_flow_info_base + nos_flow_track_max);
++	nt_stat_offset = (void *)nos_stat_info_base - base;
++	nt_stat_size = nt_shm_size - nt_stat_offset;
++
++	nt_user_offset = (unsigned long)nos_user_info_base - (unsigned long)nos_track_cap_base;
++	nt_flow_offset = (unsigned long)nos_flow_info_base - (unsigned long)nos_track_cap_base;
++
++	printk("nos shm: %p size: %x\n", nt_shm_base, nt_shm_size);
++
++	printk("nos_user_info_base: %p (phys: %lx)\n",
++		nos_user_info_base, (long)virt_to_phys(nos_user_info_base));
++	printk("nos_flow_info_base: %p (phys: %lx)\n",
++		nos_flow_info_base, (long)virt_to_phys(nos_flow_info_base));
++	printk("nos_stat_info_base: %p (phys: %lx)\n",
++		nos_stat_info_base, (long)virt_to_phys(nos_stat_info_base));
++
++	if (virt_to_phys(nos_stat_info_base - 1) > nosmem_res.end) {
++		printk("nosmem_res oom: [%llu - %llu]\n", (uint64_t)nosmem_res.start, (uint64_t)nosmem_res.end);
++		return -1;
++	}
++
++	// delete mark: magic & 1 == 1
++	memset(nos_user_info_base, 0xAF, nos_user_track_max * sizeof(struct nos_user_info));
++	memset(nos_flow_info_base, 0xBF, nos_flow_track_max * sizeof(struct nos_flow_info));
++	return 0;
++}
++
++int nos_track_init()
++{
++	int i;
++
++	/* check struct align. */
++	BUG_ON(sizeof(user_info_t) != NOS_USER_INFO_SIZE);
++	BUG_ON(sizeof(flow_info_t) != NOS_FLOW_INFO_SIZE);
++
++	INIT_LIST_HEAD(&nos_track_events.list);
++	spin_lock_init(&nos_track_events.lock);
++
++	if(!nt_shm_base) {
++		printk("nos track reserve mem nil.\n");
++		return -ENOMEM;
++	}
++
++	if(nos_vars_init()) {
++		printk("nos track pars setup error.\n");
++		return -ENOMEM;
++	}
++
++	if(nos_mmap_init()) {
++		printk("nos track mmap init failed.\n");
++		return -ENOMEM;
++	}
++
++	nos_user_tracks = vmalloc(nos_user_track_max * sizeof(struct nos_user_track));
++	if(!nos_user_tracks) {
++		printk("nos track user pool nomem.\n");
++		goto __error;
++	}
++	nos_mempool_init(&nos_user_track_pool, "nos_user_track", nos_user_track_max);
++	for (i = 0; i < nos_user_track_max; i++) {
++		nos_mempool_put(&nos_user_track_pool, &nos_user_tracks[i]);
++	}
++
++	nos_flow_tracks = vmalloc(nos_flow_track_max * sizeof(struct nos_flow_track));
++	if(!nos_flow_tracks) {
++		printk("nos track flow pool nomem.\n");
++		goto __error;
++	}
++	nos_mempool_init(&nos_flow_track_pool, "nos_flow_track", nos_flow_track_max);
++	for (i = 0; i < nos_flow_track_max; i++) {
++		nos_mempool_put(&nos_flow_track_pool, &nos_flow_tracks[i]);
++	}
++
++	spin_lock_init(&nos_user_track_hash_lock);
++	nos_user_track_hash = vmalloc(nos_user_track_hash_size * sizeof(struct hlist_head));
++	if(!nos_user_track_hash) {
++		printk("nos uhash no mem.\n");
++		goto __error;
++	}
++	for (i = 0; i < nos_user_track_hash_size; i++) {
++		INIT_HLIST_HEAD(&nos_user_track_hash[i]);
++	}
++
++	printk("nos_track_init() OK [user size: %u, flow size: %u]\n",
++		sizeof(struct nos_user_info), sizeof(struct nos_flow_info));
++	printk("\t[user priv size: %lu, flow priv size: %lu]\n",
++		NOS_USER_DATA_SIZE, NOS_FLOW_DATA_SIZE);
++
++	return 0;
++
++__error:
++	if(nos_user_tracks)
++		vfree(nos_user_tracks);
++	if(nos_flow_tracks)
++		vfree(nos_flow_tracks);
++	if(nos_user_track_hash)
++		vfree(nos_user_track_hash);
++	return -ENOMEM;
++}
++EXPORT_SYMBOL(nos_track_init);
++
++/* kernel reserve memory */
++void __init ntrack_mem_reserve(void)
++{
++	int ret;
++
++	if (nt_shm_size == 0) {
++		nt_shm_base = 0;
++		return;
++	}
++	nt_shm_base = alloc_bootmem_align(nt_shm_size, PAGE_SIZE);
++	if (!nt_shm_base) {
++		pr_warn("nos reservation failed - mem in use %lx\n", (unsigned long)nt_shm_base);
++		return;
++	}
++	nt_shm_base = (void *)virt_to_phys(nt_shm_base);
++
++	nosmem_res.start = (unsigned long)nt_shm_base;
++	nosmem_res.end = (unsigned long)nosmem_res.start + (unsigned long)nt_shm_size - 1;
++	ret = insert_resource(&iomem_resource, &nosmem_res);
++	if (ret) {
++		pr_err("Resource %ldMB of mem at %ldMB for nos_track failed. %d\n",
++			((unsigned long)nt_shm_size >> 20),
++			((unsigned long)nt_shm_base >> 20), ret);
++	} else {
++		pr_info("Resource %ldMB of mem at %ldMB for nos_track.\n",
++			((unsigned long)nt_shm_size >> 20),
++			((unsigned long)nt_shm_base >> 20));
++	}
++}
++
++static int __init set_ntrack_mem_size(char *str)
++{
++	int ret;
++
++	if (*str++ != '=' || !*str) {
++		nt_shm_size_prv = NTRACK_BOOTM_SIZE;
++		nt_shm_size = (nt_shm_size_prv >> 1) + nt_shm_size_prv;
++		ret = 1;
++		goto __finished;
++	}
++
++	ret = kstrtouint(str, 0, &nt_shm_size_prv);
++	if(ret) {
++		nt_shm_size_prv = NTRACK_BOOTM_SIZE;
++		nt_shm_size = (nt_shm_size_prv >> 1) + nt_shm_size_prv;
++		ret = 1;
++		goto __finished;
++	}
++
++	if(nt_shm_size_prv > 0 && nt_shm_size_prv <= 64) {
++		nt_shm_size_prv = (nt_shm_size_prv<<20);
++		nt_shm_size = (nt_shm_size_prv >> 1) + nt_shm_size_prv;
++	} else {
++		nt_shm_size_prv = NTRACK_BOOTM_SIZE;
++		nt_shm_size = (nt_shm_size_prv >> 1) + nt_shm_size_prv;
++	}
++
++__finished:
++	printk("nos track setup reserve mem: %x\n", nt_shm_size);
++    return ret;
++}
++__setup("ntrack_mem", set_ntrack_mem_size);
+diff --git a/kernel/sysctl.c b/kernel/sysctl.c
+index 265e0d0..a20adac 100644
+--- a/kernel/sysctl.c
++++ b/kernel/sysctl.c
+@@ -280,6 +280,16 @@ static int min_extfrag_threshold;
+ static int max_extfrag_threshold = 1000;
+ #endif
+ 
++extern unsigned long nt_shm_base;
++extern uint32_t nt_shm_size;
++extern uint32_t nt_cap_block_sz;
++extern uint32_t nt_user_offset;
++extern uint32_t nt_flow_offset;
++extern uint32_t nt_stat_offset;
++extern uint32_t nt_stat_size;
++extern uint32_t nos_user_info_max, nos_flow_info_max;
++extern struct nos_track_stats nos_track_stats;
++
+ static struct ctl_table kern_table[] = {
+ 	{
+ 		.procname	= "sched_child_runs_first",
+@@ -288,6 +298,90 @@ static struct ctl_table kern_table[] = {
+ 		.mode		= 0644,
+ 		.proc_handler	= proc_dointvec,
+ 	},
++	{
++		.procname	= "nt_shm_base",
++		.data		= &nt_shm_base,
++		.maxlen		= sizeof(void*),
++		.mode		= 0444,
++		.proc_handler	= proc_doulongvec_minmax,
++	},
++	{
++		.procname	= "nt_shm_size",
++		.data		= &nt_shm_size,
++		.maxlen		= sizeof(unsigned int),
++		.mode		= 0444,
++		.proc_handler	= proc_dointvec,
++	},
++	{
++		.procname	= "nt_cap_block_sz",
++		.data		= &nt_cap_block_sz,
++		.maxlen		= sizeof(unsigned int),
++		.mode		= 0444,
++		.proc_handler	= proc_dointvec,
++	},
++	{
++		.procname	= "nt_user_offset",
++		.data		= &nt_user_offset,
++		.maxlen		= sizeof(unsigned int),
++		.mode		= 0444,
++		.proc_handler	= proc_dointvec,
++	},
++	{
++		.procname	= "nt_flow_offset",
++		.data		= &nt_flow_offset,
++		.maxlen		= sizeof(unsigned int),
++		.mode		= 0444,
++		.proc_handler	= proc_dointvec,
++	},
++	{
++		.procname	= "nt_stat_offset",
++		.data		= &nt_stat_offset,
++		.maxlen		= sizeof(unsigned int),
++		.mode		= 0444,
++		.proc_handler	= proc_dointvec,
++	},
++	{
++		.procname	= "nt_stat_size",
++		.data		= &nt_stat_size,
++		.maxlen		= sizeof(unsigned int),
++		.mode		= 0444,
++		.proc_handler	= proc_dointvec,
++	},
++	{
++		.procname	= "nt_flow_max",
++		.data		= &nos_flow_info_max,
++		.maxlen		= sizeof(unsigned int),
++		.mode		= 0444,
++		.proc_handler	= proc_dointvec,
++	},
++	{
++		.procname	= "nt_flow_alloc",
++		.data		= &nos_track_stats.nr_flow_alloc,
++		.maxlen		= sizeof(nos_track_stats.nr_flow_alloc),
++		.mode		= 0444,
++		.proc_handler	= proc_doulongvec_minmax,
++	},
++	{
++		.procname	= "nt_flow_free",
++		.data		= &nos_track_stats.nr_flow_free,
++		.maxlen		= sizeof(nos_track_stats.nr_flow_free),
++		.mode		= 0444,
++		.proc_handler	= proc_doulongvec_minmax,
++	},
++	{
++		.procname	= "nt_flow_drop",
++		.data		= &nos_track_stats.nr_flow_drop,
++		.maxlen		= sizeof(nos_track_stats.nr_flow_drop),
++		.mode		= 0444,
++		.proc_handler	= proc_doulongvec_minmax,
++	},
++	{
++		.procname	= "nt_user_max",
++		.data		= &nos_user_info_max,
++		.maxlen		= sizeof(unsigned int),
++		.mode		= 0444,
++		.proc_handler	= proc_dointvec,
++	},
+ #ifdef CONFIG_SCHED_DEBUG
+ 	{
+ 		.procname	= "sched_min_granularity_ns",
+diff --git a/net/core/skbuff.c b/net/core/skbuff.c
+index 7e7b7ce..1dc7212 100644
+--- a/net/core/skbuff.c
++++ b/net/core/skbuff.c
+@@ -869,6 +869,10 @@ static void __copy_skb_header(struct sk_buff *new, const struct sk_buff *old)
+ 	memcpy(&new->headers_start, &old->headers_start,
+ 	       offsetof(struct sk_buff, headers_end) -
+ 	       offsetof(struct sk_buff, headers_start));
++
++	/* ntrack reserved  */
++	memcpy(new->ntrack_priv, old->ntrack_priv, sizeof(old->ntrack_priv));
++
+ 	CHECK_SKB_FIELD(protocol);
+ 	CHECK_SKB_FIELD(csum);
+ 	CHECK_SKB_FIELD(hash);
+diff --git a/net/netfilter/nf_conntrack_core.c b/net/netfilter/nf_conntrack_core.c
+index 9b81c7c..aeab758 100644
+--- a/net/netfilter/nf_conntrack_core.c
++++ b/net/netfilter/nf_conntrack_core.c
+@@ -1094,6 +1094,9 @@ void nf_conntrack_free(struct nf_conn *ct)
+ {
+ 	struct net *net = nf_ct_net(ct);
+ 
++	/* nos node release */
++	nos_track_free(&ct->nos_track);
++
+ 	/* A freed object has refcnt == 0, that's
+ 	 * the golden rule for SLAB_DESTROY_BY_RCU
+ 	 */
+@@ -1828,6 +1831,11 @@ int nf_conntrack_init_start(void)
+ 
+ 	seqcount_init(&nf_conntrack_generation);
+ 
++	ret = nos_track_init();
++	if (ret < 0) {
++		printk("%s: nos track init failed. %d, ignore!!!\n", __FUNCTION__, ret);
++	}
++
+ 	for (i = 0; i < CONNTRACK_LOCKS; i++)
+ 		spin_lock_init(&nf_conntrack_locks[i]);
+ 

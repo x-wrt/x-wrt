@@ -765,3 +765,9 @@ config KERNEL_DEVKMEM
 	  Say Y here if you want to support the /dev/kmem device. The
 	  /dev/kmem device is rarely used, but can be used for certain
 	  kind of kernel debugging operations.
+
+config KERNEL_NTRACK_BOOTM_SIZE
+	int "(Mbytes) nos track system reserved bottom memory."
+	default 0
+	help
+	  how meny M bytes reserved for ntrack memap area.
