@@ -59,6 +59,7 @@ platform_check_image() {
 	ex3700|\
 	f7c027|\
 	firewrt|\
+	puppies|\
 	fonera20n|\
 	freestation5|\
 	gb-pc1|\

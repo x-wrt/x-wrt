@@ -85,6 +85,7 @@ ramips_setup_interfaces()
 	dlink,dwr-921-c1|\
 	ew1200|\
 	firewrt|\
+	puppies|\
 	hc5661a|\
 	hc5962|\
 	hlk-rm04|\
