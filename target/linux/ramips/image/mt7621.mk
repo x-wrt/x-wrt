@@ -188,6 +188,16 @@ define Device/nand
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
 endef
 
+define Build/tenbay-factory
+  mkdir -p "$@.tmp"
+  mv "$@" "$@.tmp/UploadBrush-bin.img"
+  $(MKHASH) md5 "$@.tmp/UploadBrush-bin.img" | head -c32 > "$@.tmp/check_MD5.txt"
+  $(TAR) -czf "$@.tmp.tgz" -C "$@.tmp" UploadBrush-bin.img check_MD5.txt
+  $(STAGING_DIR_HOST)/bin/openssl aes-256-cbc -e -salt -in "$@.tmp.tgz" -out "$@" -k QiLunSmartWL
+  printf %32s $(1) >> "$@"
+  rm -rf "$@.tmp" "$@.tmp.tgz"
+endef
+
 define Device/adslr_g7
   $(Device/dsa-migration)
   IMAGE_SIZE := 16064k
@@ -2734,6 +2744,30 @@ define Device/xiaoyu_xy-c5
 	-uboot-envtools
 endef
 TARGET_DEVICES += xiaoyu_xy-c5
+
+define Device/xwrt_nxc200p
+  $(Device/uimage-lzma-loader)
+  IMAGE_SIZE := 16064k
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := NXC200P
+  IMAGES += factory.bin
+  IMAGE/factory.bin := $$(IMAGE/sysupgrade.bin) | tenbay-factory AC7621
+  DEVICE_PACKAGES := uboot-envtools kmod-usb3 kmod-usb-ledtrig-usbport
+  SUPPORTED_DEVICES += nxc200p
+endef
+TARGET_DEVICES += xwrt_nxc200p
+
+define Device/xwrt_puppies
+  $(Device/uimage-lzma-loader)
+  IMAGE_SIZE := 16064k
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := PUPPIES
+  IMAGES += factory.bin
+  IMAGE/factory.bin := $$(IMAGE/sysupgrade.bin) | tenbay-factory AC7621
+  DEVICE_PACKAGES := uboot-envtools kmod-usb3 kmod-usb-ledtrig-usbport
+  SUPPORTED_DEVICES += puppies
+endef
+TARGET_DEVICES += xwrt_puppies
 
 define Device/xzwifi_creativebox-v1
   $(Device/dsa-migration)
