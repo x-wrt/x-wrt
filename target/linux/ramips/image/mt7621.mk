@@ -3677,6 +3677,30 @@ define Device/xiaoyu_xy-c5
 endef
 TARGET_DEVICES += xiaoyu_xy-c5
 
+define Device/xwrt_nxc200p
+  $(Device/uimage-lzma-loader)
+  IMAGE_SIZE := 16064k
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := NXC200P
+  IMAGES += factory.bin
+  IMAGE/factory.bin := $$(IMAGE/sysupgrade.bin) | tenbay-factory AC7621
+  DEVICE_PACKAGES := uboot-envtools kmod-usb3 kmod-usb-ledtrig-usbport
+  SUPPORTED_DEVICES += nxc200p
+endef
+TARGET_DEVICES += xwrt_nxc200p
+
+define Device/xwrt_puppies
+  $(Device/uimage-lzma-loader)
+  IMAGE_SIZE := 16064k
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := PUPPIES
+  IMAGES += factory.bin
+  IMAGE/factory.bin := $$(IMAGE/sysupgrade.bin) | tenbay-factory AC7621
+  DEVICE_PACKAGES := uboot-envtools kmod-usb3 kmod-usb-ledtrig-usbport
+  SUPPORTED_DEVICES += puppies
+endef
+TARGET_DEVICES += xwrt_puppies
+
 define Device/xzwifi_creativebox-v1
   $(Device/dsa-migration)
   IMAGE_SIZE := 32448k
