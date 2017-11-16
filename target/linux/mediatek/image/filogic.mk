@@ -57,6 +57,37 @@ define Build/simplefit
 	rm $@.tmp
 endef
 
+define Build/sysupgrade-initramfs-tar
+	test -s "$@"
+	mv "$@" "$@.kernel"
+	touch "$@.rootfs"
+	sh $(TOPDIR)/scripts/sysupgrade-tar.sh \
+		--board $(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME)) \
+		--kernel "$@.kernel" \
+		--rootfs "$@.rootfs" \
+		$@
+	rm -f "$@.kernel" "$@.rootfs"
+endef
+
+define Build/tenbay-factory
+  $(eval model=$(word 1,$(1)))
+  $(eval magic=$(word 2,$(1)))
+  { \
+    mkdir -p "$@.tmp" && \
+    mv "$@" "$@.tmp/UploadBrush-bin.img" && \
+    binmd5=$$($(MKHASH) md5 "$@.tmp/UploadBrush-bin.img") && \
+    oemmd5=$$(printf '%s' '$(magic)$(model)' | $(MKHASH) md5) && \
+    authmd5=$$(printf '%s' "$${binmd5}$${oemmd5}" | $(MKHASH) md5) && \
+    printf '%s' "$$binmd5" >"$@.tmp/check_MD5.txt" && \
+    printf '%s' "$$authmd5" >"$@.tmp/bin_random_oem.txt" && \
+    printf '%s' V9.9-222222222222 >"$@.tmp/version.txt" && \
+    $(TAR) -czf "$@.tmp.tgz" -C "$@.tmp" UploadBrush-bin.img check_MD5.txt bin_random_oem.txt version.txt && \
+    $(STAGING_DIR_HOST)/bin/openssl aes-256-cbc -e -salt -in "$@.tmp.tgz" -out "$@" -k QiLunSmartWL && \
+    printf %32s '$(model)' >>"$@" && \
+    rm -rf "$@.tmp" "$@.tmp.tgz"; \
+  } || { rm -f "$@"; exit 1; }
+endef
+
 define Build/mt798x-gpt
 	cp $@ $@.tmp 2>/dev/null || true
 	ptgen -g -o $@.tmp -a 1 -l 1024 \
