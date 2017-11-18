@@ -50,7 +50,8 @@ platform_do_upgrade() {
 	netgear,r6350|\
 	netgear,r6850|\
 	xiaomi,mir3g|\
-	xiaomi,mir3p)
+	xiaomi,mir3p|\
+	xiaomi,miwifi-r3)
 		nand_do_upgrade "$1"
 		;;
 	ubiquiti,edgerouterx|\
