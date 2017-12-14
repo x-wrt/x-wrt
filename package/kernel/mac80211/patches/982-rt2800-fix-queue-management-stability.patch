@@ -1,0 +1,130 @@
+From bb0351087bb7f7a829f88f7479d787ddc6ba0a63 Mon Sep 17 00:00:00 2001
+From: Daniel Golle <daniel@makrotopia.org>
+Date: Wed, 11 Oct 2017 13:49:57 +0200
+Subject: [PATCH] rt2800: fix queue management stability
+
+Fix instability of Ralink WiFi general queue management on high load.
+Addresses 'Dropping frame due to full tx queue' problem which causes
+wifi getting stuck.
+Patch originally written by Nick Leiten.
+
+Signed-off-by: Daniel Golle <daniel@makrotopia.org>
+---
+ drivers/net/wireless/ralink/rt2x00/rt2800mmio.c  |  4 +--
+ drivers/net/wireless/ralink/rt2x00/rt2x00mac.c   | 21 ++++++++++++++++
+ drivers/net/wireless/ralink/rt2x00/rt2x00queue.c | 32 +++++++++++++++++++++---
+ 3 files changed, 51 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/net/wireless/ralink/rt2x00/rt2800mmio.c b/drivers/net/wireless/ralink/rt2x00/rt2800mmio.c
+index 1123e2bed803..18b85bbdc990 100644
+--- a/drivers/net/wireless/ralink/rt2x00/rt2800mmio.c
++++ b/drivers/net/wireless/ralink/rt2x00/rt2800mmio.c
+@@ -661,7 +661,7 @@ void rt2800mmio_queue_init(struct data_queue *queue)
+ 
+ 	switch (queue->qid) {
+ 	case QID_RX:
+-		queue->limit = 128;
++		queue->limit = 256;
+ 		queue->data_size = AGGREGATION_SIZE;
+ 		queue->desc_size = RXD_DESC_SIZE;
+ 		queue->winfo_size = rxwi_size;
+@@ -672,7 +672,7 @@ void rt2800mmio_queue_init(struct data_queue *queue)
+ 	case QID_AC_VI:
+ 	case QID_AC_BE:
+ 	case QID_AC_BK:
+-		queue->limit = 64;
++		queue->limit = 256;
+ 		queue->data_size = AGGREGATION_SIZE;
+ 		queue->desc_size = TXD_DESC_SIZE;
+ 		queue->winfo_size = txwi_size;
+diff --git a/drivers/net/wireless/ralink/rt2x00/rt2x00mac.c b/drivers/net/wireless/ralink/rt2x00/rt2x00mac.c
+index ecc96312a370..48c6bb7677aa 100644
+--- a/drivers/net/wireless/ralink/rt2x00/rt2x00mac.c
++++ b/drivers/net/wireless/ralink/rt2x00/rt2x00mac.c
+@@ -26,6 +26,7 @@
+ 
+ #include "rt2x00.h"
+ #include "rt2x00lib.h"
++#include "rt2x00queue.h"
+ 
+ static int rt2x00mac_tx_rts_cts(struct rt2x00_dev *rt2x00dev,
+ 				struct data_queue *queue,
+@@ -115,6 +116,26 @@ void rt2x00mac_tx(struct ieee80211_hw *hw,
+ 	if (!test_bit(DEVICE_STATE_PRESENT, &rt2x00dev->flags))
+ 		goto exit_free_skb;
+ 
++	/* Dirty hack for Queue overrun protection,
++	 * if AC_VO/AC_VI/AC_BE is full, use next queue.
++	 * if AC_BK is full use previous queue.
++	 */
++	if (qid < 4) {
++		queue = rt2x00queue_get_tx_queue(rt2x00dev, qid);
++		if (unlikely(rt2x00queue_full(queue))) {
++			switch (qid) {
++			case 0: /* QID_AC_VO */
++			case 1: /* QID_AC_VI */
++			case 2: /* QID_AC_BE */
++				qid++;
++				break;
++			case 3: /* QID_AC_BK */
++				qid--;
++				break;
++			}
++		}
++	}
++
+ 	/*
+ 	 * Use the ATIM queue if appropriate and present.
+ 	 */
+diff --git a/drivers/net/wireless/ralink/rt2x00/rt2x00queue.c b/drivers/net/wireless/ralink/rt2x00/rt2x00queue.c
+index a2c1ca5c76d1..ef09ae6bc9a2 100644
+--- a/drivers/net/wireless/ralink/rt2x00/rt2x00queue.c
++++ b/drivers/net/wireless/ralink/rt2x00/rt2x00queue.c
+@@ -1211,16 +1211,40 @@ void rt2x00queue_uninitialize(struct rt2x00_dev *rt2x00dev)
+ static void rt2x00queue_init(struct rt2x00_dev *rt2x00dev,
+ 			     struct data_queue *queue, enum data_queue_qid qid)
+ {
++	/* Use default values for each queue type */
++	unsigned short cwmin = 5, cwmax = 10, aifs = 2, txop = 0;
++
++	switch (qid) {
++	case QID_AC_VO:
++		cwmin = 2;
++		cwmax = 3;
++		txop = 47;
++		break;
++	case QID_AC_VI:
++		cwmin = 3;
++		cwmax = 4;
++		txop = 94;
++		break;
++	case QID_AC_BE:
++		cwmin = 4;
++		aifs = 3;
++		break;
++	case QID_AC_BK:
++		cwmin = 4;
++		aifs = 7;
++		break;
++	}
++
+ 	mutex_init(&queue->status_lock);
+ 	spin_lock_init(&queue->tx_lock);
+ 	spin_lock_init(&queue->index_lock);
+ 
+ 	queue->rt2x00dev = rt2x00dev;
+ 	queue->qid = qid;
+-	queue->txop = 0;
+-	queue->aifs = 2;
+-	queue->cw_min = 5;
+-	queue->cw_max = 10;
++	queue->txop = txop;
++	queue->aifs = aifs;
++	queue->cw_min = cwmin;
++	queue->cw_max = cwmax;
+ 
+ 	rt2x00dev->ops->queue_init(queue);
+ 
+-- 
+2.14.2
+
