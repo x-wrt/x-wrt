@@ -478,6 +478,7 @@ ramips_setup_macs()
 		;;
 	mir3g)
 		lan_mac=$(mtd_get_mac_binary Factory 0xe006)
+		wan_mac=$(macaddr_setbit_la "$lan_mac")
 		;;
 	xiaomi,miwifi-r3|\
 	miwifi-mini)
