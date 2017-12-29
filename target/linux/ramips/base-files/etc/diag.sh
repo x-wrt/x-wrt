@@ -164,6 +164,7 @@ get_status_led() {
 	m3|\
 	mir3g|\
 	xiaomi,miwifi-r3|\
+	miwifi-mini|\
 	miwifi-nano)
 		status_led="$boardname:blue:status"
 		;;
@@ -207,7 +208,6 @@ get_status_led() {
 	m4-8M)
 		status_led="m4:blue:status"
 		;;
-	miwifi-mini|\
 	zte-q7)
 		status_led="$boardname:red:status"
 		;;
