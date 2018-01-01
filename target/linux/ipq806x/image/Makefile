@@ -5,6 +5,10 @@ include $(INCLUDE_DIR)/image.mk
 
 UBIFS_OPTS = -m 2048 -e 124KiB -c 4096 -U -F
 
+define Build/copy-file
+	cat "$(1)" > "$@"
+endef
+
 define Image/Prepare
 	$(CP) $(LINUX_DIR)/vmlinux $(KDIR)/vmlinux-unstripped.elf
 endef
@@ -244,6 +248,24 @@ define Device/NBG6817
 	$(call Device/ZyXELImage)
 endef
 TARGET_DEVICES += NBG6817
+
+define Device/RT-ACRH17
+	$(call Device/FitImageLzma)
+	DEVICE_DTS := qcom-ipq4019-rt-acrh17
+	BLOCKSIZE := 128k
+	PAGESIZE := 2048
+	DTB_SIZE := 65536
+	BOARD_NAME := rt-acrh17
+	KERNEL_LOADADDR := 0x80208000
+	DEVICE_TITLE := Asus RT-ACRH17
+	FILESYSTEMS := squashfs
+	UIMAGE_NAME:=$(shell echo -e '\03\01\01\01RT-AC82U')
+	IMAGES = sysupgrade.tar flash-factory.trx
+	IMAGE/flash-factory.trx := copy-file $(KDIR)/tmp/$$(KERNEL_INITRAMFS_IMAGE) | uImage none
+	IMAGE/sysupgrade.tar := sysupgrade-tar | append-metadata
+	DEVICE_PACKAGES := kmod-usb-phy-qcom-ipq4019 ath10k-firmware-qca4019 ath10k-firmware-qca9984
+endef
+TARGET_DEVICES += RT-ACRH17
 
 define Device/VR2600v
 	PROFILES += $$(DEVICE_NAME)
