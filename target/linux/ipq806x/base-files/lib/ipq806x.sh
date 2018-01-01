@@ -62,3 +62,15 @@ ipq806x_board_detect() {
 	echo "$IPQ806X_BOARD_NAME" > /tmp/sysinfo/board_name
 	echo "$IPQ806X_MODEL" > /tmp/sysinfo/model
 }
+
+ipq40xx_get_dt_mac() {
+	local mac
+	local ethpath
+	local basepath="/sys/firmware/devicetree/base"
+	local nodepath="$basepath/aliases/ethernet$1"
+
+	[ -f "$nodepath" ] && ethpath=$(cat "$nodepath")
+	[ -n "$ethpath" ] && mac=$(cat "$basepath$ethpath/local-mac-address")
+
+	echo "$mac" | hexdump -v -n 6 -e '5/1 "%02x:" 1/1 "%02x"' $part 2>/dev/null
+}
