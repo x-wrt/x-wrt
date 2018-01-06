@@ -132,7 +132,7 @@ define Device/checkpoint_l-50
   DEVICE_VENDOR := Check Point
   DEVICE_MODEL := L-50
   DEVICE_PACKAGES := kmod-ath9k kmod-gpio-button-hotplug kmod-mvsdio \
-	kmod-rtc-s35390a kmod-usb-ledtrig-usbport wpad-basic-mbedtls \
+	kmod-rtc-s35390a kmod-usb-ledtrig-usbport \
 	kmod-dsa-mv88e6xxx
   IMAGES := sysupgrade.bin
 endef
@@ -286,7 +286,7 @@ TARGET_DEVICES += iptime_nas1
 define Device/linksys
   $(Device/kernel-size-migration-linksys)
   DEVICE_VENDOR := Linksys
-  DEVICE_PACKAGES := kmod-mwl8k wpad-basic-mbedtls kmod-gpio-button-hotplug \
+  DEVICE_PACKAGES := kmod-mwl8k kmod-gpio-button-hotplug \
 	kmod-rtc-mv kmod-dsa-mv88e6xxx
   KERNEL_IN_UBI :=
   KERNEL_SIZE := 4096k
