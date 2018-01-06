@@ -92,7 +92,7 @@ TARGET_DEVICES += cubietech_cubietruck
 define Device/lamobo_lamobo-r1
   DEVICE_VENDOR := Lamobo
   DEVICE_MODEL := Lamobo R1
-  DEVICE_PACKAGES:=kmod-ata-sunxi kmod-rtl8192cu swconfig wpad-basic
+  DEVICE_PACKAGES:=kmod-ata-sunxi kmod-rtl8192cu swconfig
   SOC := sun7i-a20
 endef
 
@@ -133,7 +133,7 @@ define Device/sinovoip_bananapi-m2-plus
   DEVICE_MODEL := Banana Pi M2+
   DEVICE_PACKAGES:=kmod-rtc-sunxi \
 	kmod-leds-gpio kmod-ledtrig-heartbeat \
-	kmod-brcmfmac brcmfmac-firmware-43430a0-sdio wpad-basic
+	kmod-brcmfmac brcmfmac-firmware-43430a0-sdio
   SOC := sun8i-h3
 endef
 
@@ -144,7 +144,7 @@ define Device/friendlyarm_nanopi-m1-plus
   DEVICE_MODEL := NanoPi M1 Plus
   DEVICE_PACKAGES:=kmod-rtc-sunxi \
 	kmod-leds-gpio kmod-ledtrig-heartbeat \
-	kmod-brcmfmac brcmfmac-firmware-43430-sdio wpad-basic
+	kmod-brcmfmac brcmfmac-firmware-43430-sdio
   SOC := sun8i-h3
 endef
 
@@ -165,7 +165,7 @@ define Device/friendlyarm_nanopi-neo-air
   DEVICE_MODEL := NanoPi NEO Air
   DEVICE_PACKAGES := kmod-rtc-sunxi \
         kmod-leds-gpio kmod-ledtrig-heartbeat \
-        kmod-brcmfmac brcmfmac-firmware-43430-sdio wpad-basic
+        kmod-brcmfmac brcmfmac-firmware-43430-sdio
   SOC := sun8i-h3
 endef
 
