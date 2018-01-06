@@ -28,7 +28,7 @@ define Device/friendlyarm_nanopi-m1-plus
   DEVICE_VENDOR := FriendlyARM
   DEVICE_MODEL := NanoPi M1 Plus
   DEVICE_PACKAGES:=kmod-leds-gpio kmod-brcmfmac \
-	cypress-firmware-43430-sdio wpad-basic-mbedtls
+	cypress-firmware-43430-sdio
   SOC := sun8i-h3
 endef
 TARGET_DEVICES += friendlyarm_nanopi-m1-plus
@@ -46,7 +46,7 @@ define Device/friendlyarm_nanopi-neo-air
   DEVICE_VENDOR := FriendlyARM
   DEVICE_MODEL := NanoPi NEO Air
   DEVICE_PACKAGES := kmod-leds-gpio kmod-brcmfmac \
-	brcmfmac-firmware-43430a0-sdio wpad-basic-mbedtls
+	brcmfmac-firmware-43430a0-sdio
   SOC := sun8i-h3
 endef
 TARGET_DEVICES += friendlyarm_nanopi-neo-air
@@ -56,7 +56,7 @@ define Device/friendlyarm_nanopi-r1
   DEVICE_VENDOR := FriendlyARM
   DEVICE_MODEL := NanoPi R1
   DEVICE_PACKAGES := kmod-usb-net-rtl8152 kmod-leds-gpio \
-	kmod-brcmfmac cypress-firmware-43430-sdio wpad-basic-mbedtls
+	kmod-brcmfmac cypress-firmware-43430-sdio
   SOC := sun8i-h3
 endef
 TARGET_DEVICES += friendlyarm_nanopi-r1
@@ -76,7 +76,7 @@ define Device/lamobo_lamobo-r1
   DEVICE_MODEL := Lamobo R1
   DEVICE_ALT0_VENDOR := Bananapi
   DEVICE_ALT0_MODEL := BPi-R1
-  DEVICE_PACKAGES := kmod-ata-sunxi kmod-rtl8192cu wpad-basic-mbedtls
+  DEVICE_PACKAGES := kmod-ata-sunxi kmod-rtl8192cu
   DEVICE_COMPAT_VERSION := 1.1
   DEVICE_COMPAT_MESSAGE := Config cannot be migrated from swconfig to DSA
   SOC := sun7i-a20
@@ -97,7 +97,7 @@ define Device/sinovoip_bananapi-m2-berry
   DEVICE_VENDOR := Sinovoip
   DEVICE_MODEL := Banana Pi M2 Berry
   DEVICE_PACKAGES:=kmod-ata-sunxi kmod-brcmfmac \
-	cypress-firmware-43430-sdio wpad-basic-mbedtls
+	cypress-firmware-43430-sdio
   SUPPORTED_DEVICES:=lemaker,bananapi-m2-berry
   SOC := sun8i-v40
 endef
@@ -108,7 +108,7 @@ define Device/sinovoip_bananapi-m2-ultra
   DEVICE_VENDOR := Sinovoip
   DEVICE_MODEL := Banana Pi M2 Ultra
   DEVICE_PACKAGES:=kmod-ata-sunxi kmod-brcmfmac \
-	brcmfmac-firmware-43430a0-sdio wpad-basic-mbedtls
+	brcmfmac-firmware-43430a0-sdio
   SUPPORTED_DEVICES:=lemaker,bananapi-m2-ultra
   SOC := sun8i-r40
 endef
@@ -222,7 +222,7 @@ define Device/sinovoip_bananapi-m2-plus
   DEVICE_VENDOR := Sinovoip
   DEVICE_MODEL := Banana Pi M2+
   DEVICE_PACKAGES:=kmod-leds-gpio kmod-brcmfmac \
-	brcmfmac-firmware-43430a0-sdio wpad-basic-mbedtls
+	brcmfmac-firmware-43430a0-sdio
   SOC := sun8i-h3
 endef
 TARGET_DEVICES += sinovoip_bananapi-m2-plus
