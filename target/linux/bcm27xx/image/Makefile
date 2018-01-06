@@ -67,7 +67,7 @@ endef
 ### Shared device package groups ###
 WIFI_43430_FW := cypress-firmware-43430-sdio brcmfmac-nvram-43430-sdio
 WIFI_43455_FW := cypress-firmware-43455-sdio brcmfmac-nvram-43455-sdio
-BRCM_WIFI_DRIVER := kmod-brcmfmac wpad-basic-mbedtls
+BRCM_WIFI_DRIVER := kmod-brcmfmac
 LAN_DRIVERS := kmod-usb-net-lan78xx kmod-usb-net-rtl8152 kmod-r8169
 
 ### Devices ###
