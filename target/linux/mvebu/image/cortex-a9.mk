@@ -10,7 +10,7 @@ ifeq ($(SUBTARGET),cortexa9)
 
 define Device/linksys
   DEVICE_TITLE := Linksys $(1)
-  DEVICE_PACKAGES := kmod-mwlwifi wpad-mini swconfig
+  DEVICE_PACKAGES := kmod-mwlwifi swconfig
 endef
 
 define Device/armada-385-linksys
@@ -152,7 +152,7 @@ define Device/turris-omnia
   DEVICE_TITLE := Turris Omnia
   DEVICE_PACKAGES :=  \
     mkf2fs e2fsprogs kmod-fs-vfat kmod-nls-cp437 kmod-nls-iso8859-1 \
-    wpad-mini kmod-ath9k kmod-ath10k ath10k-firmware-qca988x
+    kmod-ath9k kmod-ath10k ath10k-firmware-qca988x
   IMAGES := $$(IMAGE_PREFIX)-sysupgrade.img.gz omnia-medkit-$$(IMAGE_PREFIX)-initramfs.tar.gz
   IMAGE/$$(IMAGE_PREFIX)-sysupgrade.img.gz := boot-img | sdcard-img | gzip | append-metadata
   IMAGE/omnia-medkit-$$(IMAGE_PREFIX)-initramfs.tar.gz := omnia-medkit-initramfs | gzip
