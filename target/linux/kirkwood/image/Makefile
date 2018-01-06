@@ -56,7 +56,7 @@ TARGET_DEVICES += goflexhome
 
 define Device/linksys-audi
   DEVICE_TITLE := Linksys EA3500 (Audi)
-  DEVICE_PACKAGES := kmod-mwl8k swconfig wpad-mini
+  DEVICE_PACKAGES := kmod-mwl8k swconfig
   DEVICE_DTS := kirkwood-linksys-audi
   KERNEL_SIZE := 2624k
   FILESYSTEMS := squashfs
@@ -68,7 +68,7 @@ TARGET_DEVICES += linksys-audi
 
 define Device/linksys-viper
   DEVICE_TITLE := Linksys E4200v2 / EA4500 (Viper)
-  DEVICE_PACKAGES := kmod-mwl8k swconfig wpad-mini
+  DEVICE_PACKAGES := kmod-mwl8k swconfig
   DEVICE_DTS := kirkwood-linksys-viper
   KERNEL_SIZE := 2688k
   FILESYSTEMS := squashfs

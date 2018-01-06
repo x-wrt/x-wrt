@@ -92,7 +92,7 @@ endef
 
 define Device/linksys
   DEVICE_TITLE := Linksys $(1)
-  DEVICE_PACKAGES := kmod-mwlwifi wpad-mini swconfig
+  DEVICE_PACKAGES := kmod-mwlwifi swconfig
 endef
 
 define Device/armada-385-linksys
