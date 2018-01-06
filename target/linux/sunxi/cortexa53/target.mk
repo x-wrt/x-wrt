@@ -9,3 +9,5 @@ BOARDNAME:=Allwinner A64/H5/H6/H616
 CPU_TYPE:=cortex-a53
 KERNELNAME:=Image dtbs
 FEATURES+=fpu
+
+DEFAULT_PACKAGES += wpad-basic-mbedtls
