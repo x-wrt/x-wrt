@@ -322,7 +322,7 @@ ar71xx_setup_interfaces()
 	rb-941-2nd)
 		ucidef_add_switch "switch0" \
 			"0@eth0" "1:lan:4" "2:lan:3" "3:lan:2" "4:wan:1"
-	;;
+		;;
 	db120|\
 	rb-2011il|\
 	rb-2011l|\
@@ -350,6 +350,7 @@ ar71xx_setup_interfaces()
 	omy-g1|\
 	r6100|\
 	smart-300|\
+	tl-wdx6501-v7|\
 	tl-wdr6500-v2|\
 	tl-wr940n-v4|\
 	tl-wr940n-v6|\
