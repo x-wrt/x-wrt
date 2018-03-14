@@ -53,9 +53,6 @@
 
 		ess-switch@c000000 {
 			status = "okay";
-
-			switch_lan_bmp = <0x10>;
-			switch_wan_bmp = <0x20>;
 		};
 
 		edma@c080000 {
