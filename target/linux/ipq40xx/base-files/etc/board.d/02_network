@@ -25,6 +25,7 @@ ipq40xx_setup_interfaces()
 		ucidef_add_switch "switch0" \
 			"0t@eth0" "5:lan" "4:wan"
 		;;
+	asus,rt-acrh17|\
 	asus,rt-ac58u|\
 	avm,fritzbox-4040|\
 	linksys,ea6350v3|\
@@ -79,6 +80,7 @@ ipq40xx_setup_macs()
 	local label_mac=""
 
 	case "$board" in
+	asus,rt-acrh17|\
 	asus,rt-ac58u)
 		lan_mac=$(cat /sys/class/net/eth0/address)
 		wan_mac=$(macaddr_add "$lan_mac" 1)
