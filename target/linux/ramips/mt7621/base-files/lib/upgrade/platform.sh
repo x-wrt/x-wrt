@@ -145,14 +145,9 @@ platform_do_upgrade() {
 	sim,simax1800u|\
 	tplink,ec330-g5u-v1|\
 	wifire,s1500-nbn|\
-	xiaomi,mi-router-3g|\
-	xiaomi,mi-router-3-pro|\
-	xiaomi,mi-router-4|\
-	xiaomi,mi-router-ac2100|\
 	xiaomi,mi-router-cr6606|\
 	xiaomi,mi-router-cr6608|\
 	xiaomi,mi-router-cr6609|\
-	xiaomi,redmi-router-ac2100|\
 	z-router,zr-2660|\
 	zyxel,nwa50ax|\
 	zyxel,nwa55axe)
@@ -170,6 +165,16 @@ platform_do_upgrade() {
 		[ "$(fw_printenv -n bootmenu_delay)" != "0" ] || \
 			fw_setenv bootmenu_delay 3
 		iodata_mstc_set_flag "bootnum" "persist" "0x4" "1,2" "1"
+		;;
+	xiaomi,mi-router-3g|\
+	xiaomi,mi-router-3-pro|\
+	xiaomi,mi-router-4|\
+	xiaomi,mi-router-ac2100|\
+	xiaomi,redmi-router-ac2100)
+		# this make it compatible with breed
+		dd if=/dev/mtd0 bs=64 count=1 2>/dev/null | grep -qi breed && CI_KERNPART_EXT="kernel_stock"
+		dd if=/dev/mtd7 bs=64 count=1 2>/dev/null | grep -o MIPS.*Linux | grep -qi X-WRT && CI_KERNPART_EXT="kernel_stock"
+		dd if=/dev/mtd7 bs=64 count=1 2>/dev/null | grep -o MIPS.*Linux | grep -qi NATCAP && CI_KERNPART_EXT="kernel0_rsvd"
 		nand_do_upgrade "$1"
 		;;
 	iodata,wn-ax1167gr2|\
