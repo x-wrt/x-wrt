@@ -5,6 +5,7 @@
 
 # 'kernel' partition or UBI volume on NAND contains the kernel
 CI_KERNPART="${CI_KERNPART:-kernel}"
+CI_KERNPART_EXT="${CI_KERNPART_EXT}"
 
 # 'ubi' partition on NAND contains UBI
 # There are also CI_KERN_UBIPART and CI_ROOT_UBIPART if kernel
@@ -317,11 +318,12 @@ nand_upgrade_tar() {
 	local board_dir="$($cmd < "$tar_file" | tar tf - | grep -m 1 '^sysupgrade-.*/$')"
 	board_dir="${board_dir%/}"
 
-	local kernel_mtd kernel_length
+	local kernel_mtd kernel_mtd_ext kernel_length
 	if [ "$CI_KERNPART" != "none" ]; then
 		kernel_mtd="$(find_mtd_index "$CI_KERNPART")"
 		kernel_length=$( ($cmd < "$tar_file" | tar xOf - "$board_dir/kernel" | wc -c) 2> /dev/null)
 		[ "$kernel_length" = 0 ] && kernel_length=
+		test -n "$CI_KERNPART_EXT" && kernel_mtd_ext="$(find_mtd_index "$CI_KERNPART_EXT")"
 	fi
 	local rootfs_length=$( ($cmd < "$tar_file" | tar xOf - "$board_dir/root" | wc -c) 2> /dev/null)
 	[ "$rootfs_length" = 0 ] && rootfs_length=
@@ -336,6 +338,9 @@ nand_upgrade_tar() {
 			# Hence only invalidate kernel for now.
 			dd if=/dev/zero bs=4096 count=1 2> /dev/null | \
 				mtd write - "$CI_KERNPART"
+			test -n "$CI_KERNPART_EXT" && \
+			dd if=/dev/zero bs=4096 count=1 2> /dev/null | \
+				mtd write - "$CI_KERNPART_EXT"
 		else
 			ubi_kernel_length="$kernel_length"
 		fi
@@ -356,9 +361,15 @@ nand_upgrade_tar() {
 				flash_erase -j "/dev/mtd${kernel_mtd}" 0 0
 				$cmd < "$tar_file" | tar xOf - "$board_dir/kernel" | \
 					nandwrite "/dev/mtd${kernel_mtd}" -
+				test -n "$CI_KERNPART_EXT" && \
+				tar xO${gz}f "$tar_file" "$board_dir/kernel" | \
+					nandwrite "/dev/mtd${kernel_mtd_ext}" -
 			else
 				$cmd < "$tar_file" | tar xOf - "$board_dir/kernel" | \
 					mtd write - "$CI_KERNPART"
+				test -n "$CI_KERNPART_EXT" && \
+				tar xO${gz}f "$tar_file" "$board_dir/kernel" | \
+					mtd write - "$CI_KERNPART_EXT"
 			fi
 		else
 			local ubidev="$( nand_find_ubi "${CI_KERN_UBIPART:-$CI_UBIPART}" )"
