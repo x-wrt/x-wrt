@@ -48,10 +48,16 @@ platform_do_upgrade() {
 	netgear,r6220|\
 	netgear,r6260|\
 	netgear,r6350|\
-	netgear,r6850|\
+	netgear,r6850)
+		nand_do_upgrade "$1"
+		;;
 	xiaomi,mir3g|\
 	xiaomi,mir3p|\
 	xiaomi,miwifi-r3)
+		# this make it compatible with breed
+		dd if=/dev/mtd0 bs=64 count=1 2>/dev/null | grep -qi breed && CI_KERNPART_EXT="kernel_stock"
+		dd if=/dev/mtd7 bs=64 count=1 2>/dev/null | grep -o MIPS.*Linux | grep -qi X-WRT && CI_KERNPART_EXT="kernel_stock"
+		dd if=/dev/mtd7 bs=64 count=1 2>/dev/null | grep -o MIPS.*Linux | grep -qi NATCAP && CI_KERNPART_EXT="kernel0_rsvd"
 		nand_do_upgrade "$1"
 		;;
 	ubiquiti,edgerouterx|\
