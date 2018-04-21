@@ -1,0 +1,52 @@
+#!/bin/sh
+# Copyright (C) 2018 Chen Minqiang <ptpt52@gmail.com>
+
+LKDIR=/tmp/switch_ports_status
+STATE=$LKDIR/state
+RUNNING=$LKDIR/lock_$$
+
+switch_ports_watch()
+{
+	echo >$STATE
+	while :; do
+		idx=0
+		rm -f $STATE.new
+		while uci get network.@switch_vlan[$idx] >/dev/null 2>&1; do
+			sw=`uci get network.@switch_vlan[$idx].device`
+			vlan=`uci get network.@switch_vlan[$idx].vlan`
+			ports=`uci get network.@switch_vlan[$idx].ports | grep -o "[0-9]*"`
+			status=`(for p in $ports; do
+				swconfig dev $sw port $p show | grep link
+			done) | md5sum | head -c32`
+			ifi=${sw##switch}
+			iface=eth$ifi.$vlan
+			status=[$iface]$status
+			echo $status >>$STATE.new
+			test -n "$DEBUG" && echo $status
+			oldstatus=`cat $STATE | grep "^\[$iface\]" 2>/dev/null`
+			if test -n "$oldstatus" && [ "x$status" != "x$oldstatus" ]; then
+				echo $iface link status changed
+				ifconfig $iface down && ifconfig $iface up
+			fi
+			idx=$((idx+1))
+		done
+		mv $STATE.new $STATE 2>/dev/null
+		test -f $RUNNING || break
+		sleep 2
+	done
+}
+
+mkdir -p $LKDIR
+[ x$1 = xstart ] && {
+	rm -f $LKDIR/lock_*
+	touch $RUNNING
+	switch_ports_watch
+	exit 0
+}
+
+[ x$1 = xstop ] && {
+	rm -rf $LKDIR
+	exit 0
+}
+
+DEBUG=1 switch_ports_watch
