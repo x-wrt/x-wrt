@@ -146,6 +146,7 @@ ifneq ($(CONFIG_GRUB_IMAGES)$(CONFIG_EFI_IMAGES),)
 		-d "$(KDIR)/grub2" \
 		-r "hd0,gpt1" \
 		"$(BIN_DIR)/$(IMG_UEFI_GPT)-$(1).img"
+	md5sum "$(BIN_DIR)/$(IMG_UEFI_GPT)-$(1).img" | head -c32 >>"$(BIN_DIR)/$(IMG_UEFI_GPT)-$(1).img"
   endef
   endif
 
@@ -181,6 +182,7 @@ ifneq ($(CONFIG_GRUB_IMAGES)$(CONFIG_EFI_IMAGES),)
 		-d "$(KDIR)/grub2" \
 		-r "hd0,msdos1" \
 		"$(BIN_DIR)/$(IMG_COMBINED)-$(1).img"
+	md5sum "$(BIN_DIR)/$(IMG_COMBINED)-$(1).img" | head -c32 >>"$(BIN_DIR)/$(IMG_COMBINED)-$(1).img"
   endef
   endif
 
