@@ -1,0 +1,45 @@
+From c0972bd995cbafa87c70db6fbf6b09d409b0eb64 Mon Sep 17 00:00:00 2001
+From: Chen Minqiang <ptpt52@gmail.com>
+Date: Thu, 7 Nov 2019 22:36:22 +0800
+Subject: [PATCH 3/3] mt76: fix possible out-of-buond access
+
+---
+ mt7603/mac.c | 4 +++-
+ mt7615/mac.c | 4 +++-
+ 2 files changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/mt7603/mac.c b/mt7603/mac.c
+index 0a03aeb..67ef7b6 100644
+--- a/mt7603/mac.c
++++ b/mt7603/mac.c
+@@ -1136,8 +1136,10 @@ mt7603_fill_txs(struct mt7603_dev *dev, struct mt7603_sta *sta,
+ 		if (idx && (cur_rate->idx != info->status.rates[i].idx ||
+ 			    cur_rate->flags != info->status.rates[i].flags)) {
+ 			i++;
+-			if (i == ARRAY_SIZE(info->status.rates))
++			if (i == ARRAY_SIZE(info->status.rates)) {
++				i--;
+ 				break;
++			}
+ 
+ 			info->status.rates[i] = *cur_rate;
+ 			info->status.rates[i].count = 0;
+diff --git a/mt7615/mac.c b/mt7615/mac.c
+index 2b810ba..c77adc5 100644
+--- a/mt7615/mac.c
++++ b/mt7615/mac.c
+@@ -1039,8 +1039,10 @@ static bool mt7615_fill_txs(struct mt7615_dev *dev, struct mt7615_sta *sta,
+ 		if (idx && (cur_rate->idx != info->status.rates[i].idx ||
+ 			    cur_rate->flags != info->status.rates[i].flags)) {
+ 			i++;
+-			if (i == ARRAY_SIZE(info->status.rates))
++			if (i == ARRAY_SIZE(info->status.rates)) {
++				i--;
+ 				break;
++			}
+ 
+ 			info->status.rates[i] = *cur_rate;
+ 			info->status.rates[i].count = 0;
+-- 
+2.17.1
+

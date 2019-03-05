@@ -1,0 +1,33 @@
+From 13e9f7fc8f7a9f6fc20af04cb34a1ec1e2db9f8c Mon Sep 17 00:00:00 2001
+From: Chen Minqiang <ptpt52@gmail.com>
+Date: Tue, 29 Oct 2019 07:55:51 +0800
+Subject: [PATCH 2/3] mt76: build compat with kernel 5.2+
+
+Signed-off-by: Chen Minqiang <ptpt52@gmail.com>
+---
+ pci.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/pci.c b/pci.c
+index 04c5a69..6c5fc65 100644
+--- a/pci.c
++++ b/pci.c
+@@ -28,11 +28,15 @@ void mt76_pci_disable_aspm(struct pci_dev *pdev)
+ 		 (aspm_conf & PCI_EXP_LNKCTL_ASPM_L1) ? "L1" : "");
+ 
+ 	if (IS_ENABLED(CONFIG_PCIEASPM)) {
++#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 2, 0)
++		pci_disable_link_state(pdev, aspm_conf);
++#else
+ 		int err;
+ 
+ 		err = pci_disable_link_state(pdev, aspm_conf);
+ 		if (!err)
+ 			return;
++#endif
+ 	}
+ 
+ 	/* both device and parent should have the same ASPM setting.
+-- 
+2.17.1
+
