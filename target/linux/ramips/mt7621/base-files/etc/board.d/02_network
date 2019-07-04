@@ -34,7 +34,8 @@ ramips_setup_interfaces()
 	hiwifi,hc5962|\
 	xiaomi,mi-router-ac2100|\
 	xiaomi,mir3p|\
-	xiaomi,redmi-router-ac2100)
+	xiaomi,redmi-router-ac2100|\
+	xwrt,t-cpe1200k-v01)
 		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3" "wan"
 		;;
 	gnubee,gb-pc1|\
