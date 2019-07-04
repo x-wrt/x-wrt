@@ -34,6 +34,7 @@ ramips_setup_interfaces()
 	xiaomi,redmi-router-ac2100|\
 	z-router,zr-2660|\
 	z-router,zr-2662|\
+	xwrt,t-cpe1200k-v01|\
 	zyxel,wsm20)
 		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3" "wan"
 		;;
