@@ -138,6 +138,10 @@ ramips_setup_interfaces()
 		ucidef_add_switch "switch0" \
 			"1:lan:3" "2:lan:2" "3:lan:1" "4:wan" "6@eth0"
 		;;
+	xwrt,t-cpe1200k-v01)
+		ucidef_add_switch "switch0" \
+			"3:lan" "2:lan" "1:lan" "0:wan" "6@eth0"
+		;;
 	*)
 		ucidef_set_interfaces_lan_wan "eth0.1" "eth0.2"
 		;;
