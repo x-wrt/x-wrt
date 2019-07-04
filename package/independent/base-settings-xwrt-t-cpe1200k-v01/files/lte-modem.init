@@ -1,0 +1,15 @@
+#!/bin/sh /etc/rc.common
+# (C) 2020 Developer X <dev@x-wrt.com>
+
+START=19
+STOP=90
+
+boot() {
+	#power on ec20_1
+	echo "1" >/sys/class/gpio/4v_en/value
+
+	#reset ec20_1
+	echo "1" >/sys/class/gpio/pd9_reset_ec20/value
+	sleep 1
+	echo "0" >/sys/class/gpio/pd9_reset_ec20/value
+}
