@@ -72,6 +72,20 @@ define Build/pisen_wmb001n-factory
   rm -rf "$@.tmp"
 endef
 
+define Build/xwrt_csac-factory
+  -[ -f "$@" ] && \
+  mkdir -p "$@.tmp" && \
+  mv "$@" "$@.tmp/UploadBrush-bin.img" && \
+  binmd5=$$($(STAGING_DIR_HOST)/bin/mkhash md5 "$@.tmp/UploadBrush-bin.img" | head -c32) && \
+  oemmd5=$$(echo -n TB-CSAC10-QCA9563_9886-ROUTE-CSAC10 | $(STAGING_DIR_HOST)/bin/mkhash md5 | head -c32) && \
+  echo -n $${binmd5}$${oemmd5} | $(STAGING_DIR_HOST)/bin/mkhash md5 | head -c32 >"$@.tmp/bin_random_oem.txt" && \
+  echo -n V4.4-201910201745 >"$@.tmp/version.txt" && \
+  $(TAR) -czf $@.tmp.tgz -C "$@.tmp" UploadBrush-bin.img bin_random_oem.txt version.txt && \
+  $(STAGING_DIR_HOST)/bin/openssl aes-256-cbc -md md5 -salt -in $@.tmp.tgz -out "$@" -k QiLunSmartWL && \
+  printf %32s CSAC10 >>"$@" && \
+  rm -rf "$@.tmp"
+endef
+
 define Device/seama
   KERNEL := kernel-bin | append-dtb | relocate-kernel | lzma
   KERNEL_INITRAMFS := $$(KERNEL) | seama
@@ -1065,6 +1079,19 @@ define Device/xwrt_mk-v0201
   IMAGE_SIZE := 16000k
 endef
 TARGET_DEVICES += xwrt_mk-v0201
+
+define Device/xwrt_csac
+  SOC := qca9563
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := CSAC
+  KERNEL_SIZE := 1472k
+  IMAGE_SIZE := 16000k
+  IMAGES += factory.bin
+  IMAGE/sysupgrade.bin := append-rootfs | pad-rootfs | pad-to 14528k | append-kernel | append-metadata | check-size $$$$(IMAGE_SIZE)
+  IMAGE/factory.bin := $$(IMAGE/sysupgrade.bin) | xwrt_csac-factory $(1)
+  DEVICE_PACKAGES := kmod-leds-reset kmod-ath10k-ct ath10k-firmware-qca9888-ct kmod-usb-core kmod-usb2 lte-modem-xwrt-csac
+endef
+TARGET_DEVICES += xwrt_csac
 
 define Device/yuncore_a770
   SOC := qca9531
