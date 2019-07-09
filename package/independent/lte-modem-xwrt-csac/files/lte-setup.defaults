@@ -1,0 +1,31 @@
+
+test -f /etc/config/independent && exit 0
+
+. /lib/functions.sh
+
+wan_zone=
+find_lte_wan_zone() {
+	local name
+	config_get name "$1" name
+	[ "$name" = "wan" ] && [ -z "$wan_zone" ] && wan_zone="$1"
+}
+
+config_load firewall || exit 1
+config_foreach find_lte_wan_zone zone
+[ -n "$wan_zone" ] || exit 1
+
+uci -q set network.ltewan=interface || exit 1
+uci -q set network.ltewan.proto='dhcp' || exit 1
+uci -q set network.ltewan.device='eth1' || exit 1
+uci -q set network.ltewan.metric='800' || exit 1
+
+config_get wans "$wan_zone" network
+wans="$wans ltewan"
+wans=$(for w in $wans; do echo "$w"; done | sort -u)
+wans=$(echo $wans)
+uci -q set "firewall.$wan_zone.network=$wans" || exit 1
+uci -q commit network || exit 1
+uci -q commit firewall || exit 1
+
+touch /etc/config/independent || exit 1
+exit 0
