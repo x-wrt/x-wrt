@@ -213,6 +213,9 @@ xwrt,t-cpe1200k-v01)
 	ucidef_set_led_rssi "rssimedium" "RSSIMEDIUM" "blue:rssi3" "wlan0" "40" "100"
 	ucidef_set_led_rssi "rssihigh" "RSSIHIGH" "blue:rssi4" "wlan0" "70" "100"
 	;;
+xwrt,mac500f)
+	ucidef_set_led_netdev "sfp" "SFP link" "green:sfp" "sfp"
+	;;
 xiaomi,mi-router-ac2100)
 	ucidef_set_led_netdev "wan-blue" "WAN (blue)" "blue:wan" "wan"
 	;;
