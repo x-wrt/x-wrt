@@ -28,6 +28,7 @@ ramips_setup_interfaces()
 	unielec,u7621-06-16m|\
 	unielec,u7621-06-64m|\
 	xiaoyu,xy-c5|\
+	xwrt,mac500f|\
 	xwrt,nxc200p|\
 	xwrt,puppies|\
 	xzwifi,creativebox-v1|\
