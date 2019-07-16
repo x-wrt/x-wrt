@@ -2755,6 +2755,16 @@ define Device/xiaoyu_xy-c5
 endef
 TARGET_DEVICES += xiaoyu_xy-c5
 
+define Device/xwrt_mac500f
+  $(Device/uimage-lzma-loader)
+  $(Device/dsa-migration)
+  IMAGE_SIZE := 16064k
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := MAC500F
+  DEVICE_PACKAGES := uboot-envtools kmod-sfp kmod-usb3 kmod-usb-ledtrig-usbport
+endef
+TARGET_DEVICES += xwrt_mac500f
+
 define Device/xwrt_nxc200p
   $(Device/uimage-lzma-loader)
   IMAGE_SIZE := 16064k
