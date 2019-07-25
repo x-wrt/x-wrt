@@ -824,6 +824,17 @@ define Device/xiaomi_mir3g-v2
 endef
 TARGET_DEVICES += xiaomi_mir3g-v2
 
+define Device/xiaomi_mir3g-nor
+  MTK_SOC := mt7621
+  IMAGE_SIZE := 16064k
+  DEVICE_VENDOR := Xiaomi
+  DEVICE_MODEL := Mi Router 3G NOR (16M)
+  DEVICE_PACKAGES := \
+	kmod-mt7603 kmod-mt76x2 kmod-usb3 kmod-usb-ledtrig-usbport \
+	uboot-envtools
+endef
+TARGET_DEVICES += xiaomi_mir3g-nor
+
 define Device/xiaomi_mir3p
   MTK_SOC := mt7621
   BLOCKSIZE := 128k
