@@ -34,6 +34,7 @@ ramips_setup_interfaces()
 	gehua,ghl-r-001|\
 	hiwifi,hc5962|\
 	xiaomi,mi-router-ac2100|\
+	xiaomi,mir3p-nor|\
 	xiaomi,mir3p|\
 	xiaomi,redmi-router-ac2100|\
 	xwrt,t-cpe1200k-v01)
