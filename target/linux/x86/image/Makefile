@@ -44,6 +44,10 @@ GRUB_TITLE:=$(call qstrip,$(CONFIG_GRUB_TITLE))
 
 BOOTOPTS:=$(call qstrip,$(CONFIG_GRUB_BOOTOPTS))
 
+define Build/qemu-resize
+	qemu-img resize $@ $1
+endef
+
 define Build/pad-md5
 	md5sum "$@" | head -c32 >>$@
 endef
@@ -101,8 +105,8 @@ define Device/Default
   ARTIFACT/image.iso := grub-config iso | iso
   IMAGE/combined.img := grub-config pc | combined | grub-install | pad-md5
   IMAGE/combined.img.gz := grub-config pc | combined | grub-install | pad-md5 | gzip
-  IMAGE/combined.vdi := grub-config pc | combined | grub-install | qemu-image vdi
-  IMAGE/combined.vmdk := grub-config pc | combined | grub-install | qemu-image vmdk
+  IMAGE/combined.vdi := grub-config pc | combined | grub-install | qemu-resize 8G | qemu-image vdi
+  IMAGE/combined.vmdk := grub-config pc | combined | grub-install | qemu-resize 8G | qemu-image vmdk
   IMAGE/rootfs.img := append-rootfs
   IMAGE/rootfs.img.gz := append-rootfs | gzip
   ifeq ($(CONFIG_TARGET_IMAGES_GZIP),y)
