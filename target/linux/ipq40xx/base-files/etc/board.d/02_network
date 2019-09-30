@@ -33,6 +33,7 @@ ipq40xx_setup_interfaces()
 	mikrotik,sxtsq-5-ac|\
 	netgear,ex6100v2|\
 	netgear,ex6150v2|\
+	netgear,ex6200v2|\
 	zyxel,wre6606)
 		ucidef_set_interface_lan "eth0"
 		;;
