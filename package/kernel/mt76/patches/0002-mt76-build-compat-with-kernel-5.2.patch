@@ -1,7 +1,7 @@
-From 13e9f7fc8f7a9f6fc20af04cb34a1ec1e2db9f8c Mon Sep 17 00:00:00 2001
+From 6395cfd11fcb6ab20f2c50cde3c584e94610e229 Mon Sep 17 00:00:00 2001
 From: Chen Minqiang <ptpt52@gmail.com>
 Date: Tue, 29 Oct 2019 07:55:51 +0800
-Subject: [PATCH 2/3] mt76: build compat with kernel 5.2+
+Subject: [PATCH 2/2] mt76: build compat with kernel 5.2+
 
 Signed-off-by: Chen Minqiang <ptpt52@gmail.com>
 ---
