@@ -84,6 +84,26 @@
 #define PHY_PRE_EN		BIT(30)
 #define PMY_MDC_CONF(_x)	((_x & 0x3f) << 24)
 
+/* Register for hw trap modification */
+#define MT7530_MHWTRAP			0x7804
+#define  MHWTRAP_PHY0_SEL		BIT(20)
+#define  MHWTRAP_MANUAL			BIT(16)
+#define  MHWTRAP_P5_MAC_SEL		BIT(13)
+#define  MHWTRAP_P6_DIS			BIT(8)
+#define  MHWTRAP_P5_RGMII_MODE		BIT(7)
+#define  MHWTRAP_P5_DIS			BIT(6)
+#define  MHWTRAP_PHY_ACCESS		BIT(5)
+
+#define MT7530_IO_DRV_CR		0x7810
+#define  P5_IO_CLK_DRV(x)		((x) & 0x3)
+#define  P5_IO_DATA_DRV(x)		(((x) & 0x3) << 4)
+
+#define MT7530_P5RGMIIRXCR		0x7b00
+#define  CSR_RGMII_EDGE_ALIGN		BIT(8)
+#define  CSR_RGMII_RXC_0DEG_CFG(x)	((x) & 0xf)
+
+#define MT7530_P5RGMIITXCR		0x7b04
+#define  CSR_RGMII_TXC_CFG(x)		((x) & 0x1f)
 
 enum {
 	/* Global attributes. */
@@ -97,6 +117,30 @@ enum {
 	PORT4_EXT,
 };
 
+/* Port 5 interface select definitions */
+enum p5_interface_select {
+	P5_DISABLED = 0,
+	P5_INTF_SEL_PHY_P0,
+	P5_INTF_SEL_PHY_P4,
+	P5_INTF_SEL_GMAC5,
+};
+
+static const char *p5_intf_modes(unsigned int p5_interface)
+{
+	switch (p5_interface) {
+	case P5_DISABLED:
+		return "DISABLED";
+	case P5_INTF_SEL_PHY_P0:
+		return "PHY P0";
+	case P5_INTF_SEL_PHY_P4:
+		return "PHY P4";
+	case P5_INTF_SEL_GMAC5:
+		return "GMAC5";
+	default:
+		return "unknown";
+	}
+}
+
 struct mt7620_gsw {
 	struct device		*dev;
 	void __iomem		*base;
@@ -104,6 +148,8 @@ struct mt7620_gsw {
 	int			port4;
 	unsigned long int	autopoll;
 	u16			ephy_base;
+	phy_interface_t		p5_interface;
+	unsigned int		p5_intf_sel;
 };
 
 void mtk_switch_w32(struct mt7620_gsw *gsw, u32 val, unsigned reg);
