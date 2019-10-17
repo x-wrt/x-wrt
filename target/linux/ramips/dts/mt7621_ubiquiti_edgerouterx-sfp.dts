@@ -22,3 +22,13 @@
 		};
 	};
 };
+
+&gsw {
+	ports {
+		lan5: port@5 {
+			reg = <5>;
+			phy-address = <7>;
+			phy-mode = "rgmii-rxid";
+		};
+	};
+};
