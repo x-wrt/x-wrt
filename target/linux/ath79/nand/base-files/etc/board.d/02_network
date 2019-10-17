@@ -25,6 +25,11 @@ ath79_setup_interfaces()
 		ucidef_add_switch "switch0" \
 			"0@eth0" "1:lan" "2:lan" "3:lan" "4:lan" "5:wan" "6@eth1"
 		;;
+	xwrt,gw521-nand|\
+	xwrt,gw521-nor)
+		ucidef_add_switch "switch0" \
+			"0@eth0" "2:lan" "1:wan"
+		;;
 	*)
 		ucidef_set_interfaces_lan_wan "eth0" "eth1"
 		;;
@@ -43,6 +48,12 @@ ath79_setup_macs()
 	zyxel,nbg6716)
 		lan_mac=$(macaddr_add $(mtd_get_mac_ascii u-boot-env ethaddr) +2)
 		wan_mac=$(macaddr_add $(mtd_get_mac_ascii u-boot-env ethaddr) +3)
+		;;
+	xwrt,gw521-nand|\
+	xwrt,gw521-nor)
+		wan_mac=$(mtd_get_mac_binary art 0)
+		lan_mac=$(macaddr_add "$wan_mac" 1)
+		label_mac=$wan_mac
 		;;
 	esac
 
