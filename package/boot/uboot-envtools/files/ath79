@@ -33,6 +33,9 @@ netgear,wnr612-v2|\
 ocedo,koala|\
 ocedo,raccoon|\
 openmesh,om5p-ac-v2|\
+x-wrt,gw521-nand|\
+x-wrt,gw521-nor|\
+x-wrt,gw521-16m|\
 yuncore,a770)
 	ubootenv_add_uci_config "/dev/mtd1" "0x0" "0x10000" "0x10000"
 	;;
