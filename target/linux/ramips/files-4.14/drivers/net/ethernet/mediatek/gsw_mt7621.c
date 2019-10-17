@@ -16,6 +16,8 @@
 #include <linux/kernel.h>
 #include <linux/types.h>
 #include <linux/platform_device.h>
+#include <linux/of_mdio.h>
+#include <linux/of_net.h>
 #include <linux/of_device.h>
 #include <linux/of_irq.h>
 
@@ -43,7 +45,10 @@ static irqreturn_t gsw_interrupt_mt7621(int irq, void *_priv)
 	reg = mt7530_mdio_r32(gsw, 0x700c);
 	mt7530_mdio_w32(gsw, 0x700c, reg);
 
-	for (i = 0; i < 5; i++)
+	for (i = 0; i < 6; i++) {
+		if (i == 5 && gsw->p5_intf_sel != P5_INTF_SEL_GMAC5)
+			continue;
+
 		if (reg & BIT(i)) {
 			unsigned int link;
 
@@ -60,10 +65,116 @@ static irqreturn_t gsw_interrupt_mt7621(int irq, void *_priv)
 						    "port %d link down\n", i);
 			}
 		}
+	}
 
 	mt7620_handle_carrier(priv);
 
 	return IRQ_HANDLED;
+}
+
+static void mt7530_parse_ports(struct mt7620_gsw *gsw, struct device_node *np)
+{
+	struct device_node *phy_node, *ports, *port;
+	u32 reg, id = 32;
+	int err;
+
+	gsw->p5_interface = PHY_INTERFACE_MODE_NA;
+	gsw->p5_intf_sel = P5_DISABLED;
+
+	ports = of_get_child_by_name(np, "ports");
+	if (!ports)
+		return;
+
+	for_each_available_child_of_node(ports, port) {
+		if (err)
+			continue;
+
+		if (reg != 5)
+			break;
+
+		gsw->p5_interface = of_get_phy_mode(port);
+		gsw->p5_intf_sel = P5_INTF_SEL_GMAC5;
+
+		err = of_property_read_u32(port, "phy-address", &id);
+		if (err)
+			id = 5;
+
+		if (id == 0)
+			gsw->p5_intf_sel = P5_INTF_SEL_PHY_P0;
+		if (id == 4)
+			gsw->p5_intf_sel = P5_INTF_SEL_PHY_P4;
+		break;
+	}
+}
+
+static void mt7530_setup_port5(struct mt7620_gsw *gsw, struct device_node *np)
+{
+	u8 tx_delay = 0;
+	int val;
+
+	mt7530_parse_ports(gsw, np);
+
+	val = mt7530_mdio_r32(gsw, MT7530_MHWTRAP);
+
+	val |= MHWTRAP_MANUAL | MHWTRAP_P5_MAC_SEL | MHWTRAP_P5_DIS;
+	val &= ~MHWTRAP_P5_RGMII_MODE & ~MHWTRAP_PHY0_SEL;
+
+	switch (gsw->p5_intf_sel) {
+	case P5_INTF_SEL_PHY_P0:
+		/* MT7530_P5_MODE_GPHY_P0: 2nd GMAC -> P5 -> P0 */
+		val |= MHWTRAP_PHY0_SEL;
+		/* fall through */
+	case P5_INTF_SEL_PHY_P4:
+		/* MT7530_P5_MODE_GPHY_P4: 2nd GMAC -> P5 -> P4 */
+		val &= ~MHWTRAP_P5_MAC_SEL & ~MHWTRAP_P5_DIS;
+
+		/* Setup the MAC by default for the cpu port */
+		mt7530_mdio_w32(gsw, GSW_REG_PORT_PMCR(5), 0x56300);
+		break;
+	case P5_INTF_SEL_GMAC5:
+		/* MT7530_P5_MODE_GMAC: P5 -> External phy or 2nd GMAC */
+		val &= ~MHWTRAP_P5_DIS;
+		mt7530_mdio_w32(gsw, GSW_REG_PORT_PMCR(5), 0x56300);
+		break;
+	case P5_DISABLED:
+		gsw->p5_interface = PHY_INTERFACE_MODE_NA;
+		break;
+	default:
+		dev_err(gsw->dev, "Unsupported p5_intf_sel %d\n",
+			gsw->p5_intf_sel);
+		goto unlock_exit;
+	}
+
+	/* Setup RGMII settings */
+	if (phy_interface_mode_is_rgmii(gsw->p5_interface)) {
+		val |= MHWTRAP_P5_RGMII_MODE;
+
+		/* P5 RGMII RX Clock Control: delay setting for 1000M */
+		mt7530_mdio_w32(gsw, MT7530_P5RGMIIRXCR, CSR_RGMII_EDGE_ALIGN);
+
+		/* Don't set delay in DSA mode */
+		if ((gsw->p5_intf_sel == P5_INTF_SEL_PHY_P0 ||
+		     gsw->p5_intf_sel == P5_INTF_SEL_PHY_P4) &&
+		    (gsw->p5_interface == PHY_INTERFACE_MODE_RGMII_TXID ||
+		     gsw->p5_interface == PHY_INTERFACE_MODE_RGMII_ID))
+			tx_delay = 4; /* n * 0.5 ns */
+
+		/* P5 RGMII TX Clock Control: delay x */
+		mt7530_mdio_w32(gsw, MT7530_P5RGMIITXCR,
+				CSR_RGMII_TXC_CFG(0x10 + tx_delay));
+
+		/* reduce P5 RGMII Tx driving, 8mA */
+		mt7530_mdio_w32(gsw, MT7530_IO_DRV_CR,
+				P5_IO_CLK_DRV(1) | P5_IO_DATA_DRV(1));
+	}
+
+	mt7530_mdio_w32(gsw, MT7530_MHWTRAP, val);
+
+	dev_info(gsw->dev, "Setup P5, HWTRAP=0x%x, intf_sel=%s, phy-mode=%s\n",
+		 val, p5_intf_modes(gsw->p5_intf_sel), phy_modes(gsw->p5_interface));
+
+unlock_exit:
+	return;
 }
 
 static void mt7621_hw_init(struct mt7620_gsw *gsw, struct device_node *np)
@@ -174,10 +285,6 @@ static void mt7621_hw_init(struct mt7620_gsw *gsw, struct device_node *np)
 	mt7530_mdio_w32(gsw, 0x7a40, val);
 	mt7530_mdio_w32(gsw, 0x7a78, 0x855);
 
-	/* delay setting for 10/1000M */
-	mt7530_mdio_w32(gsw, 0x7b00, 0x102);
-	mt7530_mdio_w32(gsw, 0x7b04, 0x14);
-
 	/* lower Tx Driving*/
 	mt7530_mdio_w32(gsw, 0x7a54, 0x44);
 	mt7530_mdio_w32(gsw, 0x7a5c, 0x44);
@@ -185,6 +292,9 @@ static void mt7621_hw_init(struct mt7620_gsw *gsw, struct device_node *np)
 	mt7530_mdio_w32(gsw, 0x7a6c, 0x44);
 	mt7530_mdio_w32(gsw, 0x7a74, 0x44);
 	mt7530_mdio_w32(gsw, 0x7a7c, 0x44);
+
+	/* Setup port 5 */
+	mt7530_setup_port5(gsw, np);
 
 	/* turn on all PHYs */
 	for (i = 0; i <= 4; i++) {
