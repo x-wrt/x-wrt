@@ -21,6 +21,18 @@
 			reg = <0x25>;
 		};
 	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		/* Fixme: Currently a hack to enable SFP clk gate. */
+		sfp {
+			label = "sfp:i2c";
+			gpios = <&gpio0 7 GPIO_ACTIVE_LOW>;
+			default-state = "off";
+			linux,default-trigger = "default-on";
+		};
+	};
 };
 
 &gsw {
