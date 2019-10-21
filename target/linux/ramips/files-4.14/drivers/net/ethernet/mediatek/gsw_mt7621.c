@@ -72,6 +72,38 @@ static irqreturn_t gsw_interrupt_mt7621(int irq, void *_priv)
 	return IRQ_HANDLED;
 }
 
+/* HACK: detect at803x and force at8033 at 1gbit full-duplex */
+static void mt7530_detect_at8033(struct mt7620_gsw *gsw, u32 phy_addr)
+{
+	u32 reg;
+
+	if (gsw->p5_intf_sel == P5_INTF_SEL_GMAC5) {
+		/* read phy identifier 1 */
+		reg = _mt7620_mii_read(gsw, phy_addr, 0x02);
+		if (reg < 0 || reg != 0x004d)
+			return;
+
+		/* read phy identifier 2 */
+		reg = _mt7620_mii_read(gsw, phy_addr, 0x03);
+		if (reg < 0 || reg != 0xd074)
+			return;
+
+		/* read chip configure register */
+		reg = _mt7620_mii_read(gsw, phy_addr, 0x1f);
+		if ((reg & 0x000f) == 0x0002)
+			dev_info(gsw->dev,"phy %d at803x mode BX1000, 1Gbit\n",
+				 phy_addr);
+		else
+			dev_info(gsw->dev,
+				 "phy %d at803x mode unknown: 0x1F=0x%x\n",
+				 phy_addr, reg);
+
+		/* force PHY and port 5 MAC 1gbit, full-duplex */
+		_mt7620_mii_write(gsw, phy_addr, 0x00, 0x0140);
+		mt7530_mdio_w32(gsw, 0x3500, 0x7e33b);
+	}
+}
+
 static void mt7530_parse_ports(struct mt7620_gsw *gsw, struct device_node *np)
 {
 	struct device_node *phy_node, *ports, *port;
@@ -105,6 +137,10 @@ static void mt7530_parse_ports(struct mt7620_gsw *gsw, struct device_node *np)
 			gsw->p5_intf_sel = P5_INTF_SEL_PHY_P4;
 		break;
 	}
+
+	/* HACK: Detect at8033 phy on ubnt erx-sfp */
+	if (id == 7)
+		mt7530_detect_at8033(gsw, id);
 }
 
 static void mt7530_setup_port5(struct mt7620_gsw *gsw, struct device_node *np)
