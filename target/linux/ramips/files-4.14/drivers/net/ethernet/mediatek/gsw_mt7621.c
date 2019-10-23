@@ -104,20 +104,21 @@ static void mt7530_detect_at8033(struct mt7620_gsw *gsw, u32 phy_addr)
 	}
 }
 
-static void mt7530_parse_ports(struct mt7620_gsw *gsw, struct device_node *np)
+static int mt7530_parse_ports(struct mt7620_gsw *gsw, struct device_node *np)
 {
-	struct device_node *phy_node, *ports, *port;
-	u32 reg, id = 32;
-	int err;
+	struct device_node *ports, *port;
+	int err, phy_addr = -ENODEV;
+	u32 reg;
 
 	gsw->p5_interface = PHY_INTERFACE_MODE_NA;
 	gsw->p5_intf_sel = P5_DISABLED;
 
 	ports = of_get_child_by_name(np, "ports");
 	if (!ports)
-		return;
+		return phy_addr;
 
 	for_each_available_child_of_node(ports, port) {
+		err = of_property_read_u32(port, "reg", &reg);
 		if (err)
 			continue;
 
@@ -127,28 +128,26 @@ static void mt7530_parse_ports(struct mt7620_gsw *gsw, struct device_node *np)
 		gsw->p5_interface = of_get_phy_mode(port);
 		gsw->p5_intf_sel = P5_INTF_SEL_GMAC5;
 
-		err = of_property_read_u32(port, "phy-address", &id);
+		err = of_property_read_u32(port, "phy-address", &phy_addr);
 		if (err)
-			id = 5;
+			phy_addr = 5;
 
-		if (id == 0)
+		if (phy_addr == 0)
 			gsw->p5_intf_sel = P5_INTF_SEL_PHY_P0;
-		if (id == 4)
+		if (phy_addr == 4)
 			gsw->p5_intf_sel = P5_INTF_SEL_PHY_P4;
 		break;
 	}
 
-	/* HACK: Detect at8033 phy on ubnt erx-sfp */
-	if (id == 7)
-		mt7530_detect_at8033(gsw, id);
+	return phy_addr;
 }
 
 static void mt7530_setup_port5(struct mt7620_gsw *gsw, struct device_node *np)
 {
 	u8 tx_delay = 0;
-	int val;
+	int val, phy_addr;
 
-	mt7530_parse_ports(gsw, np);
+	phy_addr = mt7530_parse_ports(gsw, np);
 
 	val = mt7530_mdio_r32(gsw, MT7530_MHWTRAP);
 
@@ -208,6 +207,10 @@ static void mt7530_setup_port5(struct mt7620_gsw *gsw, struct device_node *np)
 
 	dev_info(gsw->dev, "Setup P5, HWTRAP=0x%x, intf_sel=%s, phy-mode=%s\n",
 		 val, p5_intf_modes(gsw->p5_intf_sel), phy_modes(gsw->p5_interface));
+
+	/* HACK: Detect at8033 phy on ubnt erx-sfp */
+	if (phy_addr == 7)
+		mt7530_detect_at8033(gsw, phy_addr);
 
 unlock_exit:
 	return;
