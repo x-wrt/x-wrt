@@ -195,7 +195,9 @@ platform_do_upgrade() {
 			asus_nand_upgrade_tar 20951040 "$1"
 		fi
 		;;
-	compex,wpj419)
+	compex,wpj419|\
+	p2w,r619ac-128m|\
+	p2w,r619ac)
 		nand_do_upgrade "$1"
 		;;
 	linksys,ea6350v3 |\
