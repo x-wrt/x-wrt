@@ -949,7 +949,7 @@ define Device/thunder_timecloud
   IMAGE_SIZE := 16064k
   DEVICE_VENDOR := Thunder
   DEVICE_MODEL := Timecloud
-  DEVICE_PACKAGES := kmod-usb3 -wpad-basic
+  DEVICE_PACKAGES := kmod-usb3 kmod-sdhci-mt7620 -wpad-basic
   SUPPORTED_DEVICES += timecloud
 endef
 TARGET_DEVICES += thunder_timecloud
