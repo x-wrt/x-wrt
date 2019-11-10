@@ -254,6 +254,7 @@
 
 &wifi0 {
 	status = "okay";
+	qcom,ath10k-calibration-variant = "RT-ACRH17";
 };
 
 &blsp1_uart1 {

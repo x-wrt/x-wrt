@@ -134,7 +134,7 @@ define Device/asus_rt-acrh17
 	KERNEL_INITRAMFS := $$(KERNEL) | uImage none
 	KERNEL_INITRAMFS_SUFFIX := -factory.trx
 	IMAGES := sysupgrade.bin
-	DEVICE_PACKAGES := ath10k-firmware-qca9984-ct kmod-usb-ledtrig-usbport
+	DEVICE_PACKAGES := ath10k-firmware-qca9984-ct ipq-wifi-asus_rt-acrh17 kmod-usb-ledtrig-usbport
 endef
 TARGET_DEVICES += asus_rt-acrh17
 
