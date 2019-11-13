@@ -2333,12 +2333,13 @@ TARGET_DEVICES += netgear_ex6150
 define Device/netgear_sercomm_nand
   $(Device/nand)
   $(Device/uimage-lzma-loader)
-  IMAGES += factory.img kernel.bin rootfs.bin
+  IMAGES += factory.img breed-factory.bin kernel.bin rootfs.bin
   IMAGE/factory.img := pad-extra 2048k | append-kernel | pad-to 6144k | \
 	append-ubi | pad-to $$$$(BLOCKSIZE) | sercom-footer | pad-to 128 | \
 	zip $$$$(SERCOMM_HWNAME).bin | sercom-seal
   IMAGE/kernel.bin := append-kernel
   IMAGE/rootfs.bin := append-ubi | check-size
+  IMAGE/breed-factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | check-size
   DEVICE_VENDOR := NETGEAR
   DEVICE_PACKAGES := kmod-mt7603 kmod-usb3 kmod-usb-ledtrig-usbport \
 	-uboot-envtools
