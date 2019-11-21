@@ -7,6 +7,7 @@
 	workgroup = |WORKGROUP|
 	bind interfaces only = yes
 	deadtime = 30
+	dfree command = /usr/sbin/samba_dfree.sh
 	enable core files = no
 	invalid users = root
 	local master = no
