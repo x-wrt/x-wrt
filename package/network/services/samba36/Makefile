@@ -162,6 +162,7 @@ define Package/samba36-server/install
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/samba.init $(1)/etc/init.d/samba
 	$(INSTALL_DIR) $(1)/usr/sbin
+	$(INSTALL_BIN) ./files/samba_dfree.sh $(1)/usr/sbin/samba_dfree.sh
 	$(INSTALL_BIN) $(PKG_BUILD_BIN)/samba_multicall $(1)/usr/sbin
 	$(LN) samba_multicall $(1)/usr/sbin/smbd
 	$(LN) samba_multicall $(1)/usr/sbin/nmbd
