@@ -447,19 +447,15 @@ endef
 TARGET_DEVICES += p2w_r619ac
 
 define Device/p2w_r619ac-128m
-	$(call Device/FitImage)
+	$(call Device/FitzImage)
+	$(call Device/UbiFit)
 	DEVICE_VENDOR := P&W
 	DEVICE_MODEL := R619AC
 	DEVICE_VARIANT := 128M
 	DEVICE_DTS := qcom-ipq4019-p2w-r619ac-128m
-	KERNEL_SIZE := 4096k
-	IMAGE_SIZE := 131072k
+	DEVICE_DTS_CONFIG := config@10
 	BLOCKSIZE := 128k
 	PAGESIZE := 2048
-	IMAGES := nor-kernel.bin nand-rootfs.bin nand-sysupgrade.bin
-	IMAGE/nor-kernel.bin := append-kernel | check-size $$$$(KERNEL_SIZE)
-	IMAGE/nand-rootfs.bin := append-ubi | check-size $$$$(IMAGE_SIZE)
-	IMAGE/nand-sysupgrade.bin := sysupgrade-tar | append-metadata
 	DEVICE_PACKAGES := ipq-wifi-p2w_r619ac -kmod-ath10k-ct -ath10k-firmware-qca4019-ct kmod-ath10k ath10k-firmware-qca4019
 endef
 TARGET_DEVICES += p2w_r619ac-128m

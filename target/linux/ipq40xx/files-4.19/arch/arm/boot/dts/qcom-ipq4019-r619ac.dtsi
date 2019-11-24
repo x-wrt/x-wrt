@@ -183,7 +183,7 @@
 				read-only;
 			};
 
-			kernel_unused: partition@180000 {
+			partition@180000 {
 				label = "unused";
 				reg = <0x180000 0xe80000>;
 			};
