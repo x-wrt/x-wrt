@@ -103,7 +103,8 @@ ifneq ($(CONFIG_GRUB_IMAGES)$(CONFIG_EFI_IMAGES),)
 	echo "search --file /boot/grub/$(IMG_PART_SIGNATURE).cfg --set=root" > $(KDIR)/grub2.efi/efi/boot/grub.cfg
 	echo "configfile /boot/grub/grub.cfg" >> $(KDIR)/grub2.efi/efi/boot/grub.cfg
 
-	# Create the EFI grub binary
+	# Create the EFI grub binary x64
+ifeq ($(CONFIG_TARGET_SUBTARGET),"64")
 	grub-mkimage-efi \
 		-d $(STAGING_DIR_HOST)/lib/grub/x86_64-efi \
 		-o $(KDIR)/grub2.efi/efi/boot/bootx64.efi \
@@ -111,6 +112,18 @@ ifneq ($(CONFIG_GRUB_IMAGES)$(CONFIG_EFI_IMAGES),)
 		-p /efi/boot \
 		-c $(KDIR)/grub2.efi/efi/boot/grub.cfg \
 		$(GRUB2_MODULES_EFI)
+endif
+
+	# Create the EFI grub binary i386
+ifeq ($(CONFIG_TARGET_SUBTARGET),"generic")
+	grub-mkimage-efi \
+		-d $(STAGING_DIR_HOST)/lib/grub/i386-efi \
+		-o $(KDIR)/grub2.efi/efi/boot/boot.efi \
+		-O i386-efi \
+		-p /efi/boot \
+		-c $(KDIR)/grub2.efi/efi/boot/grub.cfg \
+		$(GRUB2_MODULES_EFI)
+endif
 
 	# Generate the EFI VFAT bootfs
 	rm $(KDIR)/kernel.efi || true
