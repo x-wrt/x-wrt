@@ -292,6 +292,12 @@ ifneq ($(CONFIG_VDI_IMAGES),)
 endif
 ifneq ($(CONFIG_VMDK_IMAGES),)
 	gzip -f9n $(BIN_DIR)/$(IMG_COMBINED)-$(1).vmdk
+	tar -C $(BIN_DIR) -czf $(BIN_DIR)/$(IMG_COMBINED)-$(1)-esxi.vmdk.tar.gz \
+		$(IMG_COMBINED)-$(1)-esxi.vmdk \
+		$(IMG_COMBINED)-$(1)-esxi-flat.vmdk && \
+		rm -f \
+		$(BIN_DIR)/$(IMG_COMBINED)-$(1)-esxi.vmdk \
+		$(BIN_DIR)/$(IMG_COMBINED)-$(1)-esxi-flat.vmdk
 endif
 endif
 ifneq ($(CONFIG_EFI_IMAGES),)
@@ -301,6 +307,12 @@ ifneq ($(CONFIG_VDI_IMAGES),)
 endif
 ifneq ($(CONFIG_VMDK_IMAGES),)
 	gzip -f9n $(BIN_DIR)/$(IMG_UEFI_GPT)-$(1).vmdk
+	tar -C $(BIN_DIR) -czf $(BIN_DIR)/$(IMG_UEFI_GPT)-$(1)-esxi.vmdk.tar.gz \
+		$(IMG_UEFI_GPT)-$(1)-esxi.vmdk \
+		$(IMG_UEFI_GPT)-$(1)-esxi-flat.vmdk && \
+		rm -f \
+		$(BIN_DIR)/$(IMG_UEFI_GPT)-$(1)-esxi.vmdk \
+		$(BIN_DIR)/$(IMG_UEFI_GPT)-$(1)-esxi-flat.vmdk
 endif
 endif
 endef
