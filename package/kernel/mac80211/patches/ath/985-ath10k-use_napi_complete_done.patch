@@ -1,0 +1,13 @@
+diff --git a/drivers/net/wireless/ath/ath10k/snoc.c b/drivers/net/wireless/ath/ath10k/snoc.c
+index b491361..3d80f66 100644
+--- a/drivers/net/wireless/ath/ath10k/snoc.c
++++ b/drivers/net/wireless/ath/ath10k/snoc.c
+@@ -1175,7 +1175,7 @@ static int ath10k_snoc_napi_poll(struct napi_struct *ctx, int budget)
+ 	done = ath10k_htt_txrx_compl_task(ar, budget);
+ 
+ 	if (done < budget) {
+-		napi_complete(ctx);
++		napi_complete_done(ctx, done);
+ 		ath10k_snoc_irq_enable(ar);
+ 	}
+ 

@@ -1,0 +1,65 @@
+diff --git a/ath10k-4.19/snoc.c b/ath10k-4.19/snoc.c
+index fa1843a..fa9c98e 100644
+--- a/ath10k-4.19/snoc.c
++++ b/ath10k-4.19/snoc.c
+@@ -862,7 +862,7 @@ static int ath10k_snoc_napi_poll(struct napi_struct *ctx, int budget)
+ 	done = ath10k_htt_txrx_compl_task(ar, budget);
+ 
+ 	if (done < budget) {
+-		napi_complete(ctx);
++		napi_complete_done(ctx, done);
+ 		ath10k_snoc_irq_enable(ar);
+ 	}
+ 
+diff --git a/ath10k-4.20/snoc.c b/ath10k-4.20/snoc.c
+index 8d3d9bc..68db5a9 100644
+--- a/ath10k-4.20/snoc.c
++++ b/ath10k-4.20/snoc.c
+@@ -1095,7 +1095,7 @@ static int ath10k_snoc_napi_poll(struct napi_struct *ctx, int budget)
+ 	done = ath10k_htt_txrx_compl_task(ar, budget);
+ 
+ 	if (done < budget) {
+-		napi_complete(ctx);
++		napi_complete_done(ctx, done);
+ 		ath10k_snoc_irq_enable(ar);
+ 	}
+ 
+diff --git a/ath10k-4.9/pci.c b/ath10k-4.9/pci.c
+index b301b6d..4570e11 100644
+--- a/ath10k-4.9/pci.c
++++ b/ath10k-4.9/pci.c
+@@ -3157,7 +3157,7 @@ static int ath10k_pci_napi_poll(struct napi_struct *ctx, int budget)
+ 	done = ath10k_htt_txrx_compl_task(ar, budget);
+ 
+ 	if (done < budget) {
+-		napi_complete(ctx);
++		napi_complete_done(ctx, done);
+ 		/* In case of MSI, it is possible that interrupts are received
+ 		 * while NAPI poll is inprogress. So pending interrupts that are
+ 		 * received after processing all copy engine pipes by NAPI poll
+diff --git a/ath10k-5.2/snoc.c b/ath10k-5.2/snoc.c
+index 873cb4c..d0ba7e5 100644
+--- a/ath10k-5.2/snoc.c
++++ b/ath10k-5.2/snoc.c
+@@ -1160,7 +1160,7 @@ static int ath10k_snoc_napi_poll(struct napi_struct *ctx, int budget)
+ 	done = ath10k_htt_txrx_compl_task(ar, budget);
+ 
+ 	if (done < budget) {
+-		napi_complete(ctx);
++		napi_complete_done(ctx, done);
+ 		ath10k_snoc_irq_enable(ar);
+ 	}
+ 
+diff --git a/ath10k-5.4/snoc.c b/ath10k-5.4/snoc.c
+index fc15a00..e28a438 100644
+--- a/ath10k-5.4/snoc.c
++++ b/ath10k-5.4/snoc.c
+@@ -1175,7 +1175,7 @@ static int ath10k_snoc_napi_poll(struct napi_struct *ctx, int budget)
+ 	done = ath10k_htt_txrx_compl_task(ar, budget);
+ 
+ 	if (done < budget) {
+-		napi_complete(ctx);
++		napi_complete_done(ctx, done);
+ 		ath10k_snoc_irq_enable(ar);
+ 	}
+ 
