@@ -1,0 +1,58 @@
+From 424350957badaaed9ab54bded0eb3f090201e255 Mon Sep 17 00:00:00 2001
+From: Chen Minqiang <ptpt52@gmail.com>
+Date: Fri, 16 Feb 2024 16:35:26 +0800
+Subject: [PATCH] net/core: __netif_receive_skb_core handle INGRESS before taps
+
+Signed-off-by: Chen Minqiang <ptpt52@gmail.com>
+---
+ net/core/dev.c | 32 ++++++++++++++++----------------
+ 1 file changed, 16 insertions(+), 16 deletions(-)
+
+--- a/net/core/dev.c
++++ b/net/core/dev.c
+@@ -5354,22 +5354,6 @@ another_round:
+ 	if (skb_skip_tc_classify(skb))
+ 		goto skip_classify;
+ 
+-	if (pfmemalloc)
+-		goto skip_taps;
+-
+-	list_for_each_entry_rcu(ptype, &ptype_all, list) {
+-		if (pt_prev)
+-			ret = deliver_skb(skb, pt_prev, orig_dev);
+-		pt_prev = ptype;
+-	}
+-
+-	list_for_each_entry_rcu(ptype, &skb->dev->ptype_all, list) {
+-		if (pt_prev)
+-			ret = deliver_skb(skb, pt_prev, orig_dev);
+-		pt_prev = ptype;
+-	}
+-
+-skip_taps:
+ #ifdef CONFIG_NET_INGRESS
+ 	if (static_branch_unlikely(&ingress_needed_key)) {
+ 		bool another = false;
+@@ -5387,6 +5371,22 @@ skip_taps:
+ 			goto out;
+ 	}
+ #endif
++	if (pfmemalloc)
++		goto skip_taps;
++
++	list_for_each_entry_rcu(ptype, &ptype_all, list) {
++		if (pt_prev)
++			ret = deliver_skb(skb, pt_prev, orig_dev);
++		pt_prev = ptype;
++	}
++
++	list_for_each_entry_rcu(ptype, &skb->dev->ptype_all, list) {
++		if (pt_prev)
++			ret = deliver_skb(skb, pt_prev, orig_dev);
++		pt_prev = ptype;
++	}
++
++skip_taps:
+ 	skb_reset_redirect(skb);
+ skip_classify:
+ 	if (pfmemalloc && !skb_pfmemalloc_protocol(skb))
