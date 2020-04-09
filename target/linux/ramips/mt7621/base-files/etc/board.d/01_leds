@@ -261,6 +261,10 @@ xwrt,t-cpe1200k-v01)
 	ucidef_set_led_rssi "rssimedium" "RSSIMEDIUM" "blue:rssi3" "phy0-ap0" "40" "100"
 	ucidef_set_led_rssi "rssihigh" "RSSIHIGH" "blue:rssi4" "phy0-ap0" "70" "100"
 	;;
+xwrt,t-cpe1201k-v01)
+	ucidef_set_led_netdev "wlan2g" "WiFi 2.4GHz" "green:wlan2g" "phy0-ap0"
+	ucidef_set_led_netdev "wlan5g" "WiFi 5GHz" "green:wlan5g" "phy1-ap0"
+	;;
 xiaomi,mi-router-ac2100)
 	ucidef_set_led_netdev "wan-blue" "WAN (blue)" "blue:wan" "wan"
 	;;
