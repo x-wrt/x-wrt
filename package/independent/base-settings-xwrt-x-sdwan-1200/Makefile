@@ -47,6 +47,15 @@ fi
 exit 0
 endef
 
+define Package/base-settings-xwrt-x-sdwan-1200/install-overlay
+	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/view/themes/bootstrap
+	$(INSTALL_DATA) ./files/bootstrap/header.htm $(1)/usr/lib/lua/luci/view/themes/bootstrap/header.htm
+	$(INSTALL_DIR) $(1)/www/luci-static/bootstrap
+	$(INSTALL_DATA) ./files/bootstrap/cascade.css $(1)/www/luci-static/bootstrap/cascade.css
+	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/view/themes/openwrt2020
+	$(INSTALL_DATA) ./files/openwrt2020/header.htm $(1)/usr/lib/lua/luci/view/themes/openwrt2020/header.htm
+endef
+
 define Package/base-settings-xwrt-x-sdwan-1200/install
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
 	$(INSTALL_DATA) ./files/base-settings.defaults $(1)/etc/uci-defaults/96-base-settings
