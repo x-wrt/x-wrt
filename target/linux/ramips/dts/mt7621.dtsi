@@ -38,6 +38,18 @@
 		compatible = "mti,cpu-interrupt-controller";
 	};
 
+	reserved-memory {
+		#address-cells = <0x1>;
+		#size-cells = <0x1>;
+		ranges;
+
+		ramoops@3f00000 {
+			compatible = "ramoops";
+			reg = <0x3f00000 0x10000>;
+			record-size = <0x2000>;
+		};
+	};
+
 	chosen {
 		bootargs = "console=ttyS0,57600";
 	};
