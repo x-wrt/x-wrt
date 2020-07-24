@@ -157,12 +157,6 @@ int mtk_flow_offload(struct mtk_eth *eth,
 	if (otuple->l4proto != IPPROTO_TCP && otuple->l4proto != IPPROTO_UDP)
 		return -EINVAL;
 	
-	if (type == FLOW_OFFLOAD_DEL) {
-		flow = NULL;
-		synchronize_rcu();
-		return 0;
-	}
-
 	switch (otuple->l3proto) {
 	case AF_INET:
 		if (mtk_foe_prepare_v4(&orig, otuple, rtuple, src, dest) ||
@@ -178,6 +172,13 @@ int mtk_flow_offload(struct mtk_eth *eth,
 
 	default:
 		return -EINVAL;
+	}
+
+	if (type == FLOW_OFFLOAD_DEL) {
+		flow = NULL;
+		rcu_assign_pointer(eth->foe_flow_table[ohash], flow);
+		rcu_assign_pointer(eth->foe_flow_table[rhash], flow);
+		return 0;
 	}
 
 	/* Two-way hash: when hash collision occurs, the hash value will be shifted to the next position. */
