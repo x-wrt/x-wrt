@@ -65,7 +65,7 @@ mtk_foe_prepare_v4(struct mtk_foe_entry *entry,
 	entry->ipv4_hnapt.iblk2.fqos = 1;
 #endif
 #ifdef CONFIG_RALINK
-	entry->ipv4_hnapt.iblk2.dp = 1;
+	entry->ipv4_hnapt.iblk2.dp = (dest->dev->netdev_ops->ndo_flow_offload ? 1 : 0);
 	if ((dest->flags & FLOW_OFFLOAD_PATH_VLAN) && (dest->vlan_id > 1))
 		entry->ipv4_hnapt.iblk2.qid += 8;
 #else
@@ -502,6 +502,11 @@ static void mtk_offload_keepalive(struct fe_priv *eth, unsigned int hash)
 	rcu_read_unlock();
 }
 
+/* natflow.h */
+#define HWNAT_QUEUE_MAPPING_MAGIC      0x9000
+#define HWNAT_QUEUE_MAPPING_MAGIC_MASK 0xf000
+#define HWNAT_QUEUE_MAPPING_HASH_MASK  0x0fff
+
 int mtk_offload_check_rx(struct fe_priv *eth, struct sk_buff *skb, u32 rxd4)
 {
 	unsigned int hash;
@@ -515,6 +520,10 @@ int mtk_offload_check_rx(struct fe_priv *eth, struct sk_buff *skb, u32 rxd4)
 		return -1;
 	case MTK_CPU_REASON_PACKET_SAMPLING:
 		return -1;
+	case MTK_CPU_REASON_HIT_BIND_FORCE_CPU:
+		hash = FIELD_GET(MTK_RXD4_FOE_ENTRY, rxd4);
+		skb->queue_mapping = (HWNAT_QUEUE_MAPPING_MAGIC | hash);
+		skb->vlan_tci |= HWNAT_QUEUE_MAPPING_MAGIC;
 	default:
 		return 0;
 	}
