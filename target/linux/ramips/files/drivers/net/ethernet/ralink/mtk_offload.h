@@ -85,15 +85,15 @@ mtk_w32(struct mtk_eth *eth, u32 val, u32 reg)
 
 #define MTK_REG_PPE_BND_AGE0			0xe3c
 #define   MTK_PPE_BND_AGE0_NTU_DLTA_MASK	(0xffff << 16)
-#define   MTK_PPE_BND_AGE0_NTU_DLTA		(5 << 16)
+#define   MTK_PPE_BND_AGE0_NTU_DLTA		(2 << 16)
 #define   MTK_PPE_BND_AGE0_UDP_DLTA_MASK	0xffff
-#define   MTK_PPE_BND_AGE0_UDP_DLTA		5
+#define   MTK_PPE_BND_AGE0_UDP_DLTA		15
 
 #define MTK_REG_PPE_BND_AGE1			0xe40
 #define   MTK_PPE_BND_AGE1_FIN_DLTA_MASK	(0xffff << 16)
-#define   MTK_PPE_BND_AGE1_FIN_DLTA		(5 << 16)
+#define   MTK_PPE_BND_AGE1_FIN_DLTA		(2 << 16)
 #define   MTK_PPE_BND_AGE1_TCP_DLTA_MASK	0xffff
-#define   MTK_PPE_BND_AGE1_TCP_DLTA		5
+#define   MTK_PPE_BND_AGE1_TCP_DLTA		15
 
 #define MTK_REG_PPE_DFT_CPORT			0xe48
 
@@ -113,6 +113,7 @@ mtk_w32(struct mtk_eth *eth, u32 val, u32 reg)
 #define   MTK_PPE_TB_CFG_ENTRY_SZ_64B		0
 #define   MTK_PPE_TB_CFG_ENTRY_SZ_MASK		BIT(3)
 #define   MTK_PPE_TB_CFG_TBL_SZ_4K		2
+#define   MTK_PPE_TB_CFG_TBL_SZ_8K		3
 #define   MTK_PPE_TB_CFG_TBL_SZ_MASK		0x7
 
 #define MTK_REG_PPE_HASH_SEED			0xe44
@@ -250,8 +251,8 @@ enum mtk_foe_cpu_reason {
 };
 
 
-/* our table size is 4K */
-#define MTK_PPE_ENTRY_CNT		0x1000
+/* our table size is 8K */
+#define MTK_PPE_ENTRY_CNT		0x2000
 #define MTK_PPE_TBL_SZ			\
 			(MTK_PPE_ENTRY_CNT * sizeof(struct mtk_foe_entry))
 
