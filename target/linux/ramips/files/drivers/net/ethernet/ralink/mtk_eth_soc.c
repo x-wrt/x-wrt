@@ -719,6 +719,14 @@ static int fe_tx_map_dma(struct sk_buff *skb, struct net_device *dev,
 		}
 	}
 
+#ifdef CONFIG_NET_RALINK_OFFLOAD
+	if ((skb->mark & HWNAT_QUEUE_MAPPING_MAGIC_MASK) == HWNAT_QUEUE_MAPPING_MAGIC &&
+		(skb->hash & HWNAT_QUEUE_MAPPING_MAGIC_MASK) == HWNAT_QUEUE_MAPPING_MAGIC) {
+		st.txd.txd4 &= ~(TX_DMA_FPORT_MASK << TX_DMA_FPORT_SHIFT);
+		st.txd.txd4 |= (0x4 & TX_DMA_FPORT_MASK) << TX_DMA_FPORT_SHIFT;
+	}
+#endif
+
 next_frag:
 	if (skb_headlen(skb) && fe_tx_dma_map_skb(ring, &st, skb))
 		goto err_dma;
@@ -952,7 +960,7 @@ static int fe_poll_rx(struct napi_struct *napi, int budget,
 		skb->protocol = eth_type_trans(skb, netdev);
 
 		if (netdev->features & NETIF_F_HW_VLAN_CTAG_RX &&
-		    RX_DMA_VID(trxd.rxd3))
+		    (trxd.rxd2 & RX_DMA_TAG))
 			__vlan_hwaccel_put_tag(skb, htons(ETH_P_8021Q),
 					       RX_DMA_VID(trxd.rxd3));
 
@@ -1517,19 +1525,40 @@ static int fe_change_mtu(struct net_device *dev, int new_mtu)
 
 #ifdef CONFIG_NET_RALINK_OFFLOAD
 static int
-fe_flow_offload(enum flow_offload_type type, struct flow_offload *flow,
-		struct flow_offload_hw_path *src,
-		struct flow_offload_hw_path *dest)
+fe_flow_offload(flow_offload_type_t type, flow_offload_t *flow,
+		flow_offload_hw_path_t *src,
+		flow_offload_hw_path_t *dest)
 {
-	struct fe_priv *priv;
+	struct fe_priv *priv = NULL;
 
-	if (src->dev != dest->dev)
+	/* for now offload only do support natflow */
+	if (flow->flags != 0) {
 		return -EINVAL;
+	}
 
-	priv = netdev_priv(src->dev);
+	if (src->dev->netdev_ops->ndo_flow_offload == fe_flow_offload) {
+		priv = netdev_priv(src->dev);
+	} else if (dest->dev->netdev_ops->ndo_flow_offload == fe_flow_offload) {
+		priv = netdev_priv(dest->dev);
+	} else {
+		return -EINVAL;
+	}
 
 	return mtk_flow_offload(priv, type, flow, src, dest);
 }
+
+#if IS_ENABLED(CONFIG_NF_FLOW_TABLE)
+static int fe_flow_offload_check(flow_offload_hw_path_t *path)
+{
+	if (!(path->flags & FLOW_OFFLOAD_PATH_ETHERNET))
+		return -EINVAL;
+
+	if ((path->flags & FLOW_OFFLOAD_PATH_STOP)) {
+		ra_flow_offload_stop();
+	}
+	return 0;
+}
+#endif
 #endif
 
 static const struct net_device_ops fe_netdev_ops = {
@@ -1551,6 +1580,9 @@ static const struct net_device_ops fe_netdev_ops = {
 #endif
 #ifdef CONFIG_NET_RALINK_OFFLOAD
 	.ndo_flow_offload	= fe_flow_offload,
+#if IS_ENABLED(CONFIG_NF_FLOW_TABLE)
+	.ndo_flow_offload_check	= fe_flow_offload_check,
+#endif
 #endif
 };
 
