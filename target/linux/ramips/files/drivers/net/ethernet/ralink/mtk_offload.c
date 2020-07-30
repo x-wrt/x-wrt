@@ -497,8 +497,13 @@ static void mtk_offload_keepalive(struct fe_priv *eth, unsigned int hash)
 
 	rcu_read_lock();
 	flow = rcu_dereference(eth->foe_flow_table[hash]);
-	if (flow)
-		flow->timeout = jiffies + 30 * HZ;
+	if (flow) {
+		void (*func)(unsigned int);
+		func = (void *)flow->priv;
+		if (func) {
+			func(hash);
+		}
+	}
 	rcu_read_unlock();
 }
 

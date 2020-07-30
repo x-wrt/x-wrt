@@ -1523,6 +1523,11 @@ fe_flow_offload(enum flow_offload_type type, struct flow_offload *flow,
 {
 	struct fe_priv *priv = NULL;
 
+	/* for now offload only do support natflow */
+	if (flow->flags != 0) {
+		return -EINVAL;
+	}
+
 	if (src->dev->netdev_ops->ndo_flow_offload == fe_flow_offload) {
 		priv = netdev_priv(src->dev);
 	} else if (dest->dev->netdev_ops->ndo_flow_offload == fe_flow_offload) {
