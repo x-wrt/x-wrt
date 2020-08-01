@@ -193,6 +193,35 @@ int mtk_flow_offload(struct mtk_eth *eth,
                 rhash += 1;
 	}
 
+	if (ohash != ((flow->timeout >> 16) & 0xfff)) {
+		if (ohash % 2 == 0) {
+			if (!mtk_check_entry_available(eth, ohash + 1)) {
+				return -EINVAL;
+			} else {
+				ohash += 1;
+				if (ohash != ((flow->timeout >> 16) & 0xfff)) {
+					return -EINVAL;
+				}
+			}
+		} else {
+			return -EINVAL;
+		}
+	}
+	if (rhash != ((flow->timeout >> 0) & 0xfff)) {
+		if (rhash % 2 == 0) {
+			if (!mtk_check_entry_available(eth, rhash + 1)) {
+				return -EINVAL;
+			} else {
+				rhash += 1;
+				if (rhash != ((flow->timeout >> 0) & 0xfff)) {
+					return -EINVAL;
+				}
+			}
+		} else {
+			return -EINVAL;
+		}
+	}
+
 	mtk_foe_set_mac(&orig, dest->eth_src, dest->eth_dest);
 	mtk_foe_set_mac(&reply, src->eth_src, src->eth_dest);
 	mtk_foe_write(eth, ohash, &orig);
