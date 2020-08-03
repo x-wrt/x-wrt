@@ -362,6 +362,9 @@ xwrt,gw521-16m)
 	ucidef_set_led_switch "eth" "ETH" "xwrt:green:eth" "switch0" "0x6"
 	ucidef_set_led_wlan "wifi" "WIFI" "xwrt:green:wifi" "phy1tpt"
 	;;
+xwrt,xd1202g)
+	ucidef_set_led_wlan "wlan2g" "WLAN2G" "xwrt:blue:wlan" "phy0tpt"
+	;;
 yuncore,a770)
 	ucidef_set_led_netdev "wan" "WAN" "$boardname:green:wan" "eth1"
 	ucidef_set_led_switch "lan" "LAN" "$boardname:green:lan" "switch0" "0x10"
