@@ -2407,6 +2407,24 @@ define Device/xwrt_csac2
 endef
 TARGET_DEVICES += xwrt_csac2
 
+define Device/xwrt_xd1202g
+  SOC := qca9563
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := XD1202G
+  IMAGE_SIZE := 14464k
+  LOADER_TYPE := bin
+  LOADER_FLASH_OFFS := 0x60000
+  COMPILE := loader-$(1).bin loader-$(1).uImage
+  COMPILE/loader-$(1).bin := loader-okli-compile
+  COMPILE/loader-$(1).uImage := append-loader-okli $(1) | pad-to 64k | lzma | uImage lzma
+  KERNEL := kernel-bin | append-dtb | lzma | uImage lzma -M 0x4f4b4c49
+  IMAGES += breed-factory.bin
+  IMAGE/breed-factory.bin := append-kernel | pad-to $$$$(BLOCKSIZE) | append-rootfs | pad-rootfs | \
+			     prepad-okli-kernel $(1) | pad-to 14528k | append-okli-kernel $(1)
+  DEVICE_PACKAGES := kmod-leds-reset kmod-ath10k-ct ath10k-firmware-qca9888-ct
+endef
+TARGET_DEVICES += xwrt_xd1202g
+
 define Device/xwrt_m-ap300g
   SOC := ar9344
   DEVICE_VENDOR := XWRT
