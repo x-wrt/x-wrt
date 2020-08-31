@@ -2052,7 +2052,7 @@ $(eval $(call KernelPackage,qlcnic))
 define KernelPackage/sfp
   SUBMENU:=$(NETWORK_DEVICES_MENU)
   TITLE:=SFP cage support
-  DEPENDS:=+kmod-i2c-core +kmod-hwmon-core +kmod-phylink
+  DEPENDS:=+kmod-i2c-core +kmod-hwmon-core +kmod-phylink +LINUX_5_4:kmod-libphy
   KCONFIG:= \
 	CONFIG_SFP \
 	CONFIG_MDIO_I2C
