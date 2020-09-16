@@ -198,6 +198,7 @@ ath79_setup_interfaces()
 	tplink,archer-c5-v1|\
 	tplink,archer-c7-v1|\
 	tplink,archer-c7-v2|\
+	tplink,tl-wdr4900-v2-16m|\
 	tplink,tl-wdr4900-v2|\
 	tplink,tl-wdr7500-v3)
 		ucidef_add_switch "switch0" \
