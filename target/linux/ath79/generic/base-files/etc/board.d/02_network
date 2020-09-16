@@ -195,6 +195,7 @@ ath79_setup_interfaces()
 	nec,wg1800hp|\
 	nec,wg1800hp2|\
 	nec,wg2200hp|\
+	tplink,tl-wdr4900-v2-16m|\
 	tplink,tl-wdr4900-v2)
 		ucidef_add_switch "switch0" \
 			"0u@eth1" "2:lan" "3:lan" "4:lan" "5:lan" "6u@eth0" "1:wan"
