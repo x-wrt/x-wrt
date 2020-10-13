@@ -19,9 +19,51 @@ platform_check_image() {
 	buffalo,wsr-2533dhpls)
 		buffalo_check_image "$board" "$magic" "$1" || return 1
 		;;
+	xwrt,wr1800k-ax-norplusemmc)
+		norplusemmc_check_image "$1"
+		return $?
+		;;
 	esac
 
 	return 0
+}
+
+platform_copy_config() {
+	local board=$(board_name)
+	case "$board" in
+	xwrt,wr1800k-ax-norplusemmc)
+		norplusemmc_copy_config || {
+			echo "Failed to save NOR/eMMC upgrade configuration" >&2
+			exit 1
+		}
+	esac
+}
+
+tenbay_dualboot_fixup()
+{
+	[ "$(rootfs_type)" = "tmpfs" ] || return 0
+
+	if ! fw_printenv -n boot_from &>/dev/null; then
+		echo "unable to read uboot-env"
+	else
+		fw_setenv boot_from ubi
+	fi
+
+	if ! fw_printenv -n firmware_select &>/dev/null; then
+		echo "unable to read firmware_select"
+	else
+		fw_setenv firmware_select 1
+	fi
+}
+
+platform_pre_upgrade() {
+	local board=$(board_name)
+
+	case "$board" in
+	xwrt,wr1800k-ax-nand)
+		tenbay_dualboot_fixup
+		;;
+	esac
 }
 
 platform_do_upgrade() {
@@ -155,6 +197,7 @@ platform_do_upgrade() {
 	xiaomi,mi-router-cr660x|\
 	z-router,zr-2660|\
 	z-router,zr-2662|\
+	xwrt,wr1800k-ax-nand|\
 	zyxel,nwa50ax|\
 	zyxel,nwa55axe)
 		nand_do_upgrade "$1"
@@ -214,6 +257,12 @@ platform_do_upgrade() {
 	ubnt,edgerouter-x|\
 	ubnt,edgerouter-x-sfp)
 		platform_upgrade_ubnt_erx "$1"
+		;;
+	xwrt,wr1800k-ax-norplusemmc)
+		norplusemmc_do_upgrade "$1" || {
+			echo "NOR/eMMC upgrade failed" >&2
+			exit 1
+		}
 		;;
 	zyxel,lte3301-plus|\
 	zyxel,lte5398-m904|\
