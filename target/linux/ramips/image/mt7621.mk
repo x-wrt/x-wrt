@@ -3909,6 +3909,61 @@ define Device/xzwifi_creativebox-v1
 endef
 TARGET_DEVICES += xzwifi_creativebox-v1
 
+define Device/xwrt_wr1800k-ax-nand
+  $(Device/nand)
+  $(Device/uimage-lzma-loader)
+  IMAGE_SIZE := 120320k
+  IMAGES += factory.bin
+  IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | check-size
+ifneq ($(CONFIG_TARGET_ROOTFS_INITRAMFS),)
+  ARTIFACTS := initramfs-G-AX18OO-factory.bin initramfs-WR1800K-factory.bin
+  ARTIFACT/initramfs-G-AX18OO-factory.bin := append-image-stage initramfs-kernel.bin | \
+	tenbay-factory G-AX18OO
+  ARTIFACT/initramfs-WR1800K-factory.bin := append-image-stage initramfs-kernel.bin | \
+	tenbay-factory WR1800K
+endif
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := WR1800K-AX
+  DEVICE_VARIANT := NAND
+  DEVICE_PACKAGES := kmod-mt7915-firmware
+endef
+TARGET_DEVICES += xwrt_wr1800k-ax-nand
+
+define Device/xwrt_wr1800k-ax-norplusemmc
+  $(Device/dsa-migration)
+  DEVICE_COMPAT_VERSION := 1.0
+  DEVICE_COMPAT_MESSAGE := Config is compat with swconfig
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := WR1800K-AX
+  DEVICE_VARIANT := NORPLUSEMMC
+  DEVICE_PACKAGES += kmod-ata-ahci kmod-sdhci-mt7620 kmod-mt7915-firmware \
+		     kmod-usb3 kmod-i2c-core kmod-eeprom-at24 i2c-tools \
+		     uboot-envtools partx-utils mkf2fs e2fsprogs kmod-fs-msdos \
+		     base-config-setting-ext4fs
+  SUPPORTED_DEVICES += mt7621-dm2-t-mb5eu-v01-nor
+  LOADER_TYPE := bin
+  KERNEL := kernel-bin | append-dtb | lzma | loader-kernel | uImage none
+  IMAGES := sysupgrade.tar
+  IMAGE/sysupgrade.tar := initrd-kernel | append-dtb | lzma | loader-kernel | uImage none | norplusemmc-combined-tar | append-metadata
+endef
+TARGET_DEVICES += xwrt_wr1800k-ax-norplusemmc
+
+define Device/xwrt_wr1800k-ax-nor
+  $(Device/uimage-lzma-loader)
+  $(Device/dsa-migration)
+  DEVICE_COMPAT_VERSION := 1.0
+  DEVICE_COMPAT_MESSAGE := Config is compat with swconfig
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := WR1800K-AX
+  DEVICE_VARIANT := NOR
+  DEVICE_PACKAGES += kmod-ata-ahci kmod-sdhci-mt7620 kmod-mt7915-firmware \
+		     kmod-usb3 kmod-i2c-core kmod-eeprom-at24 i2c-tools \
+		     uboot-envtools partx-utils mkf2fs e2fsprogs
+  IMAGE_SIZE := 15808k
+  SUPPORTED_DEVICES += mt7621-dm2-t-mb5eu-v01-nor
+endef
+TARGET_DEVICES += xwrt_wr1800k-ax-nor
+
 define Device/xwrt_t-cpe1200k-v01
   $(Device/uimage-lzma-loader)
   IMAGE_SIZE := 16000k

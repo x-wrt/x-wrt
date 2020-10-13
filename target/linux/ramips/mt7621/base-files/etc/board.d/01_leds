@@ -275,6 +275,15 @@ xwrt,t-cpe1201k-v01)
 	ucidef_set_led_netdev "wlan2g" "WiFi 2.4GHz" "green:wlan2g" "phy0-ap0"
 	ucidef_set_led_netdev "wlan5g" "WiFi 5GHz" "green:wlan5g" "phy1-ap0"
 	;;
+xwrt,wr1800k-ax-nand)
+	ucidef_set_led_netdev "wan" "wan" "ether:blue" "wan" "link"
+	ucidef_set_led_netdev "wifi2g" "Wifi 2.4G" "wlan:green" "phy0-ap0" "link"
+	;;
+xwrt,wr1800k-ax-norplusemmc|\
+xwrt,wr1800k-ax-nor)
+	ucidef_set_led_netdev "wan" "wan" "ether:blue" "eth1"
+	ucidef_set_led_netdev "wifi2g" "Wifi 2.4G" "wlan:green" "phy0-ap0" "link"
+	;;
 xiaomi,mi-router-ac2100)
 	ucidef_set_led_netdev "wan-blue" "WAN (blue)" "blue:wan" "eth1"
 	;;
