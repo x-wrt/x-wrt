@@ -116,6 +116,7 @@ dell,apl26-0ae|\
 dell,apl27-0b1)
 	ubootenv_add_uci_config "/dev/mtd1" "0x0" "0x40000" "0x10000"
 	;;
+domywifi,dw33d-nor|\
 domywifi,dw33d)
 	ubootenv_add_uci_config "/dev/mtd4" "0x0" "0x10000" "0x10000"
 	;;
