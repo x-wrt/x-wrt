@@ -114,6 +114,7 @@ genexis,pulse-ex400)
 	ubootenv_add_uci_config "/dev/ubi0_0" "0x0" "0x1f000" "0x1f000" "1"
 	ubootenv_add_uci_config "/dev/ubi0_1" "0x0" "0x1f000" "0x1f000" "1"
 	;;
+xwrt,wr1800k-ax-nand|\
 haier,har-20s2u1|\
 sim,simax1800t|\
 sim,simax1800u)
