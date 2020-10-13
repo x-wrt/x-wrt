@@ -34,6 +34,8 @@ allnet,all5002|\
 asiarf,ap7621-004-v3|\
 comfast,cf-ew84|\
 plasmacloud,pax1800-lite|\
+xwrt,wr1800k-ax-norplusemmc|\
+xwrt,wr1800k-ax-nor|\
 xwrt,nxc200p|\
 xwrt,puppies|\
 yuncore,ax820)
@@ -119,6 +121,7 @@ genexis,pulse-ex400)
 	ubootenv_add_uci_config "/dev/ubi0_0" "0x0" "0x1f000" "0x1f000" "1"
 	ubootenv_add_uci_config "/dev/ubi0_1" "0x0" "0x1f000" "0x1f000" "1"
 	;;
+xwrt,wr1800k-ax-nand|\
 haier,har-20s2u1|\
 sim,simax1800t|\
 sim,simax1800u)
@@ -167,6 +170,13 @@ zyxel,lte5398-m904|\
 zyxel,lte7490-m904|\
 zyxel,nr7101)
 	ubootenv_add_mtd "Config" "0x0" "0x1000" "0x80000"
+	;;
+esac
+
+case "$board" in
+xwrt,wr1800k-ax-norplusemmc|\
+xwrt,wr1800k-ax-nor)
+	ubootenv_add_uci_sys_config "/dev/mtd2" "0x0" "0x10000" "0x10000"
 	;;
 esac
 
