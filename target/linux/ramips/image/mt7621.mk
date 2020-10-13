@@ -1703,6 +1703,24 @@ define Device/xzwifi_creativebox-v1
 endef
 TARGET_DEVICES += xzwifi_creativebox-v1
 
+define Device/xwrt_wr1800k-ax-nand
+  $(Device/dsa-migration)
+  $(Device/uimage-lzma-loader)
+  BLOCKSIZE := 128k
+  PAGESIZE := 2048
+  KERNEL_SIZE := 4096k
+  IMAGE_SIZE := 129408k
+  UBINIZE_OPTS := -E 5
+  IMAGES += factory.bin
+  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+  IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | check-size
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := WR1800K-AX
+  DEVICE_VARIANT := NAND
+  DEVICE_PACKAGES := kmod-mt7915e
+endef
+TARGET_DEVICES += xwrt_wr1800k-ax-nand
+
 define Device/xwrt_t-cpe1200k-v01
   $(Device/uimage-lzma-loader)
   SOC := mt7621
