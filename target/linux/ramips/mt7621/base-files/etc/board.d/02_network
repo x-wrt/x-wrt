@@ -45,6 +45,7 @@ ramips_setup_interfaces()
 		ucidef_set_interface_lan "lan1 lan2"
 		;;
 	hiwifi,hc5962|\
+	xwrt,wr1800k-ax-nand|\
 	xiaomi,mi-router-3-pro-nor|\
 	xiaomi,mi-router-3-pro)
 		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3" "wan"
