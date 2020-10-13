@@ -24,6 +24,33 @@ platform_check_image() {
 	return 0
 }
 
+tenbay_dualboot_fixup()
+{
+	[ "$(rootfs_type)" = "tmpfs" ] || return 0
+
+	if ! fw_printenv -n boot_from &>/dev/null; then
+		echo "unable to read uboot-env"
+	else
+		fw_setenv boot_from ubi
+	fi
+
+	if ! fw_printenv -n firmware_select &>/dev/null; then
+		echo "unable to read firmware_select"
+	else
+		fw_setenv firmware_select 1
+	fi
+}
+
+platform_pre_upgrade() {
+	local board=$(board_name)
+
+	case "$board" in
+	xwrt,wr1800k-ax-nand)
+		tenbay_dualboot_fixup
+		;;
+	esac
+}
+
 platform_do_upgrade() {
 	local board=$(board_name)
 
@@ -146,6 +173,7 @@ platform_do_upgrade() {
 	xiaomi,mi-router-cr6609|\
 	xiaomi,mi-router-cr660x|\
 	z-router,zr-2660|\
+	xwrt,wr1800k-ax-nand|\
 	zyxel,nwa50ax|\
 	zyxel,nwa55axe)
 		nand_do_upgrade "$1"
