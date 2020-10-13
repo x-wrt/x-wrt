@@ -3625,6 +3625,26 @@ define Device/xzwifi_creativebox-v1
 endef
 TARGET_DEVICES += xzwifi_creativebox-v1
 
+define Device/xwrt_wr1800k-ax-nand
+  $(Device/nand)
+  $(Device/uimage-lzma-loader)
+  IMAGE_SIZE := 120320k
+  IMAGES += factory.bin
+  IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | check-size
+ifneq ($(CONFIG_TARGET_ROOTFS_INITRAMFS),)
+  ARTIFACTS := initramfs-G-AX18OO-factory.bin initramfs-WR1800K-factory.bin
+  ARTIFACT/initramfs-G-AX18OO-factory.bin := append-image-stage initramfs-kernel.bin | \
+	tenbay-factory G-AX18OO
+  ARTIFACT/initramfs-WR1800K-factory.bin := append-image-stage initramfs-kernel.bin | \
+	tenbay-factory WR1800K
+endif
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := WR1800K-AX
+  DEVICE_VARIANT := NAND
+  DEVICE_PACKAGES := kmod-mt7915-firmware
+endef
+TARGET_DEVICES += xwrt_wr1800k-ax-nand
+
 define Device/xwrt_t-cpe1200k-v01
   $(Device/uimage-lzma-loader)
   IMAGE_SIZE := 16000k
