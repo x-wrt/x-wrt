@@ -251,6 +251,146 @@ define Device/nand
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
 endef
 
+define Build/norplusemmc-combined-tar
+	-[ -f "$@" ] && mv "$@" "$@.flash"
+
+	rm -fR $@.boot
+	mkdir -p $@.boot
+
+	$(CP) $(IMAGE_KERNEL) $@.boot/linux.itb
+
+	( \
+		GPT_ROOTPART=`echo $(IMG_PART_DISKGUID) | sed 's/00$$/02/'`; \
+		echo \
+			"bootargs=console=ttyS0,115200 root=PARTUUID=$${GPT_ROOTPART}" \
+			> $@.boot/uEnv.txt; \
+	)
+
+	GUID=$(IMG_PART_DISKGUID) \
+	PADDING="1" \
+	SIGNATURE="$(IMG_PART_SIGNATURE)" \
+	$(SCRIPT_DIR)/gen_image_generic.sh \
+		$@ \
+		16 $@.boot \
+		$(if $(CONFIG_TARGET_ROOTFS_PARTSIZE),$(CONFIG_TARGET_ROOTFS_PARTSIZE),256) $(IMAGE_ROOTFS) \
+		256
+
+	printf '\xeb\x48' | dd of="$@" conv=notrunc
+
+	gzip -f -9n -c "$@" > "$@.emmc"
+
+	sh $(TOPDIR)/scripts/sysupgrade-tar.sh \
+		--board $(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME)) \
+		--kernel "$@.flash" \
+		--rootfs "$@.emmc" \
+		$@
+
+	rm -f "$@.flash" "$@.emmc"
+endef
+
+define Build/initrd-kernel
+	rm -fR $@.initrd
+	rm -fR $@.initrd.cpio
+
+	mkdir -p $@.initrd/{bin,dev,lib,proc,root,sys}
+	mkdir -p $@.initrd/lib/modules/$(LINUX_VERSION)
+
+	$(CP) ./initrd/init $@.initrd/
+	chmod +x $@.initrd/init
+
+	$(CP) $(TARGET_DIR)/bin/busybox $@.initrd/bin/
+	$(LN) busybox $@.initrd/bin/sh
+	$(LN) busybox $@.initrd/bin/ls
+	$(LN) busybox $@.initrd/bin/ln
+	$(LN) busybox $@.initrd/bin/mkdir
+	$(LN) busybox $@.initrd/bin/mount
+	$(LN) busybox $@.initrd/bin/umount
+	$(LN) busybox $@.initrd/bin/find
+	$(LN) busybox $@.initrd/bin/grep
+	$(LN) busybox $@.initrd/bin/sed
+	$(LN) busybox $@.initrd/bin/cat
+	$(LN) busybox $@.initrd/bin/mknod
+	$(LN) busybox $@.initrd/bin/switch_root
+	$(LN) busybox $@.initrd/bin/reboot
+	$(LN) busybox $@.initrd/bin/sleep
+
+	$(CP) $(TARGET_DIR)/sbin/kmodloader $@.initrd/bin/
+	$(LN) kmodloader $@.initrd/bin/modprobe
+
+	$(CP) $(TARGET_DIR)/usr/sbin/blkid $@.initrd/bin/
+
+	( \
+		KMODS=(ext4 crc32c_generic mtk_sd mmc_block xhci-mtk usb-storage sd_mod); \
+		for kmod in "$${KMODS[@]}"; do \
+			$(CP) \
+				$(TARGET_DIR)/lib/modules/$(LINUX_VERSION)/$$kmod.ko \
+				$@.initrd/lib/modules/$(LINUX_VERSION)/; \
+		done; \
+	)
+
+	$(CP) $(TARGET_DIR)/lib/ld* $@.initrd/lib/
+	( \
+		set -o pipefail; \
+		FLAG_FILE="$@.initrd/.new"; \
+		touch "$$FLAG_FILE"; \
+		while [ -f "$$FLAG_FILE" ]; do \
+			rm "$$FLAG_FILE"; \
+			( \
+				export \
+					READELF=$(TARGET_CROSS)readelf \
+					OBJCOPY=$(TARGET_CROSS)objcopy \
+					XARGS="$(XARGS)"; \
+				$(SCRIPT_DIR)/gen-dependencies.sh "$@.initrd/"; \
+			) | while read DEPS; do \
+				if [ "$${DEPS##*.}" == "ko" ]; then \
+					SRC_PATHS=("$(TARGET_DIR)/lib/modules/$(LINUX_VERSION)"); \
+					TARGET_PATH="$@.initrd/lib/modules/$(LINUX_VERSION)"; \
+				else \
+					SRC_PATHS=("$(TARGET_DIR)/lib" "$(TARGET_DIR)/usr/lib"); \
+					TARGET_PATH="$@.initrd/lib"; \
+				fi; \
+				if [ ! -f "$$TARGET_PATH/$$DEPS" ]; then \
+					for src in "$${SRC_PATHS[@]}"; do \
+						if [ -f "$$src/$$DEPS" ]; then \
+							cp "$$src/$$DEPS" "$$TARGET_PATH/$$DEPS" || exit 1; \
+						fi; \
+					done; \
+					[ -f "$$TARGET_PATH/$$DEPS" ] || { \
+						echo "Missing initrd dependency: $$DEPS" >&2; \
+						exit 1; \
+					}; \
+					touch "$$FLAG_FILE"; \
+				fi; \
+			done || exit 1; \
+		done; \
+		rm -f "$$FLAG_FILE"; \
+	)
+
+	rm -f $(LINUX_DIR)/.config.prev
+	mv $(LINUX_DIR)/.config $(LINUX_DIR)/.config.old
+	grep -v \
+		-e INITRAMFS \
+		-e CONFIG_RD_ \
+		-e CONFIG_BLK_DEV_INITRD \
+		$(LINUX_DIR)/.config.old > $(LINUX_DIR)/.config
+	echo 'CONFIG_INITRAMFS_ROOT_UID=$(shell id -u)' >> $(LINUX_DIR)/.config
+	echo 'CONFIG_INITRAMFS_ROOT_GID=$(shell id -g)' >> $(LINUX_DIR)/.config
+	echo "# CONFIG_INITRAMFS_FORCE is not set"                                               >> $(LINUX_DIR)/.config
+	echo "# CONFIG_INITRAMFS_PRESERVE_MTIME is not set"                                      >> $(LINUX_DIR)/.config
+	echo "# CONFIG_INITRAMFS_COMPRESSION_NONE is not set"                                    >> $(LINUX_DIR)/.config
+	echo -e "# CONFIG_INITRAMFS_COMPRESSION_GZIP is not set\n# CONFIG_RD_GZIP is not set"    >> $(LINUX_DIR)/.config
+	echo -e "# CONFIG_INITRAMFS_COMPRESSION_BZIP2 is not set\n# CONFIG_RD_BZIP2 is not set"  >> $(LINUX_DIR)/.config
+	echo -e "CONFIG_INITRAMFS_COMPRESSION_LZMA=y\nCONFIG_RD_LZMA=y"                          >> $(LINUX_DIR)/.config
+	echo -e "# CONFIG_INITRAMFS_COMPRESSION_LZO is not set\n# CONFIG_RD_LZO is not set"      >> $(LINUX_DIR)/.config
+	echo -e "# CONFIG_INITRAMFS_COMPRESSION_XZ is not set\n# CONFIG_RD_XZ is not set"        >> $(LINUX_DIR)/.config
+	echo -e "# CONFIG_INITRAMFS_COMPRESSION_LZ4 is not set\n# CONFIG_RD_LZ4 is not set"      >> $(LINUX_DIR)/.config
+	echo -e "# CONFIG_INITRAMFS_COMPRESSION_ZSTD is not set\n# CONFIG_RD_ZSTD is not set"    >> $(LINUX_DIR)/.config
+	echo 'CONFIG_BLK_DEV_INITRD=y'                                                           >> $(LINUX_DIR)/.config
+	echo 'CONFIG_INITRAMFS_SOURCE="$(strip $@.initrd $(GENERIC_PLATFORM_DIR)/image/initramfs-base-files.txt)"' >> $(LINUX_DIR)/.config
+	$(KERNEL_MAKE) $(KERNEL_MAKEOPTS_IMAGE) $(if $(KERNELNAME),$(KERNELNAME),all) modules
+	$(KERNEL_CROSS)objcopy -O binary $(OBJCOPY_STRIP) -S $(LINUX_DIR)/vmlinux $@
+endef
+
 define Build/tenbay-factory
   $(eval model=$(word 1,$(1)))
   $(eval magic=$(word 2,$(1)))
