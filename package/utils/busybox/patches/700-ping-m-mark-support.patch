@@ -1,0 +1,90 @@
+From: Chen Minqiang <ptpt52@gmail.com>
+Subject: [PATCH] ping: support packet marks with checked parsing and errors
+
+Add -m MARK and validate its unsigned value and SO_MARK result.
+
+Co-authored-by: PTPT52.AI <ptpt52@gmail.com>
+
+--- a/networking/ping.c
++++ b/networking/ping.c
+@@ -71,6 +71,7 @@
+ //usage:	IF_PING6(
+ //usage:     "\n	-4,-6		Force IP or IPv6 name resolution"
+ //usage:	)
++//usage:     "\n	-m MARK		Tag the packets going out"
+ //usage:     "\n	-c CNT		Send only CNT pings"
+ //usage:     "\n	-s SIZE		Send SIZE data bytes in packets (default 56)"
+ //usage:     "\n	-i SECS		Interval"
+@@ -397,8 +398,8 @@
+ 
+ /* Full(er) version */
+ 
+-/* -c NUM, -t NUM, -w NUM, -W NUM */
+-#define OPT_STRING "qvAc:+s:t:+w:+W:+I:np:i:4"IF_PING6("6")
++/* -m NUM, -c NUM, -t NUM, -w NUM, -W NUM */
++#define OPT_STRING "qvAc:+s:t:+w:+W:+I:np:i:m:4"IF_PING6("6")
+ enum {
+ 	OPT_QUIET = 1 << 0,
+ 	OPT_VERBOSE = 1 << 1,
+@@ -412,8 +413,9 @@
+ 	/*OPT_n = 1 << 9, - ignored */
+ 	OPT_p = 1 << 10,
+ 	OPT_i = 1 << 11,
+-	OPT_IPV4 = 1 << 12,
+-	OPT_IPV6 = (1 << 13) * ENABLE_PING6,
++	OPT_m = 1 << 12,
++	OPT_IPV4 = 1 << 13,
++	OPT_IPV6 = (1 << 14) * ENABLE_PING6,
+ };
+ 
+ 
+@@ -422,6 +424,7 @@
+ 	char *str_I;
+ 	len_and_sockaddr *source_lsa;
+ 	unsigned datalen;
++	unsigned pingmark; /* must be int-sized */
+ 	unsigned pingcount; /* must be int-sized */
+ 	unsigned opt_ttl;
+ 	unsigned long ntransmitted, nreceived, nrepeats;
+@@ -452,6 +455,7 @@
+ #define source_lsa   (G.source_lsa  )
+ #define str_I        (G.str_I       )
+ #define datalen      (G.datalen     )
++#define pingmark     (G.pingmark    )
+ #define pingcount    (G.pingcount   )
+ #define opt_ttl      (G.opt_ttl     )
+ #define myid         (G.myid        )
+@@ -920,6 +924,12 @@
+ 	if (str_I)
+ 		setsockopt_bindtodevice(pingsock, str_I);
+ 
++	if (pingmark != 0
++	 && setsockopt_SOL_SOCKET_int(pingsock, SO_MARK, pingmark) < 0
++	) {
++		bb_simple_perror_msg_and_die("SO_MARK");
++	}
++
+ 	G.sizeof_rcv_packet = datalen + MAXIPLEN + MAXICMPLEN;
+ 	G.rcv_packet = xzalloc(G.sizeof_rcv_packet);
+ #if ENABLE_PING6
+@@ -939,7 +949,7 @@
+ static int common_ping_main(int opt, char **argv)
+ {
+ 	len_and_sockaddr *lsa;
+-	char *str_s, *str_p;
++	char *str_s, *str_p, *str_m;
+ 	char *str_i = (char*)"1";
+ 	duration_t interval;
+ 
+@@ -949,8 +959,10 @@
+ 			OPT_STRING
+ 			/* exactly one arg; -v and -q don't mix */
+ 			"\0" "=1:q--v:v--q",
+-			&pingcount, &str_s, &opt_ttl, &G.deadline_us, &timeout, &str_I, &str_p, &str_i
++			&pingcount, &str_s, &opt_ttl, &G.deadline_us, &timeout, &str_I, &str_p, &str_i, &str_m
+ 	);
++	if (opt & OPT_m)
++		pingmark = xatou(str_m);
+ 	if (opt & OPT_s)
+ 		datalen = xatou16(str_s); // -s
+ 	if (opt & OPT_I) { // -I
