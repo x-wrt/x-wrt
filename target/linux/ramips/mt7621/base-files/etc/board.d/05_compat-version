@@ -11,6 +11,7 @@ board_config_update
 case "$(board_name)" in
 	d-team,newifi-d2|\
 	gehua,ghl-r-001|\
+	jcg,y2|\
 	netgear,r6220|\
 	netgear,wndr3700-v5|\
 	phicomm,k2p|\

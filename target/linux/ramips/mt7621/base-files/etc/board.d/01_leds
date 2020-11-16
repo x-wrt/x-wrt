@@ -27,7 +27,8 @@ dlink,dir-878-a1|\
 dlink,dir-882-a1)
 	ucidef_set_led_netdev "wan" "wan" "green:net" "wan"
 	;;
-gehua,ghl-r-001)
+gehua,ghl-r-001|\
+jcg,y2)
 	ucidef_set_led_switch "internet" "internet" "blue:internet" "switch0" "0x10"
 	;;
 gnubee,gb-pc1|\
