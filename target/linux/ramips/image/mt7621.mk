@@ -425,6 +425,8 @@ TARGET_DEVICES += dlink_dir-882-r1
 
 define Device/d-team_newifi-d2
   $(Device/dsa-migration)
+  DEVICE_COMPAT_VERSION := 1.0
+  DEVICE_COMPAT_MESSAGE := Config is compat with swconfig
   $(Device/uimage-lzma-loader)
   IMAGE_SIZE := 32448k
   DEVICE_VENDOR := Newifi
@@ -605,6 +607,8 @@ TARGET_DEVICES += firefly_firewrt
 
 define Device/gehua_ghl-r-001
   $(Device/dsa-migration)
+  DEVICE_COMPAT_VERSION := 1.0
+  DEVICE_COMPAT_MESSAGE := Config is compat with swconfig
   IMAGE_SIZE := 32448k
   DEVICE_VENDOR := GeHua
   DEVICE_MODEL := GHL-R-001
@@ -891,7 +895,6 @@ endef
 TARGET_DEVICES += jcg_q20
 
 define Device/jcg_y2
-  $(Device/dsa-migration)
   $(Device/uimage-lzma-loader)
   IMAGE_SIZE := 16064k
   IMAGES += factory.bin
@@ -1132,6 +1135,8 @@ endef
 
 define Device/netgear_r6220
   $(Device/netgear_sercomm_nand)
+  DEVICE_COMPAT_VERSION := 1.0
+  DEVICE_COMPAT_MESSAGE := Config is compat with swconfig
   DEVICE_MODEL := R6220
   SERCOMM_HWNAME := R6220
   SERCOMM_HWID := AYA
@@ -1276,6 +1281,8 @@ define Device/netgear_wndr3700-v5
   $(Device/dsa-migration)
   $(Device/netgear_sercomm_nor)
   $(Device/uimage-lzma-loader)
+  DEVICE_COMPAT_VERSION := 1.0
+  DEVICE_COMPAT_MESSAGE := Config is compat with swconfig
   IMAGE_SIZE := 15232k
   DEVICE_MODEL := WNDR3700
   DEVICE_VARIANT := v5
@@ -1312,6 +1319,8 @@ TARGET_DEVICES += netis_wf2881
 
 define Device/phicomm_k2p
   $(Device/dsa-migration)
+  DEVICE_COMPAT_VERSION := 1.0
+  DEVICE_COMPAT_MESSAGE := Config is compat with swconfig
   IMAGE_SIZE := 15744k
   DEVICE_VENDOR := Phicomm
   DEVICE_MODEL := K2P
@@ -1668,6 +1677,8 @@ TARGET_DEVICES += winstars_ws-wn583a6
 
 define Device/xiaomi_nand_separate
   $(Device/dsa-migration)
+  DEVICE_COMPAT_VERSION := 1.0
+  DEVICE_COMPAT_MESSAGE := Config is compat with swconfig
   $(Device/uimage-lzma-loader)
   DEVICE_VENDOR := Xiaomi
   DEVICE_PACKAGES := uboot-envtools
