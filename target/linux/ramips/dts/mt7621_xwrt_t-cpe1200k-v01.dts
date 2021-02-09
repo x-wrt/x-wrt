@@ -120,10 +120,6 @@
 	};
 };
 
-&sdhci {
-	status = "okay";
-};
-
 &spi0 {
 	status = "okay";
 
@@ -212,37 +208,53 @@
 	};
 };
 
-&ethernet {
-	pinctrl-0 = <&mdio_pins>, <&rgmii1_pins>;
-};
-
 &gmac0 {
 	nvmem-cells = <&macaddr_factory_28 0>;
 	nvmem-cell-names = "mac-address";
 };
 
+&ethernet {
+	pinctrl-0 = <&mdio_pins>, <&rgmii1_pins>;
+};
+
 &switch0 {
-	ports {
-		port@0 {
-			status = "okay";
-			label = "wan";
-			nvmem-cells = <&macaddr_factory_28 2>;
-			nvmem-cell-names = "mac-address";
-		};
+	/* must delete compatible property */
+	/delete-property/ compatible;
+};
 
-		port@1 {
-			status = "okay";
-			label = "lan3";
-		};
+&gsw {
+	compatible = "mediatek,mt753x";
+	status = "okay";
 
-		port@2 {
-			status = "okay";
-			label = "lan2";
-		};
+	mediatek,mdio = <&mdio>;
+	mediatek,portmap = "llllw";
+	mt7530,direct-phy-access;
+	resets = <&sysc MT7621_RST_MCM>;
+	reset-names = "mcm";
+	mediatek,mcm;
 
-		port@3 {
-			status = "okay";
-			label = "lan1";
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	/*
+	port5: port@5 {
+		compatible = "mediatek,mt753x-port";
+		reg = <5>;
+		phy-mode = "rgmii";
+		fixed-link {
+			speed = <1000>;
+			full-duplex;
+		};
+	};
+	*/
+
+	port6: port@6 {
+		compatible = "mediatek,mt753x-port";
+		reg = <6>;
+		phy-mode = "rgmii";
+		fixed-link {
+			speed = <1000>;
+			full-duplex;
 		};
 	};
 };
