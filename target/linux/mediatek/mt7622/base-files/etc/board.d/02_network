@@ -12,6 +12,7 @@ mediatek_setup_interfaces()
 	elecom,wrc-x3200gst3|\
 	linksys,e8450|\
 	linksys,e8450-ubi|\
+	xwrt,wr3200k-v1|\
 	mediatek,mt7622-rfb1|\
 	mediatek,mt7622-rfb1-ubi|\
 	ruijie,rg-ew3200gx-pro)
