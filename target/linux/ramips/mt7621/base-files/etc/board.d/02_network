@@ -45,7 +45,6 @@ ramips_setup_interfaces()
 		ucidef_set_interface_lan "lan1 lan2"
 		;;
 	hiwifi,hc5962|\
-	xwrt,wr1800k-ax-nand|\
 	xiaomi,mi-router-3-pro-nor|\
 	xiaomi,mi-router-3-pro)
 		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3" "wan"
@@ -120,6 +119,10 @@ ramips_setup_interfaces()
 	xwrt,x-sdwan-1200)
 		ucidef_add_switch "switch0" \
 			"0:wan" "1:lan" "2:lan" "3:lan" "6@eth0"
+		;;
+	xwrt,wr1800k-ax-nand)
+		ucidef_add_switch "switch0" \
+			"1:lan" "2:lan" "3:lan" "4:wan" "6@eth0"
 		;;
 	*)
 		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4" "wan"
@@ -212,6 +215,7 @@ ramips_setup_macs()
 		;;
 	xwrt,nxc200p|\
 	xwrt,puppies|\
+	xwrt,wr1800k-ax-nand|\
 	xwrt,t-cpe1200k-v01|\
 	xwrt,t-cpe1201k-v01|\
 	xwrt,t-cpe1202kd-v01|\
