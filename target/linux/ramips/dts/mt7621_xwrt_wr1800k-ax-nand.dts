@@ -11,7 +11,7 @@
 
 	aliases {
 		led-status = &led_ether;
-		label-mac-device = &gmac0;
+		label-mac-device = &ethernet;
 	};
 
 	chosen {
@@ -116,46 +116,22 @@
 };
 
 &ethernet {
+	compatible = "mediatek,ralink-mt7621-eth";
 	pinctrl-names = "default";
 	pinctrl-0 = <&rgmii1_pins &rgmii2_pins &mdio_pins>;
-};
 
-&gmac0 {
+	mediatek,switch = <&gsw>;
 	mtd-mac-address = <&factory 0x28>;
-};
-
-&gmac1 {
-	status = "okay";
-	label = "wan";
-	mtd-mac-address = <&factory 0x28>;
-	mtd-mac-address-increment = <(2)>;
-	phy-mode = "rgmii-txid";
-	phy-handle = <&phy4>;
-};
-
-&mdio {
-	phy4: ethernet-phy@4 {
-		reg = <4>;
-	};
 };
 
 &switch0 {
-	ports {
-		port@1 {
-			status = "okay";
-			label = "lan1";
-		};
+	/* must delete compatible property */
+	/delete-property/ compatible;
+	phy-mode = "rgmii";
+};
 
-		port@2 {
-			status = "okay";
-			label = "lan2";
-		};
-
-		port@3 {
-			status = "okay";
-			label = "lan3";
-		};
-	};
+&gsw {
+	compatible = "mediatek,ralink-mt7621-gsw";
 };
 
 &pinctrl {
