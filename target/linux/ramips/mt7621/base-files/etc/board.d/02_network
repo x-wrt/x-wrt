@@ -83,6 +83,7 @@ ramips_setup_interfaces()
 		ucidef_set_interface_lan "lan1 lan2 lan3 lan4"
 		ucidef_set_interface "qtn" ifname "eth1" protocol "static" ipaddr "1.1.1.1" netmask "255.255.255.0"
 		;;
+	xwrt,mac500f|\
 	phicomm,k2p|\
 	xwrt,nxc200p|\
 	xwrt,puppies)
@@ -212,6 +213,7 @@ ramips_setup_macs()
 		lan_mac=$(cat /sys/class/net/eth0/address)
 		wan_mac=$(mtd_get_mac_binary factory 0xe006)
 		;;
+	xwrt,mac500f|\
 	xwrt,nxc200p|\
 	xwrt,puppies|\
 	xwrt,wr1800k-ax-nand|\
