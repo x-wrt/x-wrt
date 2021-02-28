@@ -1,0 +1,15 @@
+diff --git a/drivers/mtd/spi-nor/macronix.c b/drivers/mtd/spi-nor/macronix.c
+index 19da412..8dff074 100644
+--- a/drivers/mtd/spi-nor/macronix.c
++++ b/drivers/mtd/spi-nor/macronix.c
+@@ -61,9 +61,7 @@ static const struct flash_info macronix_parts[] = {
+ 	{ "mx25u12835f", INFO(0xc22538, 0, 64 * 1024, 256,
+ 			      SECT_4K | SPI_NOR_DUAL_READ |
+ 			      SPI_NOR_QUAD_READ) },
+-	{ "mx25l25635e", INFO(0xc22019, 0, 64 * 1024, 512,
+-			      SPI_NOR_DUAL_READ | SPI_NOR_QUAD_READ)
+-		.fixups = &mx25l25635_fixups },
++	{ "mx25l25635e", INFO(0xc22019, 0, 64 * 1024, 512, 0) },
+ 	{ "mx25u25635f", INFO(0xc22539, 0, 64 * 1024, 512,
+ 			      SECT_4K | SPI_NOR_4B_OPCODES) },
+ 	{ "mx25u51245g", INFO(0xc2253a, 0, 64 * 1024, 1024,

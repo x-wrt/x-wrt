@@ -1,0 +1,15 @@
+diff --git a/drivers/mtd/spi-nor/spi-nor.c b/drivers/mtd/spi-nor/spi-nor.c
+index a61a3a9..101d1ce 100644
+--- a/drivers/mtd/spi-nor/spi-nor.c
++++ b/drivers/mtd/spi-nor/spi-nor.c
+@@ -2353,9 +2353,7 @@ static const struct flash_info spi_nor_ids[] = {
+ 	{ "mx25l12855e", INFO(0xc22618, 0, 64 * 1024, 256, 0) },
+ 	{ "mx25u12835f", INFO(0xc22538, 0, 64 * 1024, 256,
+ 			 SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_READ) },
+-	{ "mx25l25635e", INFO(0xc22019, 0, 64 * 1024, 512,
+-			 SPI_NOR_DUAL_READ | SPI_NOR_QUAD_READ)
+-			 .fixups = &mx25l25635_fixups },
++	{ "mx25l25635e", INFO(0xc22019, 0, 64 * 1024, 512, 0) },
+ 	{ "mx25u25635f", INFO(0xc22539, 0, 64 * 1024, 512, SECT_4K | SPI_NOR_4B_OPCODES) },
+ 	{ "mx25v8035f",  INFO(0xc22314, 0, 64 * 1024,  16,
+ 			 SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_READ) },
