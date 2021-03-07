@@ -42,6 +42,7 @@ ipq806x_setup_interfaces()
 		ucidef_set_network_device_conduit "wan" "eth0"
 		;;
 	asus,onhub|\
+	ruijie,rg-mtfi-m520|\
 	tplink,onhub)
 		ucidef_set_interfaces_lan_wan "lan1" "wan"
 		ucidef_set_network_device_conduit "lan1" "eth1"
@@ -90,6 +91,11 @@ ipq806x_setup_macs()
 		hw_mac_addr=$(mtd_get_mac_ascii 0:appsblenv ethaddr)
 		ucidef_set_interface_macaddr "lan" "$(macaddr_add $hw_mac_addr 2)"
 		ucidef_set_interface_macaddr "wan" "$(macaddr_add $hw_mac_addr 3)"
+		;;
+	ruijie,rg-mtfi-m520)
+		hw_mac_addr=$(mtd_get_mac_ascii PRODUCTINFO ethaddr)
+		ucidef_set_interface_macaddr "wan" "$hw_mac_addr"
+		ucidef_set_interface_macaddr "lan" "$(macaddr_add $hw_mac_addr 1)"
 		;;
 	esac
 }
