@@ -254,6 +254,10 @@ ramips_setup_interfaces()
 		ucidef_add_switch "switch0" \
 			"0:wan" "1:lan" "2:lan" "3:lan" "6@eth0"
 		;;
+	xwrt,ms1201k)
+		ucidef_add_switch "switch0" \
+			"0:lan" "4:wan" "6@eth0"
+		;;
 	xwrt,wr1800k-ax-norplusemmc|\
 	xwrt,wr1800k-ax-nor)
 		ucidef_set_interface_wan "eth1"
