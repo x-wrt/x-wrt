@@ -1583,6 +1583,19 @@ define Device/xzwifi_creativebox-v1
 endef
 TARGET_DEVICES += xzwifi_creativebox-v1
 
+define Device/xwrt_wr1800k-ax-nor
+  $(Device/dsa-migration)
+  $(Device/uimage-lzma-loader)
+  SOC := mt7621
+  IMAGE_SIZE := 15808k
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := WR1800K-AX
+  DEVICE_VARIANT := NOR
+  DEVICE_PACKAGES := \
+	kmod-mt7915e kmod-mt7615-firmware kmod-usb3 kmod-usb-ledtrig-usbport
+endef
+TARGET_DEVICES += xwrt_wr1800k-ax-nor
+
 define Device/xwrt_wr1800k-ax-nand
   $(Device/dsa-migration)
   $(Device/uimage-lzma-loader)
