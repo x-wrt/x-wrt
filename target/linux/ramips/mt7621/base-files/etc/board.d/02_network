@@ -120,6 +120,10 @@ ramips_setup_interfaces()
 		ucidef_add_switch "switch0" \
 			"0:wan" "1:lan" "2:lan" "3:lan" "6@eth0"
 		;;
+	xwrt,wr1800k-ax-nor)
+		ucidef_add_switch "switch0" \
+			"0:wan" "3:lan" "4:lan" "6@eth0"
+		;;
 	xwrt,wr1800k-ax-nand)
 		ucidef_add_switch "switch0" \
 			"1:lan" "2:lan" "3:lan" "4:wan" "6@eth0"
@@ -216,6 +220,7 @@ ramips_setup_macs()
 	xwrt,mac500f|\
 	xwrt,nxc200p|\
 	xwrt,puppies|\
+	xwrt,wr1800k-ax-nor|\
 	xwrt,wr1800k-ax-nand|\
 	xwrt,t-cpe1200k-v01|\
 	xwrt,t-cpe1201k-v01|\

@@ -1,0 +1,152 @@
+/dts-v1/;
+
+#include "mt7621.dtsi"
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+
+/ {
+	compatible = "xwrt,wr1800k-ax-nor", "mediatek,mt7621-soc";
+	model = "WR1800K-AX-NOR";
+
+	aliases {
+		led-status = &led_ether;
+		label-mac-device = &ethernet;
+	};
+
+	chosen {
+		bootargs = "console=ttyS0,115200";
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		wlan {
+			label = "wlan:green";
+			gpios = <&gpio 8 GPIO_ACTIVE_HIGH>;
+			default-state = "off";
+		};
+
+		led_ether: ether {
+			label = "ether:blue";
+			gpios = <&gpio 6 GPIO_ACTIVE_HIGH>;
+			default-state = "on";
+		};
+
+		status {
+			label = "status:red";
+			gpios = <&gpio 7 GPIO_ACTIVE_HIGH>;
+			default-state = "off";
+		};
+	};
+
+	keys {
+		compatible = "gpio-keys";
+
+		reset {
+			label = "reset";
+			gpios = <&gpio 18 GPIO_ACTIVE_HIGH>;
+			linux,code = <KEY_RESTART>;
+		};
+
+		wps {
+			label = "wps";
+			gpios = <&gpio 4 GPIO_ACTIVE_HIGH>;
+			linux,code = <KEY_WPS_BUTTON>;
+		};
+	};
+};
+
+&spi0 {
+	status = "okay";
+
+	flash@0 {
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+		spi-max-frequency = <25000000>;
+		broken-flash-reset;
+		m25p,fast-read;
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			partition@0 {
+				label = "Bootloader";
+				reg = <0x0 0x30000>;
+			};
+
+			partition@30000 {
+				label = "Config";
+				reg = <0x30000 0x10000>;
+			};
+
+			partition@40000 {
+				label = "Product";
+				reg = <0x40000 0x10000>;
+			};
+
+			factory: partition@50000 {
+				label = "factory";
+				reg = <0x50000 0x40000>;
+			};
+
+			partition@90000 {
+				compatible = "denx,uimage";
+				label = "firmware";
+				reg = <0x90000 0xf70000>;
+			};
+		};
+	};
+};
+
+&pcie {
+	status = "okay";
+};
+
+&pcie0 {
+	wifi@0,0 {
+		compatible = "mediatek,mt76";
+		reg = <0x0000 0 0 0 0>;
+		mediatek,mtd-eeprom = <&factory 0x0000>;
+		mtd-mac-address = <&factory 0x4>;
+	};
+};
+
+&pcie1 {
+	wifi@0,0 {
+		compatible = "mediatek,mt76";
+		reg = <0x0000 0 0 0 0>;
+		mediatek,mtd-eeprom = <&factory 0x0000>;
+		mtd-mac-address = <&factory 0x4>;
+	};
+};
+
+&ethernet {
+	compatible = "mediatek,ralink-mt7621-eth";
+	pinctrl-names = "default";
+	pinctrl-0 = <&rgmii1_pins &rgmii2_pins &mdio_pins>;
+
+	mediatek,switch = <&gsw>;
+	mtd-mac-address = <&factory 0x28>;
+};
+
+&switch0 {
+	/* must delete compatible property */
+	/delete-property/ compatible;
+	phy-mode = "rgmii";
+};
+
+&gsw {
+	compatible = "mediatek,ralink-mt7621-gsw";
+};
+
+&pinctrl {
+	state_default: pinctrl0 {
+		gpio {
+			groups = "i2c", "uart2", "uart3";
+			function = "gpio";
+		};
+	};
+};
