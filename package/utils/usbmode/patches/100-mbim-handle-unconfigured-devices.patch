@@ -1,0 +1,53 @@
+Subject: [PATCH] usbmode: handle unconfigured devices when selecting MBIM
+
+A device reset to configuration zero has no active descriptor. Handle
+LIBUSB_ERROR_NOT_FOUND without dereferencing that descriptor, check the
+other descriptor reads, and release descriptors on all MBIM exits.
+
+--- a/switch.c
++++ b/switch.c
+@@ -353,20 +353,36 @@
+ 		struct libusb_config_descriptor *config;
+ 		int i;
+ 
+-		libusb_get_config_descriptor(data->dev, j, &config);
++		if (libusb_get_config_descriptor(data->dev, j, &config) < 0)
++			continue;
+ 
+ 		for (i = 0; i < config->bNumInterfaces; i++) {
++			if (!config->interface[i].num_altsetting)
++				continue;
++
+ 			if (config->interface[i].altsetting[0].bInterfaceClass == 2) {
+ 				if (config->interface[i].altsetting[0].bInterfaceSubClass == 0x0e) {
+ 					struct libusb_config_descriptor *active;
+ 					int count = 5;
+-
+-				        libusb_get_active_config_descriptor(data->dev, &active);
+-					if (active->bConfigurationValue == config->bConfigurationValue)
+-						return;
+-					while ((libusb_set_configuration(data->devh, config->bConfigurationValue) < 0) && --count)
+-						libusb_detach_kernel_driver(data->devh, active->interface[0].altsetting[0].bInterfaceNumber);
+-
++					int ret;
++
++					ret = libusb_get_active_config_descriptor(data->dev, &active);
++					if (ret < 0) {
++						if (ret != LIBUSB_ERROR_NOT_FOUND) {
++							libusb_free_config_descriptor(config);
++							return;
++						}
++						active = NULL;
++					}
++					if (active && active->bConfigurationValue == config->bConfigurationValue)
++						goto mbim_done;
++					while ((libusb_set_configuration(data->devh, config->bConfigurationValue) < 0) && --count) {
++						if (active && active->bNumInterfaces && active->interface[0].num_altsetting)
++							libusb_detach_kernel_driver(data->devh, active->interface[0].altsetting[0].bInterfaceNumber);
++					}
++
++mbim_done:
++					libusb_free_config_descriptor(active);
+ 					libusb_free_config_descriptor(config);
+ 					return;
+ 				}
