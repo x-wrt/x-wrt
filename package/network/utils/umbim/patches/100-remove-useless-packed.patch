@@ -1,0 +1,150 @@
+diff --git a/cli.c b/cli.c
+index 3a845d4..6d2dc0f 100644
+--- a/cli.c
++++ b/cli.c
+@@ -52,9 +52,9 @@ mbim_device_caps_response(void *buffer, size_t len)
+ 		return -1;
+ 	}
+ 
+-	deviceid = mbim_get_string(&caps->deviceid, buffer);
+-	firmwareinfo = mbim_get_string(&caps->firmwareinfo, buffer);
+-	hardwareinfo = mbim_get_string(&caps->hardwareinfo, buffer);
++	deviceid = mbim_get_string(caps->deviceid, buffer);
++	firmwareinfo = mbim_get_string(caps->firmwareinfo, buffer);
++	hardwareinfo = mbim_get_string(caps->hardwareinfo, buffer);
+ 
+ 	printf("  devicetype: %04X - %s\n", le32toh(caps->devicetype),
+ 		mbim_enum_string(mbim_device_type_values, le32toh(caps->devicetype)));
+@@ -108,8 +108,8 @@ mbim_home_provider_response(void *buffer, size_t len)
+ 	}
+ 
+ 	provider = &state->provider;
+-	provider_id = mbim_get_string(&provider->providerid, buffer);
+-	provider_name = mbim_get_string(&provider->providername, buffer);
++	provider_id = mbim_get_string(provider->providerid, buffer);
++	provider_name = mbim_get_string(provider->providername, buffer);
+ 
+ 	printf("  provider_id: %s\n", provider_id);
+ 	printf("  provider_name: %s\n", provider_name);
+@@ -132,9 +132,9 @@ mbim_registration_response(void *buffer, size_t len)
+ 		return -1;
+ 	}
+ 
+-	provider_id = mbim_get_string(&state->providerid, buffer);
+-	provider_name = mbim_get_string(&state->providername, buffer);
+-	roamingtext = mbim_get_string(&state->roamingtext, buffer);
++	provider_id = mbim_get_string(state->providerid, buffer);
++	provider_name = mbim_get_string(state->providername, buffer);
++	roamingtext = mbim_get_string(state->roamingtext, buffer);
+ 
+ 	printf("  nwerror: %04X - %s\n", le32toh(state->nwerror),
+ 		mbim_enum_string(mbim_nw_error_values, le32toh(state->nwerror)));
+@@ -168,8 +168,8 @@ mbim_subscriber_response(void *buffer, size_t len)
+ 		return -1;
+ 	}
+ 
+-	subscriberid = mbim_get_string(&state->subscriberid, buffer);
+-	simiccid = mbim_get_string(&state->simiccid, buffer);
++	subscriberid = mbim_get_string(state->subscriberid, buffer);
++	simiccid = mbim_get_string(state->simiccid, buffer);
+ 
+ 	printf("  readystate: %04X - %s\n", le32toh(state->readystate),
+ 		mbim_enum_string(mbim_subscriber_ready_state_values, le32toh(state->readystate)));
+@@ -179,7 +179,7 @@ mbim_subscriber_response(void *buffer, size_t len)
+ 		printf("  dont display subscriberID: 1\n");
+ 	for (nr = 0; nr < le32toh(state->telephonenumberscount); nr++) {
+ 		struct mbim_string *str = (void *)&state->telephonenumbers + (nr * sizeof(struct mbim_string));
+-		char *number = mbim_get_string(str, buffer);
++		char *number = mbim_get_string(*str, buffer);
+ 		printf("  number: %s\n", number);
+ 	}
+ 
+@@ -404,7 +404,7 @@ mbim_connect_request(void)
+ 			else if (!strcmp(*_argv, "ipv4v6"))
+ 				c->iptype = htole32(MBIM_CONTEXT_IP_TYPE_IPV4V6);
+ 		}
+-		mbim_encode_string(&c->accessstring, apn);
++		mbim_encode_string(c->accessstring, apn);
+ 	}
+ 	if (_argc > 3) {
+ 		if (!strcmp(_argv[1], "pap"))
+@@ -415,8 +415,8 @@ mbim_connect_request(void)
+ 			c->authprotocol = htole32(MBIM_AUTH_PROTOCOL_MSCHAPV2);
+ 
+ 		if (c->authprotocol) {
+-			mbim_encode_string(&c->username, _argv[2]);
+-			mbim_encode_string(&c->password, _argv[3]);
++			mbim_encode_string(c->username, _argv[2]);
++			mbim_encode_string(c->password, _argv[3]);
+ 		}
+ 	}
+ 	return mbim_send_command_msg();
+@@ -472,7 +472,7 @@ mbim_pin_unlock_request(void)
+ 
+ 	p->pintype = htole32(MBIM_PIN_TYPE_PIN1);
+ 	p->pinoperation = htole32(MBIM_PIN_OPERATION_ENTER);
+-	mbim_encode_string(&p->pin, _argv[0]);
++	mbim_encode_string(p->pin, _argv[0]);
+ 
+ 	return mbim_send_command_msg();
+ }
+diff --git a/mbim-dev.c b/mbim-dev.c
+index 2a94d49..3dbb04a 100644
+--- a/mbim-dev.c
++++ b/mbim-dev.c
+@@ -173,7 +173,7 @@ mbim_send_proxy_msg(const char *path)
+ 		(struct mbim_proxy_control_configuration_s *) mbim_setup_command_msg(proxy_control,
+ 			MBIM_MESSAGE_COMMAND_TYPE_SET, MBIM_CMD_PROXY_CONTROL_CONFIGURATION,
+ 			sizeof(struct mbim_proxy_control_configuration_s));
+-	mbim_encode_string(&p->devicepath, (char *)path);
++	mbim_encode_string(p->devicepath, (char *)path);
+ 	p->timeout = htole32(30); // FIXME: hard coded timeout
+ 	return mbim_send_command_msg();
+ }
+diff --git a/mbim-msg.c b/mbim-msg.c
+index 5ec04f4..b044be9 100644
+--- a/mbim-msg.c
++++ b/mbim-msg.c
+@@ -51,8 +51,9 @@ mbim_add_payload(uint8_t len)
+ }
+ 
+ int
+-mbim_encode_string(struct mbim_string *str, char *in)
++mbim_encode_string(struct mbim_string _str, char *in)
+ {
++	struct mbim_string *str = &_str;
+ 	int l = strlen(in);
+ 	int s = mbim_add_payload(l * 2);
+ 	uint8_t *p = &payload_buffer[s];
+@@ -71,8 +72,9 @@ mbim_encode_string(struct mbim_string *str, char *in)
+ 
+ 
+ char *
+-mbim_get_string(struct mbim_string *str, char *in)
++mbim_get_string(struct mbim_string _str, char *in)
+ {
++	struct mbim_string *str = &_str;
+ 	char *p = &in[le32toh(str->offset)];
+ 	unsigned int i;
+ 
+diff --git a/mbim-msg.h b/mbim-msg.h
+index e22ff63..0a4d5f3 100644
+--- a/mbim-msg.h
++++ b/mbim-msg.h
+@@ -85,14 +85,14 @@ extern uint8_t basic_connect[16];
+ extern int transaction_id;
+ 
+ const char* mbim_enum_string(struct mbim_enum *e, uint32_t key);
+-char* mbim_get_string(struct mbim_string *str, char *in);
++char* mbim_get_string(struct mbim_string str, char *in);
+ void mbim_setup_header(struct mbim_message_header *hdr, MbimMessageType type, int length);
+ uint8_t* mbim_setup_command_msg(uint8_t *uuid, uint32_t type, uint32_t command_id, int len);
+ int mbim_send_open_msg(void);
+ int mbim_send_close_msg(void);
+ int mbim_send_command_msg(void);
+ int mbim_add_payload(uint8_t len);
+-int mbim_encode_string(struct mbim_string *str, char *in);
++int mbim_encode_string(struct mbim_string str, char *in);
+ void mbim_get_ipv4(void *buffer, char *out, uint32_t offset);
+ void mbim_get_ipv6(void *buffer, char *out, uint32_t offset);
+ uint32_t mbim_get_int(void *buffer, uint32_t offset);
