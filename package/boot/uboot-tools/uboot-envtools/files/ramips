@@ -152,6 +152,9 @@ xiaomi,miwifi-mini)
 	ubootenv_add_uci_config "/dev/mtd1" "0x0" "0x1000" "0x10000"
 	ubootenv_add_uci_sys_config "/dev/mtd9" "0x0" "0x4000" "0x10000"
 	;;
+xiaomi,mi-router-cr660x)
+	ubootenv_add_uci_config "/dev/mtd1" "0x0" "0x10000" "0x20000"
+	;;
 zyxel,lte3301-plus)
 	ubootenv_add_uci_config "/dev/mtd1" "0x0" "0x1000" "0x80000"
 	;;
