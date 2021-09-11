@@ -98,6 +98,7 @@ platform_do_upgrade() {
 	xiaomi,mi-router-cr6606|\
 	xiaomi,mi-router-cr6608|\
 	xiaomi,mi-router-cr6609|\
+	xiaomi,mi-router-cr660x|\
 	xiaomi,redmi-router-ac2100)
 		# this make it compatible with breed
 		dd if=/dev/mtd0 bs=64 count=1 2>/dev/null | grep -qi breed && CI_KERNPART_EXT="kernel_stock"
