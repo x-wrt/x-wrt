@@ -15,6 +15,9 @@ case "$(board_name)" in
 	tplink,er605-v2)
 		ucidef_set_compat_version "1.2"
 		;;
+	xiaomi,mi-router-cr660x)
+		ucidef_set_compat_version "1.0"
+		;;
 	*)
 		ucidef_set_compat_version "1.1"
 		;;
