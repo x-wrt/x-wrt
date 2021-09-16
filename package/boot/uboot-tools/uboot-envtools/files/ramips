@@ -33,6 +33,8 @@ allnet,all0256n-8m|\
 allnet,all5002|\
 asiarf,ap7621-004-v3|\
 plasmacloud,pax1800-lite|\
+xwrt,wr1800k-ax-norplusemmc|\
+xwrt,wr1800k-ax-nor|\
 xwrt,ms1201k|\
 xwrt,nxc200p|\
 xwrt,puppies|\
@@ -164,6 +166,13 @@ zyxel,lte5398-m904|\
 zyxel,lte7490-m904|\
 zyxel,nr7101)
 	ubootenv_add_mtd "Config" "0x0" "0x1000" "0x80000"
+	;;
+esac
+
+case "$board" in
+xwrt,wr1800k-ax-norplusemmc|\
+xwrt,wr1800k-ax-nor)
+	ubootenv_add_uci_sys_config "/dev/mtd2" "0x0" "0x10000" "0x10000"
 	;;
 esac
 
