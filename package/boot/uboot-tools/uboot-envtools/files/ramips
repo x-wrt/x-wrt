@@ -30,6 +30,8 @@ alfa-network,ax1800rm|\
 allnet,all0256n-4m|\
 allnet,all0256n-8m|\
 allnet,all5002|\
+xwrt,wr1800k-ax-norplusemmc|\
+xwrt,wr1800k-ax-nor|\
 xwrt,ms1201k|\
 xwrt,nxc200p|\
 xwrt,puppies|\
@@ -160,6 +162,13 @@ genexis,pulse-ex400)
 netgear,wax214v2)
 	ubootenv_add_uci_config "/dev/mtd1" "0x0" "0x20000" "0x20000"
 	ubootenv_add_uci_sys_config "/dev/mtd1" "0x20000" "0x8000" "0x20000"
+	;;
+esac
+
+case "$board" in
+xwrt,wr1800k-ax-norplusemmc|\
+xwrt,wr1800k-ax-nor)
+	ubootenv_add_uci_sys_config "/dev/mtd2" "0x0" "0x10000" "0x10000"
 	;;
 esac
 
