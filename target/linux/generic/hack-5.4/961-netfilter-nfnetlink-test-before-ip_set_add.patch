@@ -1,0 +1,43 @@
+From e9b1b4a294cd9c9931873cbcd70b4a1d6edbf0b1 Mon Sep 17 00:00:00 2001
+From: Chen Minqiang <ptpt52@gmail.com>
+Date: Tue, 16 Nov 2021 16:37:57 +0800
+Subject: [PATCH] netfilter: nfnetlink: test before ip_set_add
+
+---
+ net/netfilter/ipset/ip_set_core.c     | 4 ++++
+ net/netfilter/ipset/ip_set_list_set.c | 4 ++++
+ 2 files changed, 8 insertions(+)
+
+diff --git a/net/netfilter/ipset/ip_set_core.c b/net/netfilter/ipset/ip_set_core.c
+index 16ae92054baa..6f18061d53d7 100644
+--- a/net/netfilter/ipset/ip_set_core.c
++++ b/net/netfilter/ipset/ip_set_core.c
+@@ -770,6 +770,10 @@ ip_set_add(ip_set_id_t index, const struct sk_buff *skb,
+ 	struct ip_set *set = ip_set_rcu_get(xt_net(par), index);
+ 	int ret;
+ 
++	if ((ret = ip_set_test(index, skb, par, opt)) > 0) {
++		return ret;
++	}
++
+ 	BUG_ON(!set);
+ 	pr_debug("set %s, index %u\n", set->name, index);
+ 
+diff --git a/net/netfilter/ipset/ip_set_list_set.c b/net/netfilter/ipset/ip_set_list_set.c
+index 5a67f7966574..f05c581994d3 100644
+--- a/net/netfilter/ipset/ip_set_list_set.c
++++ b/net/netfilter/ipset/ip_set_list_set.c
+@@ -237,6 +237,10 @@ list_set_uadd(struct ip_set *set, void *value, const struct ip_set_ext *ext,
+ 	struct set_elem *e, *n, *prev, *next;
+ 	bool flag_exist = flags & IPSET_FLAG_EXIST;
+ 
++	if (list_set_utest(set, value, ext, mext, flags) > 0) {
++		return 0;
++	}
++
+ 	/* Find where to add the new entry */
+ 	n = prev = next = NULL;
+ 	list_for_each_entry(e, &map->members, list) {
+-- 
+2.17.1
+
