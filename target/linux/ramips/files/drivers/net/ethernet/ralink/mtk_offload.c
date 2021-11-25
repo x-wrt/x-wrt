@@ -10,6 +10,9 @@
  *   Copyright (C) 2018 John Crispin <john@phrozen.org>
  */
 
+#include <linux/version.h>
+#include <linux/kernel.h>
+#include <linux/timer.h>
 #include "mtk_offload.h"
 
 #define INVALID	0
@@ -19,6 +22,79 @@
 
 #define IPV4_HNAPT			0
 #define IPV4_HNAT			1
+
+struct mtk_ppe_account_group {
+	unsigned int hash;
+	unsigned int state;
+	unsigned long jiffies;
+	unsigned long long bytes;
+	unsigned long long packets;
+};
+
+static struct mtk_ppe_account_group mtk_ppe_account_group_entry[64];
+
+static u32 mtk_ppe_account_group_alloc(void)
+{
+	u32 i;
+	for (i = 1; i < 64; i++) {
+		if (mtk_ppe_account_group_entry[i].state == FOE_STATE_INVALID) {
+			mtk_ppe_account_group_entry[i].state = FOE_STATE_FIN; /* mark FIN as in use begin */
+			mtk_ppe_account_group_entry[i].bytes = 0;
+			mtk_ppe_account_group_entry[i].packets = 0;
+			mtk_ppe_account_group_entry[i].jiffies = jiffies;
+			return i;
+		}
+	}
+	return 0;
+}
+
+static struct mtk_ppe_account_group *mtk_ppe_account_group_get(u32 idx)
+{
+	if (idx > 0 && idx < 64) {
+		return &mtk_ppe_account_group_entry[idx];
+	}
+	return NULL;
+}
+
+static struct timer_list ag_timer;
+static void *ag_timer_eth =  NULL;
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
+static void mtk_ppe_account_group_walk(unsigned long ignore)
+#else
+static void mtk_ppe_account_group_walk(struct timer_list *ignore)
+#endif
+{
+	u32 i;
+	unsigned long long bytes, packets;
+	struct mtk_ppe_account_group *ag;
+	struct mtk_eth *eth = (struct mtk_eth *)ag_timer_eth;
+	for (i = 1; i < 64; i++) {
+		ag = mtk_ppe_account_group_get(i);
+		if (ag->state == FOE_STATE_BIND) {
+			bytes = mtk_r32(eth, 0x2000 + i * 16);
+			bytes += ((unsigned long long)mtk_r32(eth, 0x2000 + i * 16 + 4)) << 32;
+			packets = mtk_r32(eth, 0x2000 + i * 16 + 8);
+			if (bytes > 0 || packets > 0) {
+				ag->jiffies = jiffies;
+				ag->bytes += bytes;
+				ag->packets += packets;
+			}
+
+			//printk("hnat-walk-ag[%u]: hash=%u bytes=%llu packets=%llu\n", i, ag->hash, bytes, packets);
+			if (time_before(ag->jiffies + 15 * HZ, jiffies)) {
+				ag->state = FOE_STATE_INVALID;
+				//printk("hnat-walk-ag[%u]: hash=%u timeout\n", i, ag->hash);
+			}
+		} else if (ag->state == FOE_STATE_FIN) {
+			if (time_before(ag->jiffies + 15 * HZ, jiffies)) {
+				ag->state = FOE_STATE_INVALID;
+			}
+		}
+	}
+
+	mod_timer(&ag_timer, jiffies + HZ * 1);
+}
 
 static u32
 mtk_flow_hash_v4(struct flow_offload_tuple *tuple)
@@ -59,7 +135,7 @@ mtk_foe_prepare_v4(struct mtk_foe_entry *entry,
 	entry->ipv4_hnapt.iblk2.mcast = is_mcast;
 	entry->ipv4_hnapt.iblk2.dscp = 0;
 	entry->ipv4_hnapt.iblk2.port_mg = 0x3f;
-	entry->ipv4_hnapt.iblk2.port_ag = 0x1f;
+	entry->ipv4_hnapt.iblk2.port_ag = mtk_ppe_account_group_alloc();
 #ifdef CONFIG_NET_RALINK_HW_QOS
 	entry->ipv4_hnapt.iblk2.qid = 1;
 	entry->ipv4_hnapt.iblk2.fqos = 1;
@@ -153,6 +229,8 @@ int mtk_flow_offload(struct mtk_eth *eth,
 		.bfib1.time_stamp = time_stamp,
 		.bfib1.psn = 0,
 	};
+	u32 ag_idx;
+	struct mtk_ppe_account_group *ag;
 
 	if (otuple->l4proto != IPPROTO_TCP && otuple->l4proto != IPPROTO_UDP)
 		return -EINVAL;
@@ -229,6 +307,21 @@ int mtk_flow_offload(struct mtk_eth *eth,
 	mtk_foe_set_mac(&reply, src->eth_src, src->eth_dest);
 	mtk_foe_write(eth, ohash, &orig);
 	mtk_foe_write(eth, rhash, &reply);
+
+	//sync ag hash with foe hash
+	ag_idx = orig.ipv4_hnapt.iblk2.port_ag;
+	ag = mtk_ppe_account_group_get(ag_idx);
+	if (ag) {
+		ag->hash = ohash;
+		ag->state = FOE_STATE_BIND;
+	}
+	ag_idx = reply.ipv4_hnapt.iblk2.port_ag;
+	ag = mtk_ppe_account_group_get(ag_idx);
+	if (ag) {
+		ag->hash = rhash;
+		ag->state = FOE_STATE_BIND;
+	}
+
 	rcu_assign_pointer(eth->foe_flow_table[ohash], flow);
 	rcu_assign_pointer(eth->foe_flow_table[rhash], flow);
 
@@ -449,6 +542,18 @@ static int mtk_ppe_start(struct mtk_eth *eth)
 	mtk_ppe_queue(eth, 9, 1, 7, 32, 250000, 0);
 #endif
 
+	memset(mtk_ppe_account_group_entry, 0, sizeof(*mtk_ppe_account_group_entry) * 64);
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
+	init_timer(&ag_timer);
+	ag_timer.data = 0;
+	ag_timer.function = mtk_ppe_account_group_walk;
+#else
+	timer_setup(&ag_timer, mtk_ppe_account_group_walk, 0);
+#endif
+	ag_timer_eth = eth;
+	mod_timer(&ag_timer, jiffies + 8 * HZ);
+
 	return 0;
 }
 
@@ -476,6 +581,8 @@ static int mtk_ppe_stop(struct mtk_eth *eth)
 {
 	u32 r1 = 0, r2 = 0;
 	int i;
+
+	del_timer(&ag_timer);
 
 	/* discard all traffic while we disable the PPE */
 	mtk_m32(eth, 0xffff, 0x7777, MTK_GDMA_FWD_CFG(0));
@@ -544,10 +651,22 @@ static void mtk_offload_keepalive(struct fe_priv *eth, unsigned int hash)
 	rcu_read_lock();
 	flow = rcu_dereference(eth->foe_flow_table[hash]);
 	if (flow) {
-		void (*func)(unsigned int);
+		void (*func)(unsigned int, unsigned long long, unsigned long long);
 		func = (void *)flow->priv;
 		if (func) {
-			func(hash);
+			struct mtk_foe_entry *entry = &eth->foe_table[hash];
+			u32 ag_idx = entry->ipv4_hnapt.iblk2.port_ag;
+			struct mtk_ppe_account_group *ag = mtk_ppe_account_group_get(ag_idx);
+			if (ag && ag->state == FOE_STATE_BIND && ag->hash == hash) {
+				unsigned long long bytes = ag->bytes;
+				unsigned long long packets = ag->packets;
+				func(hash, bytes, packets);
+				//printk("hnat-ag[%u]: hash=%u bytes=%llu packets=%llu\n", ag_idx, hash, bytes, packets);
+				ag->bytes -= bytes;
+				ag->packets -= packets;
+			} else {
+				func(hash, 0, 0);
+			}
 		}
 	}
 	rcu_read_unlock();
