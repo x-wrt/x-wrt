@@ -478,6 +478,14 @@ enum fe_state_t {
 	__FE_DOWN,
 };
 
+#if defined(NATFLOW_OFFLOAD_HWNAT_FAKE)
+#else
+typedef struct flow_offload flow_offload_t;
+typedef struct flow_offload_tuple flow_offload_tuple_t;
+typedef struct flow_offload_hw_path flow_offload_hw_path_t;
+typedef enum flow_offload_type flow_offload_type_t;
+#endif
+
 struct fe_priv {
 	/* make sure that register operations are atomic */
 	spinlock_t			page_lock;
@@ -514,7 +522,7 @@ struct fe_priv {
 	struct reset_control		*rst_fe;
 	struct mtk_foe_entry		*foe_table;
 	dma_addr_t			foe_table_phys;
-	struct flow_offload __rcu	**foe_flow_table;
+	flow_offload_t __rcu		**foe_flow_table;
 };
 
 extern const struct of_device_id of_fe_match[];
@@ -540,11 +548,13 @@ static inline void *priv_netdev(struct fe_priv *priv)
 
 int ra_ppe_probe(struct fe_priv *eth);
 void ra_ppe_remove(struct fe_priv *eth);
+#ifdef CONFIG_NET_RALINK_OFFLOAD
 int mtk_flow_offload(struct fe_priv *eth,
-		     enum flow_offload_type type,
-		     struct flow_offload *flow,
-		     struct flow_offload_hw_path *src,
-		     struct flow_offload_hw_path *dest);
+		     flow_offload_type_t type,
+		     flow_offload_t *flow,
+		     flow_offload_hw_path_t *src,
+		     flow_offload_hw_path_t *dest);
+#endif
 int ra_offload_check_rx(struct fe_priv *eth, struct sk_buff *skb, u32 rxd4);
 
 

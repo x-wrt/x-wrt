@@ -1525,9 +1525,9 @@ static int fe_change_mtu(struct net_device *dev, int new_mtu)
 
 #ifdef CONFIG_NET_RALINK_OFFLOAD
 static int
-fe_flow_offload(enum flow_offload_type type, struct flow_offload *flow,
-		struct flow_offload_hw_path *src,
-		struct flow_offload_hw_path *dest)
+fe_flow_offload(flow_offload_type_t type, flow_offload_t *flow,
+		flow_offload_hw_path_t *src,
+		flow_offload_hw_path_t *dest)
 {
 	struct fe_priv *priv = NULL;
 

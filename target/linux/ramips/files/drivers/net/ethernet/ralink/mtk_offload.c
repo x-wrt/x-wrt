@@ -97,7 +97,7 @@ static void mtk_ppe_account_group_walk(struct timer_list *ignore)
 }
 
 static u32
-mtk_flow_hash_v4(struct flow_offload_tuple *tuple)
+mtk_flow_hash_v4(flow_offload_tuple_t *tuple)
 {
 	u32 ports = ntohs(tuple->src_port)  << 16 | ntohs(tuple->dst_port);
 	u32 src = ntohl(tuple->dst_v4.s_addr);
@@ -116,10 +116,10 @@ mtk_flow_hash_v4(struct flow_offload_tuple *tuple)
 
 static int
 mtk_foe_prepare_v4(struct mtk_foe_entry *entry,
-		   struct flow_offload_tuple *tuple,
-		   struct flow_offload_tuple *dest_tuple,
-		   struct flow_offload_hw_path *src,
-		   struct flow_offload_hw_path *dest)
+		   flow_offload_tuple_t *tuple,
+		   flow_offload_tuple_t *dest_tuple,
+		   flow_offload_hw_path_t *src,
+		   flow_offload_hw_path_t *dest)
 {
 	int is_mcast = !!is_multicast_ether_addr(dest->eth_dest);
 
@@ -212,13 +212,13 @@ mtk_foe_write(struct mtk_eth *eth, u32 hash,
 }
 
 int mtk_flow_offload(struct mtk_eth *eth,
-		     enum flow_offload_type type,
-		     struct flow_offload *flow,
-		     struct flow_offload_hw_path *src,
-		     struct flow_offload_hw_path *dest)
+		     flow_offload_type_t type,
+		     flow_offload_t *flow,
+		     flow_offload_hw_path_t *src,
+		     flow_offload_hw_path_t *dest)
 {
-	struct flow_offload_tuple *otuple = &flow->tuplehash[FLOW_OFFLOAD_DIR_ORIGINAL].tuple;
-	struct flow_offload_tuple *rtuple = &flow->tuplehash[FLOW_OFFLOAD_DIR_REPLY].tuple;
+	flow_offload_tuple_t *otuple = &flow->tuplehash[FLOW_OFFLOAD_DIR_ORIGINAL].tuple;
+	flow_offload_tuple_t *rtuple = &flow->tuplehash[FLOW_OFFLOAD_DIR_REPLY].tuple;
 	u32 time_stamp = mtk_r32(eth, 0x0010) & (0x7fff);
 	u32 ohash, rhash;
 	struct mtk_foe_entry orig = {
@@ -646,7 +646,7 @@ static int mtk_ppe_stop(struct mtk_eth *eth)
 
 static void mtk_offload_keepalive(struct fe_priv *eth, unsigned int hash)
 {
-	struct flow_offload *flow;
+	flow_offload_t *flow;
 
 	rcu_read_lock();
 	flow = rcu_dereference(eth->foe_flow_table[hash]);
