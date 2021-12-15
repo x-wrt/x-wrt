@@ -1,0 +1,33 @@
+From: Chen Minqiang <ptpt52@gmail.com>
+Subject: [PATCH] net: allow querying the MediaTek WDMA receive path
+
+The WDMA used to receive a wireless station's traffic can differ from the
+one used to transmit to it. MT7996 receives through the main WED even
+when a station uses the second PCIe interface for transmit.
+
+Let hardware offload drivers request the receive path explicitly while
+keeping existing forward-path queries on the transmit path. Advertise
+the extension so out-of-tree wireless drivers can support older kernels.
+
+Signed-off-by: Chen Minqiang <ptpt52@gmail.com>
+---
+--- a/include/linux/netdevice.h
++++ b/include/linux/netdevice.h
+@@ -941,6 +941,8 @@ struct net_device_path_stack {
+ 	struct net_device_path	path[NET_DEVICE_PATH_STACK_MAX];
+ };
+ 
++#define NET_DEVICE_PATH_MTK_WDMA_RX
++
+ struct net_device_path_ctx {
+ 	const struct net_device *dev;
+ 	u8			daddr[ETH_ALEN];
+@@ -952,6 +954,8 @@ struct net_device_path_ctx {
+ 	} vlan[NET_DEVICE_PATH_VLAN_MAX];
+ 
+ 	bool			ieee80211;
++	/* Query the receiving WDMA instead of the station's transmit WDMA. */
++	bool			mtk_wdma_rx;
+ };
+ 
+ enum tc_setup_type {
