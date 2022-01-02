@@ -1,0 +1,31 @@
+--- a/drivers/usb/serial/option.c
++++ b/drivers/usb/serial/option.c
+@@ -604,6 +604,16 @@
+ 	{ USB_DEVICE(OPTION_VENDOR_ID, OPTION_PRODUCT_COLT) },
+ 	{ USB_DEVICE(OPTION_VENDOR_ID, OPTION_PRODUCT_RICOLA) },
+ 	{ USB_DEVICE(OPTION_VENDOR_ID, OPTION_PRODUCT_RICOLA_LIGHT) },
++	{ USB_DEVICE_AND_INTERFACE_INFO(0x2c7c, 0x8101, 0xff, 0x02, 0x12) },
++        { USB_DEVICE_AND_INTERFACE_INFO(0x2c7c, 0x8101, 0xff, 0x03, 0x12) },
++        { USB_DEVICE_AND_INTERFACE_INFO(0x2c7c, 0x8101, 0xff, 0x06, 0x12) },
++        { USB_DEVICE_AND_INTERFACE_INFO(0x2c7c, 0x8101, 0xff, 0x02, 0x14) },
++        { USB_DEVICE_AND_INTERFACE_INFO(0x2c7c, 0x8101, 0xff, 0x02, 0x13) },
++        { USB_DEVICE_AND_INTERFACE_INFO(0x2c7c, 0x8101, 0xff, 0x02, 0x03) },
++        { USB_DEVICE_AND_INTERFACE_INFO(0x2c7c, 0x8101, 0xff, 0x02, 0x0a) },
++        { USB_DEVICE_AND_INTERFACE_INFO(0x2c7c, 0x8101, 0xff, 0x02, 0x06) },
++        { USB_DEVICE_AND_INTERFACE_INFO(0x2c7c, 0x8101, 0xff, 0x02, 0x01) },
++        { USB_DEVICE_AND_INTERFACE_INFO(0x2c7c, 0x0900, 0xff, 0x00, 0x00) },
+ 	{ USB_DEVICE(OPTION_VENDOR_ID, OPTION_PRODUCT_RICOLA_QUAD) },
+ 	{ USB_DEVICE(OPTION_VENDOR_ID, OPTION_PRODUCT_RICOLA_QUAD_LIGHT) },
+ 	{ USB_DEVICE(OPTION_VENDOR_ID, OPTION_PRODUCT_RICOLA_NDIS) },
+--- a/drivers/net/usb/qmi_wwan.c	
++++ b/drivers/net/usb/qmi_wwan.c
+@@ -1046,7 +1046,8 @@
+ 	{QMI_MATCH_FF_FF_FF(0x2c7c, 0x0512)},	/* Quectel EG12/EM12 */
+ 	{QMI_MATCH_FF_FF_FF(0x2c7c, 0x0620)},	/* Quectel EM160R-GL */
+ 	{QMI_MATCH_FF_FF_FF(0x2c7c, 0x0800)},	/* Quectel RM500Q-GL */
+-
++        {QMI_MATCH_FF_FF_FF(0x2c7c, 0x0900)},	/* Quectel RM500U-CN */
++        
+ 	/* 3. Combined interface devices matching on interface number */
+ 	{QMI_FIXED_INTF(0x0408, 0xea42, 4)},	/* Yota / Megafon M100-1 */
+ 	{QMI_FIXED_INTF(0x05c6, 0x6001, 3)},	/* 4G LTE usb-modem U901 */
