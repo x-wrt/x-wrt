@@ -6,26 +6,6 @@ RAMFS_COPY_DATA='/etc/fw_env.config /var/lock/fw_printenv.lock'
 
 platform_check_image() {
 	case "$(board_name)" in
-	asus,map-ac1300|\
-	asus,rt-ac42u|\
-	asus,rt-ac58u)
-		local ubidev=$(nand_find_ubi $CI_UBIPART)
-		local asus_root=$(nand_find_volume $ubidev jffs2)
-
-		[ -n "$asus_root" ] || return 0
-
-		cat << EOF
-jffs2 partition is still present.
-There's probably no space left
-to install the filesystem.
-
-You need to delete the jffs2 partition first:
-# ubirmvol /dev/ubi0 --name=jffs2
-
-Once this is done. Retry.
-EOF
-		return 1
-		;;
 	zte,mf18a|\
 	zte,mf282plus|\
 	zte,mf286d|\
@@ -57,6 +37,23 @@ EOF
 		;;
 	esac
 	return 0;
+}
+
+asus_remove_legacy_volumes() {
+	local ubidev volume
+
+	ubidev="$(nand_find_ubi "$CI_UBIPART")"
+	[ -n "$ubidev" ] || return 0
+
+	for volume in jffs2 linux2; do
+		[ -n "$(nand_find_volume "$ubidev" "$volume")" ] || continue
+		ubirmvol "/dev/$ubidev" --name="$volume" || {
+			v "Failed to remove $volume from $ubidev. Upgrade aborted."
+			return 1
+		}
+	done
+
+	return 0
 }
 
 askey_do_upgrade() {
@@ -144,9 +141,13 @@ platform_do_upgrade() {
 		nand_do_upgrade "$1"
 		;;
 	asus,map-ac1300|\
-	asus,map-ac2200|\
 	asus,rt-ac42u|\
 	asus,rt-ac58u)
+		asus_remove_legacy_volumes || exit 1
+		CI_KERNPART="linux"
+		nand_do_upgrade "$1"
+		;;
+	asus,map-ac2200)
 		CI_KERNPART="linux"
 		nand_do_upgrade "$1"
 		;;
