@@ -3632,6 +3632,24 @@ define Device/xzwifi_creativebox-v1
 endef
 TARGET_DEVICES += xzwifi_creativebox-v1
 
+define Device/xwrt_fm10-ax-nand
+  $(Device/nand)
+  $(Device/uimage-lzma-loader)
+  IMAGE_SIZE := 120320k
+  IMAGES += factory.bin
+  IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | check-size
+ifneq ($(CONFIG_TARGET_ROOTFS_INITRAMFS),)
+  ARTIFACTS := initramfs-FM10-factory.bin
+  ARTIFACT/initramfs-FM10-factory.bin := append-image-stage initramfs-kernel.bin | \
+	tenbay-factory FM10 TB-HNR02-V02-MT7621-CPE-
+endif
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := FM10-AX
+  DEVICE_VARIANT := NAND
+  DEVICE_PACKAGES := kmod-mt7915-firmware kmod-usb3 kmod-usb-ledtrig-usbport lte-modem-xwrt-fm10-ax-nand
+endef
+TARGET_DEVICES += xwrt_fm10-ax-nand
+
 define Device/xwrt_wr1800k-ax-nand
   $(Device/nand)
   $(Device/uimage-lzma-loader)
