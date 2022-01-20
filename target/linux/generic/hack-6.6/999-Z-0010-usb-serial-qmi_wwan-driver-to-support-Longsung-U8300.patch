@@ -1,0 +1,45 @@
+From e59fdf972f6b45e74738ded46c8532965ddf6c7a Mon Sep 17 00:00:00 2001
+From: Chen Minqiang <ptpt52@gmail.com>
+Date: Thu, 11 Apr 2024 23:02:55 +0800
+Subject: [PATCH] usb: serial/qmi_wwan: driver to support Longsung U8300/U9300
+
+---
+ drivers/net/usb/qmi_wwan.c  | 2 ++
+ drivers/usb/serial/option.c | 8 ++++++++
+ 2 files changed, 10 insertions(+)
+
+--- a/drivers/net/usb/qmi_wwan.c
++++ b/drivers/net/usb/qmi_wwan.c
+@@ -1398,6 +1398,8 @@ static const struct usb_device_id produc
+ 	{QMI_FIXED_INTF(0x1c9e, 0x9801, 3)},	/* Telewell TW-3G HSPA+ */
+ 	{QMI_FIXED_INTF(0x1c9e, 0x9803, 4)},	/* Telewell TW-3G HSPA+ */
+ 	{QMI_FIXED_INTF(0x1c9e, 0x9b01, 3)},	/* XS Stick W100-2 from 4G Systems */
++	{QMI_QUIRK_SET_DTR(0x1c9e, 0x9b05, 4)},	/* Longsung U8300 */
++	{QMI_QUIRK_SET_DTR(0x1c9e, 0x9b3c, 4)},	/* Longsung U9300 */
+ 	{QMI_FIXED_INTF(0x0b3c, 0xc000, 4)},	/* Olivetti Olicard 100 */
+ 	{QMI_FIXED_INTF(0x0b3c, 0xc001, 4)},	/* Olivetti Olicard 120 */
+ 	{QMI_FIXED_INTF(0x0b3c, 0xc002, 4)},	/* Olivetti Olicard 140 */
+--- a/drivers/usb/serial/option.c
++++ b/drivers/usb/serial/option.c
+@@ -423,6 +423,10 @@ static void option_instat_callback(struc
+  */
+ #define LONGCHEER_VENDOR_ID			0x1c9e
+ 
++/* Longsung products */
++#define LONGSUNG_U8300_PRODUCT_ID		0x9b05
++#define LONGSUNG_U9300_PRODUCT_ID		0x9b3c
++
+ /* 4G Systems products */
+ /* This one was sold as the VW and Skoda "Carstick LTE" */
+ #define FOUR_G_SYSTEMS_PRODUCT_CARSTICK_LTE	0x7605
+@@ -2147,6 +2151,10 @@ static const struct usb_device_id option
+ 	  .driver_info = RSVD(0) | RSVD(4) },
+ 	{ USB_DEVICE(LONGCHEER_VENDOR_ID, ZOOM_PRODUCT_4597) },
+ 	{ USB_DEVICE(LONGCHEER_VENDOR_ID, IBALL_3_5G_CONNECT) },
++	{ USB_DEVICE(LONGCHEER_VENDOR_ID, LONGSUNG_U8300_PRODUCT_ID),
++	  .driver_info = RSVD(4) | RSVD(5) },
++	{ USB_DEVICE(LONGCHEER_VENDOR_ID, LONGSUNG_U9300_PRODUCT_ID),
++	  .driver_info = RSVD(0) | RSVD(4) },
+ 	{ USB_DEVICE(HAIER_VENDOR_ID, HAIER_PRODUCT_CE100) },
+ 	{ USB_DEVICE_AND_INTERFACE_INFO(HAIER_VENDOR_ID, HAIER_PRODUCT_CE81B, 0xff, 0xff, 0xff) },
+ 	/* Pirelli  */
