@@ -102,6 +102,7 @@ platform_do_upgrade() {
 	raisecom,msg1500-x-00|\
 	sercomm,na502|\
 	sercomm,na502s|\
+	xwrt,fm10-ax-nand|\
 	xwrt,wr1800k-ax-nand)
 		nand_do_upgrade "$1"
 		;;
