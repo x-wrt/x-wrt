@@ -49,6 +49,7 @@ platform_pre_upgrade() {
 	local board=$(board_name)
 
 	case "$board" in
+	xwrt,fm10-ax-nand|\
 	xwrt,wr1800k-ax-nand)
 		tenbay_dualboot_fixup
 		;;
@@ -156,6 +157,7 @@ platform_do_upgrade() {
 	xiaomi,mi-router-cr6608|\
 	xiaomi,mi-router-cr6609|\
 	xiaomi,mi-router-cr660x|\
+	xwrt,fm10-ax-nand|\
 	xwrt,wr1800k-ax-nand|\
 	zyxel,nwa50ax|\
 	zyxel,nwa55axe)
