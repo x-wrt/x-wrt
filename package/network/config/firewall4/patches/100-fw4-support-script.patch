@@ -1,0 +1,20 @@
+From: Chen Minqiang <ptpt52@gmail.com>
+Subject: [PATCH] fw4: run custom scripts and preserve startup failures
+
+Run the optional custom include after a successful start group. Preserve
+startup failures and return success when the optional include is absent.
+
+Co-authored-by: PTPT52.AI <ptpt52@gmail.com>
+
+--- a/root/sbin/fw4
++++ b/root/sbin/fw4
+@@ -37,7 +37,8 @@
+ 
+ 		ACTION=includes \
+ 			utpl -S $MAIN
+-	} 1000>$LOCK
++	} 1000>$LOCK || return $?
++	[ ! -f /etc/firewall.include ] || sh /etc/firewall.include
+ }
+ 
+ print() {
