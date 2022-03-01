@@ -20,6 +20,7 @@ sleep 1
 
 v "Rebooting system..."
 umount -a
+reboot && sleep 5
 reboot -f
 sleep 5
 echo b 2>/dev/null >/proc/sysrq-trigger
