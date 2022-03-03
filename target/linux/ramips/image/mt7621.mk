@@ -408,6 +408,17 @@ define Build/initrd-kernel
 	$(KERNEL_CROSS)objcopy -O binary $(OBJCOPY_STRIP) -S $(LINUX_DIR)/vmlinux $@
 endef
 
+define Build/sysupgrade-initramfs-tar
+	-[ -f "$@" ] && mv "$@" "$@.kernel"
+	touch "$@.rootfs"
+	sh $(TOPDIR)/scripts/sysupgrade-tar.sh \
+		--board $(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME)) \
+		--kernel "$@.kernel" \
+		--rootfs "$@.rootfs" \
+		$@
+	rm -f "$@.kernel" "$@.rootfs"
+endef
+
 define Build/tenbay-factory
   $(eval model=$(word 1,$(1)))
   $(eval magic=$(word 2,$(1)))
@@ -3702,6 +3713,24 @@ define Device/xwrt_puppies
   SUPPORTED_DEVICES += puppies
 endef
 TARGET_DEVICES += xwrt_puppies
+
+define Device/xwrt_nxc2009e-v100
+  $(Device/nand)
+  $(Device/uimage-lzma-loader)
+  IMAGE_SIZE := 120320k
+  DEVICE_COMPAT_VERSION := 1.0
+  DEVICE_COMPAT_MESSAGE := Config is compat with swconfig
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := NXC2009E-V100
+  IMAGES += factory.bin
+  IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | check-size
+ifneq ($(CONFIG_TARGET_ROOTFS_INITRAMFS),)
+  ARTIFACTS := initramfs-NXC2009E-V100-factory.bin
+  ARTIFACT/initramfs-NXC2009E-V100-factory.bin := append-image-stage initramfs-kernel.bin | tenbay-factory NXC2009E-V100 TB-NXC2009E-MT7621-AC-
+endif
+  DEVICE_PACKAGES := uboot-envtools kmod-gsw150 kmod-i2c-gpio i2c-tools xs2184
+endef
+TARGET_DEVICES += xwrt_nxc2009e-v100
 
 define Device/xzwifi_creativebox-v1
   $(Device/dsa-migration)
