@@ -193,6 +193,7 @@ platform_do_upgrade() {
 	xiaomi,mi-router-cr660x|\
 	z-router,zr-2660|\
 	z-router,zr-2662|\
+	xwrt,nxc2009e-v100|\
 	xwrt,fm10-ax-nand|\
 	xwrt,wr1800k-ax-nand|\
 	zyxel,nwa50ax|\
