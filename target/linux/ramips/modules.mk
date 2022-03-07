@@ -155,7 +155,6 @@ endef
 
 $(eval $(call KernelPackage,sound-mt7620))
 
-
 define KernelPackage/keyboard-sx951x
   SUBMENU:=Other modules
   TITLE:=Semtech SX9512/SX9513
@@ -172,3 +171,20 @@ define KernelPackage/keyboard-sx951x/description
 endef
 
 $(eval $(call KernelPackage,keyboard-sx951x))
+
+define KernelPackage/gsw150
+  SUBMENU:=Other modules
+  TITLE:=Intel gsw150 switch driver
+  DEPENDS:=@TARGET_ramips
+  KCONFIG:= \
+	CONFIG_GSW150_SUPPORT
+  FILES:= \
+	$(LINUX_DIR)/drivers/net/phy/intel/gsw150/gsw150.ko
+  AUTOLOAD:=$(call AutoLoad,25,gsw150,1)
+endef
+
+define KernelPackage/gsw150/description
+ Phy modules for intel gsw150 switch driver.
+endef
+
+$(eval $(call KernelPackage,gsw150))
