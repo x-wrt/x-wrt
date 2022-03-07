@@ -134,7 +134,7 @@
 		//mediatek,ethsys = <&ethsys>;
 		mediatek,mdio = <&mdio>;
 		mediatek,smi-addr = <16>;
-		mediatek,reset-pin = <&gpio 7 GPIO_ACTIVE_HIGH>;
+		mediatek,reset-pin = <&gpio 7 GPIO_ACTIVE_LOW>;
 	};
 };
 
