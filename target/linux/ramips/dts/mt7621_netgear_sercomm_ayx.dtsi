@@ -13,7 +13,7 @@
 		led-failsafe = &led_power;
 		led-running = &led_power;
 		led-upgrade = &led_power;
-		label-mac-device = &ethernet;
+		label-mac-device = &gmac0;
 	};
 
 	keys {
@@ -106,19 +106,46 @@
 	};
 };
 
-&ethernet {
-	compatible = "mediatek,ralink-mt7621-eth";
-	mediatek,switch = <&gsw>;
-};
-
 &switch0 {
 	/* must delete compatible property */
 	/delete-property/ compatible;
-	phy-mode = "rgmii";
 };
 
 &gsw {
-	compatible = "mediatek,ralink-mt7621-gsw";
+	compatible = "mediatek,mt753x";
+	status = "okay";
+
+	mediatek,mdio = <&mdio>;
+	mediatek,portmap = "llllw";
+	mt7530,direct-phy-access;
+	resets = <&rstctrl 2>;
+	reset-names = "mcm";
+	mediatek,mcm;
+
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	/*
+	port5: port@5 {
+		compatible = "mediatek,mt753x-port";
+		reg = <5>;
+		phy-mode = "rgmii";
+		fixed-link {
+			speed = <1000>;
+			full-duplex;
+		};
+	};
+	*/
+
+	port6: port@6 {
+		compatible = "mediatek,mt753x-port";
+		reg = <6>;
+		phy-mode = "rgmii";
+		fixed-link {
+			speed = <1000>;
+			full-duplex;
+		};
+	};
 };
 
 &state_default {
