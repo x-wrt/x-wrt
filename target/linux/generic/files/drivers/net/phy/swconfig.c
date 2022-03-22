@@ -24,6 +24,7 @@
 #include <linux/skbuff.h>
 #include <linux/switch.h>
 #include <linux/of.h>
+#include <linux/version.h>
 #include <uapi/linux/mii.h>
 
 #define SWCONFIG_DEVNAME	"switch%d"
@@ -1053,7 +1054,9 @@ static struct genl_family switch_fam = {
 	.module = THIS_MODULE,
 	.ops = swconfig_ops,
 	.n_ops = ARRAY_SIZE(swconfig_ops),
+#if LINUX_VERSION_CODE > KERNEL_VERSION(6,0,0)
 	.resv_start_op = SWITCH_CMD_SET_VLAN + 1,
+#endif
 };
 
 static void
@@ -1198,8 +1201,8 @@ void
 unregister_switch(struct switch_dev *dev)
 {
 	swconfig_destroy_led_trigger(dev);
-	mutex_lock(&dev->sw_mutex);
 	swconfig_lock();
+	mutex_lock(&dev->sw_mutex);
 	list_del(&dev->dev_list);
 	swconfig_unlock();
 	mutex_unlock(&dev->sw_mutex);
