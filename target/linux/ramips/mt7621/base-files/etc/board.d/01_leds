@@ -171,10 +171,13 @@ xwrt,nxc2009e-v100)
 	ucidef_set_led_switch "port7_M_led" "port7_M_led" "port7_M_led" "switch0" "0x08" "0x0e" "link"
 	ucidef_set_led_switch "port8_M_led" "port8_M_led" "port8_M_led" "switch0" "0x10" "0x0e" "link"
 	;;
-xwrt,wr1800k-ax-nand|\
+xwrt,wr1800k-ax-nand)
+	ucidef_set_led_netdev "wan" "wan" "ether:blue" "wan" "link"
+	ucidef_set_led_netdev "wifi2g" "Wifi 2.4G" "wlan:green" "wlan0" "link"
+	;;
 xwrt,wr1800k-ax-norplusemmc|\
 xwrt,wr1800k-ax-nor)
-	ucidef_set_led_netdev "wan" "wan" "ether:blue" "wan" "link"
+	ucidef_set_led_switch "wan" "wan" "ether:blue" "switch0" "0x10" "0x0e" "link rx tx"
 	ucidef_set_led_netdev "wifi2g" "Wifi 2.4G" "wlan:green" "wlan0" "link"
 	;;
 xiaomi,mi-router-ac2100)
