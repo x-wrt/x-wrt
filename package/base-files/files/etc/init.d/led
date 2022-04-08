@@ -78,6 +78,10 @@ load_led() {
 		return 0
 	}
 
+	[ "$trigger" = "switch" ] && {
+		config_get trigger "$1" device "$trigger"
+	}
+
 	[ "$trigger" = "usbdev" ] && {
 		# Backward compatibility: translate to the new trigger
 		trigger="usbport"
