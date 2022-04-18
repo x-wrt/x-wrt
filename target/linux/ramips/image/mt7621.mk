@@ -2325,11 +2325,18 @@ endef
 TARGET_DEVICES += xwrt_puppies
 
 define Device/xwrt_nxc2009e-v100
+  $(Device/dsa-migration)
   $(Device/uimage-lzma-loader)
-  SOC := mt7621
-  IMAGE_SIZE := 15808k
   DEVICE_VENDOR := XWRT
   DEVICE_MODEL := NXC2009E-V100
+  BLOCKSIZE := 128k
+  PAGESIZE := 2048
+  KERNEL_SIZE := 4096k
+  IMAGE_SIZE := 129408k
+  UBINIZE_OPTS := -E 5
+  IMAGES += factory.bin
+  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+  IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | check-size
   DEVICE_PACKAGES := uboot-envtools kmod-gsw150 kmod-i2c-gpio i2c-tools xs2184
 endef
 TARGET_DEVICES += xwrt_nxc2009e-v100
