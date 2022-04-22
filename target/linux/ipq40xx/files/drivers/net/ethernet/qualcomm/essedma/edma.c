@@ -2094,6 +2094,15 @@ int edma_poll(struct napi_struct *napi, int budget)
 	edma_percpu_info->tx_status |= reg_data & edma_percpu_info->tx_mask;
 	shadow_tx_status = edma_percpu_info->tx_status;
 
+	/* Clear the status register, to avoid the interrupts to
+	 * reoccur.This clearing of interrupt status register is
+	 * done here as writing to status register only takes place
+	 * once the  producer/consumer index has been updated to
+	 * reflect that the packet transmission/reception went fine.
+	 */
+	edma_write_reg(EDMA_REG_RX_ISR, shadow_rx_status);
+	edma_write_reg(EDMA_REG_TX_ISR, shadow_tx_status);
+
 	/* Every core will have a start, which will be computed
 	 * in probe and stored in edma_percpu_info->tx_start variable.
 	 * We will shift the status bit by tx_start to obtain
@@ -2130,15 +2139,6 @@ int edma_poll(struct napi_struct *napi, int budget)
 			break;
 		}
 	}
-
-	/* Clear the status register, to avoid the interrupts to
-	 * reoccur.This clearing of interrupt status register is
-	 * done here as writing to status register only takes place
-	 * once the  producer/consumer index has been updated to
-	 * reflect that the packet transmission/reception went fine.
-	 */
-	edma_write_reg(EDMA_REG_RX_ISR, shadow_rx_status);
-	edma_write_reg(EDMA_REG_TX_ISR, shadow_tx_status);
 
 	/* If budget not fully consumed, exit the polling mode */
 	if (likely(work_done < budget)) {
