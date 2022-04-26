@@ -1,0 +1,34 @@
+#!/bin/sh
+
+test -f /etc/config/independent && exit 0
+
+uci -q batch <<-EOT
+	set network.ltewan=interface
+	set network.ltewan.proto='dhcp'
+	set network.ltewan.ifname='eth2'
+	set network.ltewan.metric='800'
+	commit network
+	EOT
+
+. /lib/functions.sh
+
+wan_zone=
+find_lte_wan_zone() {
+	local name
+	config_get name "$1" name
+	[ "$name" = "wan" ] && [ -z "$wan_zone" ] && wan_zone="$1"
+}
+
+config_load firewall
+config_foreach find_lte_wan_zone zone
+[ -n "$wan_zone" ] && {
+	config_get wans "$wan_zone" network
+	wans="$wans ltewan"
+	wans=$(for w in $wans; do echo $w; done | sort | uniq)
+	wans=`echo $wans`
+	uci set "firewall.$wan_zone.network=$wans"
+	uci commit firewall
+}
+
+touch /etc/config/independent
+exit 0
