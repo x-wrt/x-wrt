@@ -999,6 +999,7 @@ define Device/p2w_r619ac
 	DEVICE_DTS_CONFIG := config@10
 	BLOCKSIZE := 128k
 	PAGESIZE := 2048
+	DEVICE_PACKAGES := lte-modem-p2w-r619ac
 endef
 
 define Device/p2w_r619ac-64m
