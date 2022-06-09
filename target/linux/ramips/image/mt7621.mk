@@ -3734,6 +3734,36 @@ define Device/xwrt_wr1800k-ax-nor
 endef
 TARGET_DEVICES += xwrt_wr1800k-ax-nor
 
+define Device/xwrt_dm2-t-mb2ep-v02-nor
+  $(Device/uimage-lzma-loader)
+  $(Device/dsa-migration)
+  DEVICE_COMPAT_VERSION := 1.0
+  DEVICE_COMPAT_MESSAGE := Config is compat with swconfig
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := DM2 T-MB2EP-V02 (802.11ax, NOR)
+  DEVICE_PACKAGES += kmod-mt7915-firmware uboot-envtools
+  IMAGE_SIZE := 15808k
+  SUPPORTED_DEVICES += mt7621-dm2-t-mb2ep-v02-nor
+  IMAGES += factory.bin
+  IMAGE/factory.bin := append-kernel | append-rootfs | pad-rootfs | check-size | append-metadata | tenbay-factory WR1800K TB-WR1800K-MT7621-CPE-
+endef
+TARGET_DEVICES += xwrt_dm2-t-mb2ep-v02-nor
+
+define Device/xwrt_ms1800k-ax-nor
+  $(Device/uimage-lzma-loader)
+  $(Device/dsa-migration)
+  DEVICE_COMPAT_VERSION := 1.0
+  DEVICE_COMPAT_MESSAGE := Config is compat with swconfig
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := MS1800K (802.11ax, NOR)
+  DEVICE_PACKAGES += kmod-mt7915-firmware uboot-envtools
+  IMAGE_SIZE := 15808k
+  SUPPORTED_DEVICES += mt7621-ms1800k-ax-nor
+  IMAGES += factory.bin
+  IMAGE/factory.bin := append-kernel | append-rootfs | pad-rootfs | check-size | append-metadata | tenbay-factory WR1800K
+endef
+TARGET_DEVICES += xwrt_ms1800k-ax-nor
+
 define Device/xwrt_t-cpe1200k-v01
   $(Device/uimage-lzma-loader)
   IMAGE_SIZE := 16000k
