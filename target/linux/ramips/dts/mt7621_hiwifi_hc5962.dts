@@ -99,6 +99,14 @@
 				eeprom_factory_8000: eeprom@8000 {
 					reg = <0x8000 0x200>;
 				};
+
+				macaddr_factory_e000: macaddr@e000 {
+					reg = <0xe000 0x6>;
+				};
+
+				macaddr_factory_e006: macaddr@e006 {
+					reg = <0xe006 0x6>;
+				};
 			};
 		};
 
@@ -147,10 +155,18 @@
 	};
 };
 
+&gmac0 {
+	nvmem-cells = <&macaddr_factory_e000>;
+	nvmem-cell-names = "mac-address";
+};
+
 &gmac1 {
 	status = "okay";
 	label = "wan";
 	phy-handle = <&ethphy4>;
+
+	nvmem-cells = <&macaddr_factory_e006>;
+	nvmem-cell-names = "mac-address";
 };
 
 &ethphy4 {
