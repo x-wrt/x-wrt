@@ -3704,6 +3704,17 @@ define Device/xiaoyu_xy-c5
 endef
 TARGET_DEVICES += xiaoyu_xy-c5
 
+define Device/xwrt_ac8000p
+  $(Device/uimage-lzma-loader)
+  IMAGE_SIZE := 16064k
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := AC8000P
+  IMAGES += factory.bin
+  IMAGE/factory.bin := $$(IMAGE/sysupgrade.bin) | tenbay-factory AC8000P
+  DEVICE_PACKAGES := uboot-envtools kmod-i2c-gpio i2c-tools poe-controller
+endef
+TARGET_DEVICES += xwrt_ac8000p
+
 define Device/xwrt_nxc200p
   $(Device/uimage-lzma-loader)
   IMAGE_SIZE := 16064k
