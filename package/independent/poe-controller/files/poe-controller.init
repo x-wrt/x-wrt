@@ -1,0 +1,47 @@
+#!/bin/sh /etc/rc.common
+# Copyright (C) 2006-2011 OpenWrt.org
+
+START=70
+
+MAX_NUM=10
+
+set_vaule_to_reg() {
+	local i=0 reg ret value="$2"
+
+	while [ "$i" -lt "$MAX_NUM" ]; do
+		if i2cset -f -y 0 0x54 "$1" "$2" &&
+		   reg="$(i2cget -f -y 0 0x54 "$1")"; then
+			ret=$((reg & value))
+			if [ "$ret" -eq "$((value))" ]; then
+				return 0
+			fi
+		fi
+
+		i=$((i+1))
+	done
+
+	echo "Failed to configure PoE register $1 after $MAX_NUM attempts" >&2
+	return 1
+}
+
+start() {
+	set_vaule_to_reg 0x00 0x40 || return 1
+	set_vaule_to_reg 0x98 0x01 || return 1
+	set_vaule_to_reg 0x99 0x01 || return 1
+	set_vaule_to_reg 0x9a 0x01 || return 1
+	set_vaule_to_reg 0x9b 0x01 || return 1
+	set_vaule_to_reg 0x9c 0x01 || return 1
+	set_vaule_to_reg 0x9d 0x01 || return 1
+	set_vaule_to_reg 0x9e 0x01 || return 1
+	set_vaule_to_reg 0x9f 0x01 || return 1
+	set_vaule_to_reg 0x90 0x80 || return 1
+	set_vaule_to_reg 0x91 0x80 || return 1
+	set_vaule_to_reg 0x92 0x80 || return 1
+	set_vaule_to_reg 0x93 0x80 || return 1
+	set_vaule_to_reg 0x94 0x80 || return 1
+	set_vaule_to_reg 0x95 0x80 || return 1
+	set_vaule_to_reg 0x96 0x80 || return 1
+	set_vaule_to_reg 0x97 0x80 || return 1
+	set_vaule_to_reg 0x00 0x00 || return 1
+	set_vaule_to_reg 0x25 0xff || return 1
+}
