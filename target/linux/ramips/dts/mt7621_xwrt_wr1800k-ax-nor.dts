@@ -174,7 +174,11 @@
 	nvmem-cells = <&macaddr_factory_4 (-2)>;
 	nvmem-cell-names = "mac-address";
 	phy-mode = "rgmii";
-	phy-handle = <&phy4>;
+	fixed-link {
+		speed = <1000>;
+		full-duplex;
+		pause;
+	};
 };
 
 &mdio {
@@ -202,7 +206,6 @@
 	#address-cells = <1>;
 	#size-cells = <0>;
 
-	/*
 	port5: port@5 {
 		compatible = "mediatek,mt753x-port";
 		reg = <5>;
@@ -212,13 +215,14 @@
 			full-duplex;
 		};
 	};
-	*/
+	/*
 	port5: port@5 {
 		compatible = "mediatek,mt753x-port";
 		reg = <5>;
 		phy-mode = "rgmii";
 		phy-address = <0x4>;
 	};
+	*/
 
 	port6: port@6 {
 		compatible = "mediatek,mt753x-port";
