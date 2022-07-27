@@ -95,6 +95,19 @@
 	enable-active-high;
 };
 
+&gmac1 {
+	status = "okay";
+	phy-mode = "rgmii";
+
+	nvmem-cells = <&macaddr_factory_e000>;
+	nvmem-cell-names = "mac-address";
+	fixed-link {
+		speed = <1000>;
+		full-duplex;
+		pause;
+	};
+};
+
 &switch0 {
 	/* must delete compatible property */
 	/delete-property/ compatible;
@@ -114,7 +127,6 @@
 	#address-cells = <1>;
 	#size-cells = <0>;
 
-	/*
 	port5: port@5 {
 		compatible = "mediatek,mt753x-port";
 		reg = <5>;
@@ -124,7 +136,6 @@
 			full-duplex;
 		};
 	};
-	*/
 
 	port6: port@6 {
 		compatible = "mediatek,mt753x-port";
