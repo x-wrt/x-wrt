@@ -3743,6 +3743,20 @@ endif
 endef
 TARGET_DEVICES += xwrt_nxc2009e-v100
 
+define Device/xwrt_nxc2005ex
+  $(Device/nand)
+  $(Device/uimage-lzma-loader)
+  IMAGE_SIZE := 120320k
+  DEVICE_COMPAT_VERSION := 1.0
+  DEVICE_COMPAT_MESSAGE := Config is compat with swconfig
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := NXC2005EX
+  IMAGES += factory.bin
+  IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | check-size
+  DEVICE_PACKAGES := uboot-envtools kmod-i2c-gpio i2c-tools xs2184
+endef
+TARGET_DEVICES += xwrt_nxc2005ex
+
 define Device/xzwifi_creativebox-v1
   $(Device/dsa-migration)
   IMAGE_SIZE := 32448k
