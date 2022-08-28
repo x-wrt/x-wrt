@@ -1,0 +1,376 @@
+#!/bin/sh
+# Copyright (C) 2018 Chen Minqiang <ptpt52@gmail.com>
+
+EVENT=0
+
+LOG()
+{
+	if [ "$DEBUG" = "1" ]; then
+		echo "$(date "+[%Y-%m-%d %H:%M:%S]") switch_ports_status: $1"
+	else
+		logger -t switch_ports_status "$1"
+	fi
+}
+
+. /usr/share/libubox/jshn.sh
+
+json_select_array() {
+	local _json_no_warning=1
+
+	json_select "$1" && return
+
+	json_add_array "$1"
+	json_close_array
+
+	json_select "$1"
+}
+
+json_select_object() {
+	local _json_no_warning=1
+
+	json_select "$1" && return
+
+	json_add_object "$1"
+	json_close_object
+
+	json_select "$1"
+}
+
+SW_CFG_DATA="$(test -e /etc/config/board.json && cat /etc/config/board.json || test -f /etc/board.json && cat /etc/board.json)"
+
+_switchs=""
+_cpus=""
+_ports=""
+_linkmaps=""
+
+get_switch_device()
+{
+	local sw=switch0
+	local sw_idx=0
+	json_init
+	json_load "$SW_CFG_DATA"
+
+	if json_get_keys ports ports; then
+		json_select_array ports
+		for obj in $ports; do
+			json_select "$obj"
+			json_get_var type type
+			json_get_var device device
+			json_get_var ifname ifname
+			if [ "$type" = "switch" ]; then
+				_switchs="$device
+$_switchs"
+				this_cpus=""
+				this_ports=""
+				json_get_keys outer_ports outer_ports
+				json_get_var inner_port inner_port
+				json_select_array outer_ports outer_ports
+				for i in $outer_ports; do
+					json_select "$i"
+					json_get_var num num
+					if test -n "$num"; then
+						this_ports="$num $this_ports"
+					fi
+					json_select ..
+				done
+				this_cpus="$ifname@$inner_port $this_cpus"
+				json_select ..
+				_cpus="$device=$this_cpus
+$_cpus"
+				_ports="$device=$this_ports
+$_ports"
+			fi
+			json_select ..
+		done
+		_switchs=$(echo "$_switchs" | sort | uniq)
+		return;
+	fi
+
+	json_select_object switch
+
+	while :; do
+	sw="switch${sw_idx}"
+	sw_idx=$((sw_idx+1))
+
+	if json_is_a $sw object && json_select_object $sw; then
+		_switchs="$sw
+$_switchs"
+		this_cpus=""
+		this_ports=""
+		json_get_keys ports ports
+		json_select_array ports
+		for i in $ports; do
+			json_select "$i"
+			json_get_var num num
+			json_get_var device device
+			if test -n "$device"; then
+				this_cpus="$device@$num $this_cpus"
+			else
+				this_ports="$num $this_ports"
+			fi
+			json_select ..
+		done
+		json_select ..
+		_cpus="$sw=$this_cpus
+$_cpus"
+		_ports="$sw=$this_ports
+$_ports"
+	else
+		break
+	fi
+	json_select ..
+
+	done
+}
+
+get_switch_device
+
+get_map_value() {
+	local key="$1"
+	local map_var="$2"
+	local out_var="$3"
+	eval "local map=\"\$$map_var\""
+	local pair
+	local old_ifs="$IFS"
+	IFS="
+"
+	for pair in $map; do
+		case "$pair" in
+			"$key="*)
+				IFS="$old_ifs"
+				eval "$out_var=\"\${pair#*=}\""
+				return 0
+				;;
+		esac
+	done
+	IFS="$old_ifs"
+	eval "$out_var=\"\""
+	return 1
+}
+
+set_map_value() {
+	local key="$1"
+	local val="$2"
+	local map_var="$3"
+	eval "local map=\"\$$map_var\""
+	local pair
+	local new_map=""
+	local found=0
+	local old_ifs="$IFS"
+	IFS="
+"
+	for pair in $map; do
+		case "$pair" in
+			"$key="*) new_map="$new_map$key=$val
+"; found=1 ;;
+			?*) new_map="$new_map$pair
+" ;;
+		esac
+	done
+	if [ "$found" = "0" ]; then
+		new_map="$new_map$key=$val
+"
+	fi
+	IFS="$old_ifs"
+	eval "$map_var=\"\$new_map\""
+}
+
+get_switch_linkmap()
+{
+	local out_var="$1"
+	local sw="$2"
+	local ports="$3"
+	local status=0 link i
+	status="$(swconfig dev $sw get link_map 2>/dev/null)"
+	if [ -n "$status" ]; then
+		eval "$out_var=\"\$status\""
+		return
+	fi
+	status=0
+	for i in $ports; do
+		link="$(swconfig dev $sw port $i get link 2>/dev/null)"
+		link="${link/*link:up*/1}"
+		link="${link/*link:down*/0}"
+		[ "$link" = "0" ] || [ "$link" = "1" ] || link=0
+		status=$(((link<<i) | status))
+	done
+	eval "$out_var=\"\$status\""
+}
+
+# only trigger on **matched** interface and status is up
+trigger_event()
+{
+	#find out all device and its upper, and its upper's upper
+	local up1=""
+	local up2=""
+	local br="" dir dev line status dhcp_pid D
+	for dir in /sys/class/net/$DEVICE/upper_*; do
+		[ -e "$dir" ] && up1="$up1 ${dir##*/upper_}"
+	done
+	for dev in $up1; do
+		for dir in /sys/class/net/$dev/upper_*; do
+			[ -e "$dir" ] && up2="$up2 ${dir##*/upper_}"
+		done
+	done
+	br="$DEVICE $up1 $up2"
+
+	local interfaces="$(ubus list network.interface.\* 2>/dev/null)"
+	for line in $interfaces; do
+		status="$(ubus call $line status 2>/dev/null)"
+		echo "$status" | grep -q '"up": true,' || continue
+		for D in $br; do
+			if echo "$status" | grep -q "\"device\": \"$D\","; then
+				if echo "$status" | grep -q '"proto": "dhcp"'; then
+					dhcp_pid="$(cat /var/run/udhcpc-${D}.pid 2>/dev/null)"
+					if [ -e "/sys/class/net/${D}/brif" ] && [ -n "${dhcp_pid}" ]; then
+						LOG "EVENT($EVENT): DEVICE=$D $line notify dhcp renew"
+						kill -USR1 ${dhcp_pid} 2>/dev/null
+					else
+						LOG "EVENT($EVENT): DEVICE=$D $line ubus call down/up"
+						ubus call $line down
+						ubus call $line up
+					fi
+				elif echo "$status" | grep -q '"proto": "pppoe"'; then
+					LOG "EVENT($EVENT): DEVICE=$D $line ubus call down/up"
+					ubus call $line down
+					ubus call $line up
+				fi
+				break
+			fi
+		done
+	done
+
+	#call hotplug ifchange action
+	for D in $br; do
+		env -i ACTION="ifchange" INTERFACE="$D" LINK=$LINK /sbin/hotplug-call iface
+	done
+}
+
+# env -i SW=$sw PORTS=$ports CPUS=$cpus NEWLINKMAP=$newlinkmap DIFFPORT=$i LINK=$newstatus call_link_changed
+call_link_changed()
+{
+	local idx=0
+	local device ports vlan p cpu
+	while uci -q get network.@switch_vlan[$idx] >/dev/null; do
+		device=$(uci -q get network.@switch_vlan[$idx].device)
+		[ "$device" = "$SW" ] || {
+			idx=$((idx+1))
+			continue
+		}
+
+		ports=$(uci -q get network.@switch_vlan[$idx].ports)
+		for p in $ports; do
+			if [ "$p" = "${DIFFPORT}" ] || [ "$p" = "${DIFFPORT}t" ]; then
+				vlan=$(uci -q get network.@switch_vlan[$idx].vlan)
+				for p in $ports; do
+					for cpu in $CPUS; do
+						if [ "$p" = ${cpu##*@}t ]; then
+							LOG "EVENT($EVENT): DEVICE=${cpu%%@*}.$vlan LINK=$LINK"
+							DEVICE=${cpu%%@*}.$vlan LINK=$LINK trigger_event
+						fi
+						if [ "$p" = ${cpu##*@} ]; then
+							LOG "EVENT($EVENT): DEVICE=${cpu%%@*} LINK=$LINK"
+							DEVICE=${cpu%%@*} LINK=$LINK trigger_event
+						fi
+					done
+				done
+				break
+			fi
+		done
+		idx=$((idx+1))
+	done
+}
+
+# init _linkmaps
+for sw in $_switchs; do
+	get_map_value "$sw" "_ports" ports
+	get_map_value "$sw" "_cpus" cpus
+	get_switch_linkmap newlinkmap "$sw" "$ports"
+	set_map_value "$sw" "$newlinkmap" "_linkmaps"
+done
+
+get_br_linkmap()
+{
+	local out_var="$1"
+	local br="$2"
+	local ca CA="" val
+	for ca in /sys/class/net/$br/lower_*/carrier; do
+		[ -e "$ca" ] && { read -r val < "$ca"; CA="$CA$ca:$val "; }
+	done
+	eval "$out_var=\"\${CA% }\""
+}
+
+_br_linkmaps=""
+#init bridge _br_linkmaps
+BR=""
+for brif in /sys/class/net/*/brif; do
+	[ -e "$brif" ] && { br="${brif#/sys/class/net/}"; BR="$BR ${br%/brif}"; }
+done
+for br in $BR; do
+	get_br_linkmap newlinkmap "$br"
+	set_map_value "$br" "$newlinkmap" "_br_linkmaps"
+done
+
+loop=1
+cleanup()
+{
+	loop=0
+	echo Finished
+}
+
+trap "cleanup" EXIT
+
+#main loop
+while [ "$loop" = "1" ]; do
+
+BR=""
+for brif in /sys/class/net/*/brif; do
+	[ -e "$brif" ] && { br="${brif#/sys/class/net/}"; BR="$BR ${br%/brif}"; }
+done
+
+for br in $BR; do
+	if get_map_value "$br" "_br_linkmaps" oldlinkmap; then
+		get_br_linkmap newlinkmap "$br"
+		if [ "$oldlinkmap" != "$newlinkmap" ]; then
+			set_map_value "$br" "$newlinkmap" "_br_linkmaps"
+			LOG "EVENT($EVENT): DEVICE=$br link changed"
+			DEVICE=$br trigger_event
+			EVENT=$((EVENT+1))
+		fi
+	else
+		get_br_linkmap newlinkmap "$br"
+		set_map_value "$br" "$newlinkmap" "_br_linkmaps"
+	fi
+done
+
+for sw in $_switchs; do
+	get_map_value "$sw" "_ports" ports
+	get_map_value "$sw" "_cpus" cpus
+	get_map_value "$sw" "_linkmaps" oldlinkmap
+	oldlinkmap="${oldlinkmap:-0}"
+
+	get_switch_linkmap newlinkmap "$sw" "$ports"
+
+	diffstatus=$((oldlinkmap^newlinkmap))
+
+	#store _linkmaps if newlinkmap changed
+	if [ $diffstatus -ne 0 ]; then
+		set_map_value "$sw" "$newlinkmap" "_linkmaps"
+	fi
+
+	if [ $diffstatus -ne 0 ]; then
+		for i in $ports; do
+			if [ $((diffstatus&(1<<i))) -ne 0 ]; then
+				newstatus=$((!!(newlinkmap&(1<<i))))
+				LOG "EVENT($EVENT): SW=$sw PORTS=$ports CPUS=$cpus NEWLINKMAP=$newlinkmap DIFFPORT=$i LINK=$newstatus"
+				SW=$sw PORTS=$ports CPUS=$cpus NEWLINKMAP=$newlinkmap DIFFPORT=$i LINK=$newstatus call_link_changed
+				EVENT=$((EVENT+1))
+			fi
+		done
+	fi
+done
+
+	sleep 3
+
+done
+#end main
