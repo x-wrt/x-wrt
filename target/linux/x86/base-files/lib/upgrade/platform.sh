@@ -81,7 +81,7 @@ platform_do_upgrade_onie() {
 }
 
 platform_check_image() {
-	local diskdev partdev diff
+	local diskdev partdev diff diff_status
 	[ "$#" -gt 1 ] && return 1
 
 	if is_onie_install; then
@@ -116,15 +116,26 @@ platform_check_image() {
 
 	get_partitions /tmp/image.bs image
 
+	if [ ! -s /tmp/partmap.bootdisk ] || [ ! -s /tmp/partmap.image ]; then
+		v "Unable to read partition layouts. Upgrade aborted."
+		rm -f /tmp/image.bs /tmp/partmap.bootdisk /tmp/partmap.image
+		return 1
+	fi
+
 	#compare tables
 	diff="$(grep -F -x -v -f /tmp/partmap.bootdisk /tmp/partmap.image)"
+	diff_status=$?
 
 	rm -f /tmp/image.bs /tmp/partmap.bootdisk /tmp/partmap.image
 
+	if [ "$diff_status" -gt 1 ]; then
+		v "Unable to compare partition layouts. Upgrade aborted."
+		return 1
+	fi
+
 	if [ -n "$diff" ]; then
 		v "Partition layout has changed. Full image will be written."
-		ask_bool 0 "Abort" && exit 1
-		return 0
+		return 1
 	fi
 }
 
