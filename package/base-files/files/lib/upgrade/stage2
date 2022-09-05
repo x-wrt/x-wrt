@@ -37,6 +37,7 @@ switch_to_ramfs() {
 	RAMFS_COPY_LVM="$(command -v lvm)"
 
 	for binary in \
+		/usr/sbin/blkid \
 		/bin/busybox /bin/ash /bin/sh /bin/mount /bin/umount	\
 		pivot_root mount_root reboot sync kill sleep		\
 		md5sum hexdump cat zcat dd tar gzip			\
@@ -61,6 +62,17 @@ switch_to_ramfs() {
 	mkdir -p $RAM_ROOT/var/lock
 
 	[ -L "/lib64" ] && ln -s /lib $RAM_ROOT/lib64
+
+	overlay_dev=$(blkid 2>/dev/null | grep 'UUID="f3178596-4427-2d3b-35c7-648b65e20d5e"' -m1 | cut -d: -f1)
+	if test -b "$overlay_dev"; then
+		echo "$overlay_dev" >$RAM_ROOT/.extroot-erase-ext4fs
+	fi
+	if mount | grep overlayfs | grep -q 'workdir=/overlay/work'; then
+		overlay_dev=$(df /overlay/ | tail -n1 | awk '{print $1}')
+		if ubinfo $overlay_dev 2>/dev/null | grep -q "extroot_overlay"; then
+			echo "$overlay_dev" >$RAM_ROOT/.extroot-erase-ubifs
+		fi
+	fi
 
 	supivot $RAM_ROOT /mnt || {
 		v "Failed to switch over to ramfs. Please reboot."
