@@ -427,6 +427,35 @@ nand_do_flash_file() {
 
 nand_do_restore_config() {
 	local conf_tar="/tmp/sysupgrade.tgz"
+	overlay_dev=$(cat /.extroot-erase-ext4fs 2>/dev/null)
+	if test -b "$overlay_dev"; then
+		if [ -f "$conf_tar" ]; then
+			mkdir -p /mnt
+			if mount -t ext4 -o rw,noatime "$overlay_dev" /mnt; then
+				cp -af "$conf_tar" "/mnt/sysupgrade.tgz"
+				umount /mnt
+			fi
+		fi
+		echo erase >"$overlay_dev"
+		sync
+	fi
+	overlay_dev=$(cat /.extroot-erase-ubifs 2>/dev/null)
+	if test -n "$overlay_dev"; then
+		ubidev=${overlay_dev#/dev/}
+		ubidev=${ubidev%_*}
+		ubi_mknod /sys/class/ubi/$ubidev
+		ubivol=$(nand_find_volume $ubidev extroot_overlay)
+		overlay_dev=/dev/$ubivol
+		if test -e "$overlay_dev"; then
+			if mount -t ubifs -o rw,noatime "$overlay_dev" /mnt; then
+				touch /mnt/.extroot-erase
+				if [ -f "$conf_tar" ]; then
+					cp -af "$conf_tar" "/mnt/sysupgrade.tgz"
+				fi
+				umount /mnt
+			fi
+		fi
+	fi
 	[ ! -f "$conf_tar" ] || nand_restore_config "$conf_tar"
 }
 
