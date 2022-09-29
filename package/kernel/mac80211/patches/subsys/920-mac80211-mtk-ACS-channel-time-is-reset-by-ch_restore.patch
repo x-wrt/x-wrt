@@ -1,0 +1,58 @@
+From e86b89d026fa963ff6c789747b9b373884956157 Mon Sep 17 00:00:00 2001
+From: Evelyn Tsai <evelyn.tsai@mediatek.com>
+Date: Fri, 1 Dec 2023 08:48:35 +0800
+Subject: [PATCH] mac80211: mtk: ACS channel time is reset by ch_restore
+
+Issue:
+There's a chance that the channel time for duty channel is zero in ACS
+scan.
+
+Root cause:
+The chan_stat may be reset when restore to duty channel.
+Mac80211 will notify to hostapd when scan done and then restore to duty
+channel.
+And mt76 will clear scan flag after restore done.
+If hostapd get the chan_stat before channel_restore, will get the
+correct channel time;
+If hostapd get the chan_stat after channel_restore, will get zero
+channel time;
+
+Solution:
+When channel switch, will check the mac80211 scan state but not the mt76 scan flag.
+Mac80211 scan state will be set in scanning, and will be reset after
+scan done and before restore to duty channel.
+
+Signed-off-by: fancy.liu <fancy.liu@mediatek.com>
+---
+ include/net/mac80211.h | 6 ++++++
+ net/mac80211/util.c    | 8 ++++++++
+ 2 files changed, 14 insertions(+)
+
+--- a/include/net/mac80211.h
++++ b/include/net/mac80211.h
+@@ -7444,4 +7444,10 @@ int ieee80211_set_active_links(struct ie
+ void ieee80211_set_active_links_async(struct ieee80211_vif *vif,
+ 				      u16 active_links);
+ 
++/**
++ * ieee80211_get_scanning - get scanning bitmask
++ *
++ * @hw: pointer as obtained from ieee80211_alloc_hw()
++ */
++unsigned long ieee80211_get_scanning(struct ieee80211_hw *hw);
+ #endif /* MAC80211_H */
+--- a/net/mac80211/util.c
++++ b/net/mac80211/util.c
+@@ -5147,3 +5147,11 @@ void ieee80211_fragment_element(struct s
+ 
+ 	*len_pos = elem_len;
+ }
++
++unsigned long ieee80211_get_scanning(struct ieee80211_hw *hw)
++{
++	struct ieee80211_local *local = hw_to_local(hw);
++
++	return local->scanning;
++}
++EXPORT_SYMBOL(ieee80211_get_scanning);
+\ No newline at end of file
