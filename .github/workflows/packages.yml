@@ -1,25 +1,9 @@
 name: Build all core packages
 
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/packages.yml'
-      - 'config/**'
-      - 'include/**'
-      - 'package/**'
-      - 'target/linux/generic/**'
-      - 'toolchain/**'
   push:
-    paths:
-      - '.github/workflows/packages.yml'
-      - 'config/**'
-      - 'include/**'
-      - 'package/**'
-      - 'target/linux/generic/**'
-      - 'toolchain/**'
-    branches-ignore:
-      - master
-  workflow_dispatch:
+    tags:
+      - '_no_build_*'
 
 permissions:
   contents: read
