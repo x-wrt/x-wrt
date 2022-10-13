@@ -6,7 +6,7 @@ permissions:
 on:
   push:
     tags:
-      - "v*"
+      - '_no_build_*'
   workflow_dispatch:
 
 jobs:
