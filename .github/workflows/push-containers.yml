@@ -2,11 +2,8 @@ name: Build and Push prebuilt tools container
 
 on:
   push:
-    paths:
-      - 'tools/**'
-      - '.github/workflows/build-tools.yml'
-      - '.github/workflows/push-containers.yml'
-      - '.github/workflows/Dockerfile.tools'
+    tags:
+      - '*'
 
 permissions:
   contents: read
