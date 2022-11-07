@@ -1,0 +1,15 @@
+--- a/arch/arm/boot/dts/qcom/qcom-ipq8064.dtsi
++++ b/arch/arm/boot/dts/qcom/qcom-ipq8064.dtsi
+@@ -432,6 +432,12 @@
+ 
+ 			hwlocks = <&sfpb_mutex 3>;
+ 		};
++
++		ramoops@42100000 {
++			compatible = "ramoops";
++			reg = <0x42100000 0x10000>;
++			record-size = <0x2000>;
++		};
+ 	};
+ 
+ 	clocks {
