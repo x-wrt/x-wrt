@@ -168,6 +168,10 @@ zyxel,lte7490-m904|\
 zyxel,nr7101)
 	ubootenv_add_mtd "Config" "0x0" "0x1000" "0x80000"
 	;;
+ruijie,rg-ew1800gx)
+	ubootenv_add_uci_config "/dev/mtd1" "0x0" "0x10000" "0x10000"
+	ubootenv_add_uci_sys_config "/dev/mtd3" "0x0" "0x10000" "0x10000"
+	;;
 esac
 
 case "$board" in
