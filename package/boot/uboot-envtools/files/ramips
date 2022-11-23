@@ -167,6 +167,10 @@ netgear,wax214v2)
 	ubootenv_add_uci_config "/dev/mtd1" "0x0" "0x20000" "0x20000"
 	ubootenv_add_uci_sys_config "/dev/mtd1" "0x20000" "0x8000" "0x20000"
 	;;
+ruijie,rg-ew1800gx)
+	ubootenv_add_uci_config "/dev/mtd1" "0x0" "0x10000" "0x10000"
+	ubootenv_add_uci_sys_config "/dev/mtd3" "0x0" "0x10000" "0x10000"
+	;;
 esac
 
 case "$board" in
