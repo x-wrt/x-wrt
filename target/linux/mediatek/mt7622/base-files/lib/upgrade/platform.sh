@@ -79,11 +79,8 @@ platform_check_image() {
 			echo "Invalid image type."
 			return 1
 		}
-		return 0
 		;;
 	esac
-
-	return 0
 }
 
 platform_copy_config() {

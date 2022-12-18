@@ -88,15 +88,11 @@ platform_check_image() {
 			echo "Invalid image type."
 			return 1
 		}
-		return 0
 		;;
 	*)
 		nand_do_platform_check "$board" "$1"
-		return 0
 		;;
 	esac
-
-	return 0
 }
 
 platform_copy_config() {
