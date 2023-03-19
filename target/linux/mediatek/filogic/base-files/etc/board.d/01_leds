@@ -61,6 +61,10 @@ routerich,ax3000)
 	ucidef_set_led_netdev "wan" "wan" "blue:wan" "wan" "link tx rx"
 	ucidef_set_led_netdev "wan-off" "wan-off" "red:wan" "wan" "link"
 	;;
+tenbay,ac-2210e)
+	ucidef_set_led_netdev "wan1" "WAN1" "yellow:wan1" "wan1"
+	ucidef_set_led_netdev "wan2" "WAN2" "yellow:wan2" "wan2"
+	;;
 xiaomi,mi-router-wr30u-112m-nmbm|\
 xiaomi,mi-router-wr30u-stock|\
 xiaomi,mi-router-wr30u-ubootmod)
