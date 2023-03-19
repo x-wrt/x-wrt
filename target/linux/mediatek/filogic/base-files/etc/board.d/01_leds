@@ -240,6 +240,10 @@ wavlink,wl-wn586x3b)
 	ucidef_set_led_netdev "lan-2" "lan-2" "blue:lan-2" "lan2" "link tx rx"
 	ucidef_set_led_netdev "wan" "wan" "blue:wan" "eth1" "link tx rx"
 	;;
+tenbay,ac-2210e)
+	ucidef_set_led_netdev "wan1" "WAN1" "yellow:wan1" "wan1"
+	ucidef_set_led_netdev "wan2" "WAN2" "yellow:wan2" "wan2"
+	;;
 xiaomi,mi-router-wr30u-112m-nmbm|\
 xiaomi,mi-router-wr30u-stock|\
 xiaomi,mi-router-wr30u-ubootmod)
