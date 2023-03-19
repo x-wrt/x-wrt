@@ -137,6 +137,9 @@ mediatek_setup_interfaces()
 	zyxel,ex5601-t0-ubootmod)
 		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4" eth1
 		;;
+	tenbay,ac-2210e)
+		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4 wan1 lan5 lan6 lan7 lan8" wan2
+		;;
 	*)
 		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4" wan
 		;;
