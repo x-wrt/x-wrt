@@ -74,6 +74,53 @@ xiaomi_initial_setup()
 	esac
 }
 
+tenbay_mmc_do_upgrade_dual_boot()
+{
+	local tar_file="$1"
+	local kernel_dev=
+	local rootfs_dev=
+	local current_sys=0
+
+	CI_KERNPART=kernel
+	CI_ROOTPART=rootfs
+
+	if cat /proc/device-tree/chosen/bootargs-append | grep -q sys=1; then
+		current_sys=1
+	fi
+
+	if [ "$current_sys" = "1" ]; then
+		rootfs_dev=$(blkid -t "PARTLABEL=rootfs" -o device)
+		kernel_dev=$(blkid -t "PARTLABEL=kernel" -o device)
+		CI_KERNPART=kernel
+		CI_ROOTPART=rootfs
+	else
+		rootfs_dev=$(blkid -t "PARTLABEL=rootfs_1" -o device)
+		kernel_dev=$(blkid -t "PARTLABEL=kernel_1" -o device)
+		CI_KERNPART=kernel_1
+		CI_ROOTPART=rootfs_1
+	fi
+
+	[ -z "${rootfs_dev}" ] && return 1
+	[ -z "${kernel_dev}" ] && return 1
+	fw_printenv env_init &>/dev/null || {
+		v "Failed to fetch env, please check /etc/fw_env.config"
+		return 1
+	}
+
+	#Switch sys to boot
+	if [ "$current_sys" = "1" ]; then
+		fw_setenv bootargs "console=ttyS0,115200n1 loglevel=8 earlycon=uart8250,mmio32,0x11002000 root=PARTLABEL=rootfs rootfstype=squashfs,f2fs"
+	else
+		fw_setenv bootargs "console=ttyS0,115200n1 loglevel=8 earlycon=uart8250,mmio32,0x11002000 root=PARTLABEL=rootfs_1 rootfstype=squashfs,f2fs"
+	fi
+	sync
+
+	rootdev="${rootfs_dev##*/}"
+	rootdev="${rootdev%p[0-9]*}"
+	CI_ROOTDEV=${rootdev}
+	emmc_do_upgrade "${tar_file}"
+}
+
 platform_do_upgrade() {
 	local board=$(board_name)
 
@@ -256,6 +303,9 @@ platform_do_upgrade() {
 		CI_ROOT_UBIPART=ubi
 		nand_do_upgrade "$1"
 		;;
+	tenbay,wr3000k-gsw-emmc-nor)
+		tenbay_mmc_do_upgrade_dual_boot "$1"
+		;;
 	*)
 		nand_do_upgrade "$1"
 		;;
@@ -308,6 +358,7 @@ platform_check_image() {
 		fit_check_image "$1"
 		return $?
 		;;
+	tenbay,wr3000k-gsw-emmc-nor|\
 	tenda,ax12l-pro)
 		return 0
 		;;
@@ -368,6 +419,7 @@ platform_copy_config() {
 	smartrg,sdg-8733|\
 	smartrg,sdg-8733a|\
 	smartrg,sdg-8734|\
+	tenbay,wr3000k-gsw-emmc-nor|\
 	ubnt,unifi-6-plus)
 		emmc_copy_config
 		;;
