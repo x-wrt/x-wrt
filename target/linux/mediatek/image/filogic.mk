@@ -3223,3 +3223,17 @@ define Device/zyxel_nwa50ax-pro
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
 endef
 TARGET_DEVICES += zyxel_nwa50ax-pro
+
+define Device/tenbay_wr3000k-gsw-emmc-nor
+  DEVICE_VENDOR := Tenbay
+  DEVICE_MODEL := WR3000K (gsw emmc nor)
+  DEVICE_DTS := mt7981b-tenbay-wr3000k-gsw-emmc-nor
+  SUPPORTED_DEVICES := tenbay,wr3000k-gsw-emmc-nor
+  DEVICE_DTS_DIR := ../dts
+  DEVICE_PACKAGES := kmod-mt7915e kmod-mt7981-firmware mt7981-wo-firmware \
+		     mkf2fs e2fsprogs blkid blockdev losetup kmod-fs-ext4 \
+		     kmod-mmc kmod-fs-f2fs kmod-fs-vfat kmod-nls-cp437 \
+		     kmod-nls-iso8859-1 mmc-utils fdisk gdisk partx-utils tune2fs uboot-envtools
+  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+endef
+TARGET_DEVICES += tenbay_wr3000k-gsw-emmc-nor
