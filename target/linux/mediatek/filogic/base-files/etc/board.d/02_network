@@ -53,6 +53,9 @@ mediatek_setup_interfaces()
 	tplink,tl-xdr6086)
 		ucidef_set_interfaces_lan_wan "lan1 lan2" eth1
 		;;
+	tenbay,wr3000k-gsw-emmc-nor)
+		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3" eth1
+		;;
 	xiaomi,mi-router-wr30u-112m-nmbm|\
 	xiaomi,mi-router-wr30u-stock|\
 	xiaomi,mi-router-wr30u-ubootmod|\
@@ -118,6 +121,11 @@ mediatek_setup_macs()
 	xiaomi,redmi-router-ax6000-ubootmod)
 		wan_mac=$(mtd_get_mac_ascii Bdata ethaddr_wan)
 		label_mac=$wan_mac
+		;;
+	tenbay,wr3000k-gsw-emmc-nor)
+		addr=$(mtd_get_mac_binary "Factory" 0x4)
+		wan_mac=$(macaddr_add ${addr} -2)
+		lan_mac=$(macaddr_add ${addr} -1)
 		;;
 	esac
 
