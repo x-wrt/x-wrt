@@ -155,6 +155,98 @@ mtk_dual_boot_flash_both_slots() {
 	nand_do_flash_file "$1" || nand_do_upgrade_failed
 }
 
+tenbay_mmc_check_image()
+{
+	local tar_file="$1"
+	local gz= members board_dir member size
+
+	[ "$(identify_magic_long "$(get_magic_long "$tar_file" cat)")" = "gzip" ] && gz=z
+	members=$(tar t${gz}f "$tar_file" 2>/dev/null) || return 1
+	board_dir=$(printf '%s\n' "$members" | grep -m 1 '^sysupgrade-.*/$')
+	case "$board_dir" in
+	sysupgrade-tenbay_wr3000k-gsw-emmc-nor/|sysupgrade-tenbay,wr3000k-gsw-emmc-nor/)
+		;;
+	*)
+		return 1
+		;;
+	esac
+
+	for member in CONTROL kernel root; do
+		[ "$(printf '%s\n' "$members" | grep -Fxc "$board_dir$member")" -eq 1 ] || return 1
+		size=$(set -o pipefail; tar x${gz}Of "$tar_file" "$board_dir$member" 2>/dev/null | wc -c) || return 1
+		[ "$size" -gt 0 ] || return 1
+	done
+
+	return 0
+}
+
+tenbay_mmc_do_upgrade_dual_boot()
+{
+	local tar_file="$1"
+	local kernel_dev=
+	local rootfs_dev=
+	local current_sys=0
+
+	tenbay_mmc_check_image "$tar_file" || exit 1
+
+	CI_KERNPART=kernel
+	CI_ROOTPART=rootfs
+
+	if cat /proc/device-tree/chosen/bootargs-append | grep -q sys=1; then
+		current_sys=1
+	fi
+
+	if [ "$current_sys" = "1" ]; then
+		rootfs_dev=$(blkid -t "PARTLABEL=rootfs" -o device)
+		kernel_dev=$(blkid -t "PARTLABEL=kernel" -o device)
+		CI_KERNPART=kernel
+		CI_ROOTPART=rootfs
+	else
+		rootfs_dev=$(blkid -t "PARTLABEL=rootfs_1" -o device)
+		kernel_dev=$(blkid -t "PARTLABEL=kernel_1" -o device)
+		CI_KERNPART=kernel_1
+		CI_ROOTPART=rootfs_1
+	fi
+
+	[ -z "${rootfs_dev}" ] && exit 1
+	[ -z "${kernel_dev}" ] && exit 1
+	fw_printenv env_init &>/dev/null || {
+		v "Failed to fetch env, please check /etc/fw_env.config"
+		exit 1
+	}
+
+	rootdev="${rootfs_dev##*/}"
+	rootdev="${rootdev%p[0-9]*}"
+	CI_ROOTDEV=${rootdev}
+	export EMMC_KERN_DEV="$kernel_dev"
+	export EMMC_ROOT_DEV="$rootfs_dev"
+	emmc_upgrade_tar "$tar_file" || exit 1
+	if [ -n "$UPGRADE_BACKUP" ]; then
+		emmc_copy_config || exit 1
+	fi
+	sync || exit 1
+
+	# Switch slots after the image and optional backup have been written and synced.
+	if [ "$current_sys" = "1" ]; then
+		fw_setenv bootargs "console=ttyS0,115200n1 loglevel=8 earlycon=uart8250,mmio32,0x11002000 root=PARTLABEL=rootfs rootfstype=squashfs,f2fs" || exit 1
+	else
+		fw_setenv bootargs "console=ttyS0,115200n1 loglevel=8 earlycon=uart8250,mmio32,0x11002000 root=PARTLABEL=rootfs_1 rootfstype=squashfs,f2fs" || exit 1
+	fi
+	sync
+}
+
+tenbay_dualboot_fixup()
+{
+	[ "$(rootfs_type)" = "tmpfs" ] || return 0
+
+	if ! fw_printenv -n boot_from &>/dev/null; then
+		echo "unable to read uboot-env"
+		exit 1
+	fi
+
+	fw_setenv boot_from ubi || exit 1
+}
+
 platform_do_upgrade() {
 	local board=$(board_name)
 
@@ -398,6 +490,9 @@ platform_do_upgrade() {
 			;;
 		esac
 		;;
+	tenbay,wr3000k-gsw-emmc-nor)
+		tenbay_mmc_do_upgrade_dual_boot "$1"
+		;;
 	*)
 		nand_do_upgrade "$1"
 		;;
@@ -469,6 +564,10 @@ platform_check_image() {
 		fit_check_image "$1"
 		return $?
 		;;
+	tenbay,wr3000k-gsw-emmc-nor)
+		tenbay_mmc_check_image "$1"
+		return $?
+		;;
 	creatlentem,clt-r30b1|\
 	creatlentem,clt-r30b1-112m|\
 	hiveton,h5000m|\
@@ -483,6 +582,10 @@ platform_check_image() {
 
 		return 0
 		;;
+	tenbay,wr3000k-gsw-emmc-nor|\
+	tenda,ax12l-pro)
+		return 0
+		;;
 	*)
 		nand_do_platform_check "$board" "$1"
 		return $?
@@ -494,6 +597,10 @@ platform_check_image() {
 
 platform_copy_config() {
 	case "$(board_name)" in
+	tenbay,wr3000k-gsw-emmc-nor)
+		# The backup was saved before switching the boot slot.
+		return 0
+		;;
 	bananapi,bpi-r3|\
 	bananapi,bpi-r3-mini|\
 	bananapi,bpi-r4|\
@@ -575,6 +682,9 @@ platform_pre_upgrade() {
 	xiaomi,mi-router-wr30u-stock|\
 	xiaomi,redmi-router-ax6000-stock)
 		xiaomi_initial_setup
+		;;
+	tenbay,wr3000k)
+		tenbay_dualboot_fixup
 		;;
 	esac
 }
