@@ -18,6 +18,7 @@ mediatek_setup_interfaces()
 	cetron,ct3003|\
 	confiabits,mt7981|\
 	cudy,wr3000-v1|\
+	tenbay,wr3000k|\
 	jcg,q30-pro|\
 	qihoo,360t7|\
 	routerich,ax3000)
