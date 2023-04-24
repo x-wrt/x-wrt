@@ -66,6 +66,9 @@ tenbay,wr3000k-gsw-emmc-nor)
 		ubootenv_add_uci_config "/dev/mtd1" "0x0" "0x10000" "0x10000"
 	fi
 	;;
+tenbay,wr3000k)
+	ubootenv_add_uci_config "/dev/mtd1" "0" "0x20000" "0x20000" 1
+	;;
 esac
 
 config_load ubootenv
