@@ -38,6 +38,31 @@ define Build/simplefit
 	rm $@.tmp
 endef
 
+define Build/sysupgrade-initramfs-tar
+	-[ -f "$@" ] && mv "$@" "$@.kernel"
+	touch "$@.rootfs"
+	sh $(TOPDIR)/scripts/sysupgrade-tar.sh \
+		--board $(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME)) \
+		--kernel "$@.kernel" \
+		--rootfs "$@.rootfs" \
+		$@
+	rm -f "$@.kernel" "$@.rootfs"
+endef
+
+define Build/tenbay-factory
+  $(eval model=$(word 1,$(1)))
+  $(eval magic=$(word 2,$(1)))
+  mkdir -p "$@.tmp"
+  mv "$@" "$@.tmp/UploadBrush-bin.img"
+  $(MKHASH) md5 "$@.tmp/UploadBrush-bin.img" | head -c32 > "$@.tmp/check_MD5.txt"
+  echo -n $$(cat "$@.tmp/check_MD5.txt" | head -c32)$$(echo -n $(magic)$(model) | $(MKHASH) md5 | head -c32) | $(MKHASH) md5 | head -c32 >"$@.tmp/bin_random_oem.txt"
+  echo -n V9.9-222222222222 >"$@.tmp/version.txt"
+  $(TAR) -czf "$@.tmp.tgz" -C "$@.tmp" UploadBrush-bin.img check_MD5.txt bin_random_oem.txt version.txt
+  $(STAGING_DIR_HOST)/bin/openssl aes-256-cbc -e -salt -in "$@.tmp.tgz" -out "$@" -k QiLunSmartWL
+  printf %32s $(model) >> "$@"
+  rm -rf "$@.tmp" "$@.tmp.tgz"
+endef
+
 define Build/mt798x-gpt
 	cp $@ $@.tmp 2>/dev/null || true
 	ptgen -g -o $@.tmp -a 1 -l 1024 \
@@ -1870,6 +1895,13 @@ define Device/tenbay_wr3000k
         fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
   KERNEL_INITRAMFS = kernel-bin | lzma | \
         fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd
+ifneq ($(CONFIG_TARGET_ROOTFS_INITRAMFS),)
+ifeq ($(CONFIG_TARGET_ROOTFS_INITRAMFS_SEPARATE),)
+  ARTIFACTS := initramfs-WR3000K-factory.bin initramfs-LYW-30Plus-factory.bin
+  ARTIFACT/initramfs-WR3000K-factory.bin := append-image-stage initramfs-kernel.bin | sysupgrade-initramfs-tar | append-metadata | tenbay-factory WR3000K
+  ARTIFACT/initramfs-LYW-30Plus-factory.bin := append-image-stage initramfs-kernel.bin | sysupgrade-initramfs-tar | append-metadata | tenbay-factory LYW-30Plus
+endif
+endif
 endef
 TARGET_DEVICES += tenbay_wr3000k
 
