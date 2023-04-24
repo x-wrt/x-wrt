@@ -216,8 +216,8 @@
 			};
 
 			partition@3580000 {
-			    label = "ubi1";
-			    reg = <0x3580000 0x3000000>;
+				label = "ubi1";
+				reg = <0x3580000 0x3000000>;
 			};
 
 			partition@6580000 {
