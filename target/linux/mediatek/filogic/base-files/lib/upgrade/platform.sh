@@ -201,6 +201,7 @@ platform_pre_upgrade() {
 	xiaomi,redmi-router-ax6000-stock)
 		redmi_ax6000_initial_setup
 		;;
+	tenbay,ac-2205ex|\
 	tenbay,wr3000k)
 		tenbay_dualboot_fixup
 		;;

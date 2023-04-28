@@ -43,6 +43,9 @@ mediatek_setup_interfaces()
 	tenbay,wr3000k-gsw-emmc-nor)
 		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3" eth1
 		;;
+	tenbay,ac-2205ex)
+		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4" eth1
+		;;
 	xiaomi,redmi-router-ax6000-stock|\
 	xiaomi,redmi-router-ax6000-ubootlayout|\
 	xiaomi,redmi-router-ax6000-ubootmod)
