@@ -46,6 +46,7 @@ mediatek_setup_interfaces()
 	netcore,n60|\
 	nradio,c8-668gl|\
 	ruijie,rg-x60-pro|\
+	tenbay,ac-2205ex|\
 	unielec,u7981-01*|\
 	zbtlink,zbt-z8102ax|\
 	zyxel,ex5601-t0-stock|\
