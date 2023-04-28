@@ -3269,3 +3269,32 @@ define Device/tenbay_wr3000k-gsw-emmc-nor
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
 endef
 TARGET_DEVICES += tenbay_wr3000k-gsw-emmc-nor
+
+define Device/tenbay_ac-2205ex
+  DEVICE_VENDOR := Tenbay
+  DEVICE_MODEL := AC-2205EX
+  DEVICE_DTS := mt7981b-tenbay-ac-2205ex
+  DEVICE_DTS_DIR := ../dts
+  DEVICE_PACKAGES := kmod-i2c-gpio i2c-tools uboot-envtools
+  SUPPORTED_DEVICES += mediatek,mt7981-spim-nand-2500wan-gmac2-2205ex
+  UBINIZE_OPTS := -E 5
+  BLOCKSIZE := 128k
+  PAGESIZE := 2048
+  IMAGE_SIZE := 65536k
+  KERNEL_IN_UBI := 1
+  IMAGES += factory.bin
+  IMAGE/factory.bin := append-ubi | check-size $$$$(IMAGE_SIZE)
+  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+  KERNEL = kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
+  KERNEL_INITRAMFS = kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd
+ifneq ($(CONFIG_TARGET_ROOTFS_INITRAMFS),)
+ifeq ($(CONFIG_TARGET_ROOTFS_INITRAMFS_SEPARATE),)
+  ARTIFACTS := initramfs-NXC2205EX-factory.bin initramfs-NXC2205EX-sysupgrade.bin
+  ARTIFACT/initramfs-NXC2205EX-factory.bin := append-image-stage initramfs-kernel.bin | sysupgrade-initramfs-tar | append-metadata | tenbay-factory NXC2205EX TB-NXC2205EX-MT7981-AC-
+  ARTIFACT/initramfs-NXC2205EX-sysupgrade.bin := append-image-stage initramfs-kernel.bin | sysupgrade-initramfs-tar | append-metadata
+endif
+endif
+endef
+TARGET_DEVICES += tenbay_ac-2205ex
