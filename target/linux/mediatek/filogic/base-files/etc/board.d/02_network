@@ -156,6 +156,9 @@ mediatek_setup_interfaces()
 	tplink,re6000xd)
 		ucidef_set_interface_lan "lan1 lan2 eth1"
 		;;
+	tenbay,ms3000k)
+		ucidef_set_interfaces_lan_wan "eth0" eth1
+		;;
 	tenbay,wr3000k-gsw-emmc-nor)
 		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3" eth1
 		;;
