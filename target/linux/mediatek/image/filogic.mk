@@ -3270,6 +3270,16 @@ define Device/tenbay_wr3000k-gsw-emmc-nor
 endef
 TARGET_DEVICES += tenbay_wr3000k-gsw-emmc-nor
 
+define Device/tenbay_ms3000k
+  DEVICE_VENDOR := Tenbay
+  DEVICE_MODEL := MS3000K
+  DEVICE_DTS := mt7981b-tenbay-ms3000k
+  SUPPORTED_DEVICES := tenbay,ms3000k
+  DEVICE_DTS_DIR := ../dts
+  DEVICE_PACKAGES := kmod-mt7915e kmod-mt7981-firmware mt7981-wo-firmware uboot-envtools
+endef
+TARGET_DEVICES += tenbay_ms3000k
+
 define Device/tenbay_ac-2205ex
   DEVICE_VENDOR := Tenbay
   DEVICE_MODEL := AC-2205EX
