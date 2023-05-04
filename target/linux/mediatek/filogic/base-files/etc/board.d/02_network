@@ -111,6 +111,9 @@ mediatek_setup_interfaces()
 	tenbay,ac-2205ex)
 		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4" eth1
 		;;
+	tenbay,ms3000k)
+		ucidef_set_interfaces_lan_wan "eth0" eth1
+		;;
 	tenbay,wr3000k-gsw-emmc-nor)
 		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3" eth1
 		;;
@@ -195,6 +198,7 @@ mediatek_setup_macs()
 	yuncore,ax835)
 		label_mac=$(mtd_get_mac_binary "Factory" 0x4)
 		;;
+	tenbay,ms3000k|\
 	tenbay,wr3000k-gsw-emmc-nor)
 		addr=$(mtd_get_mac_binary "Factory" 0x4)
 		wan_mac=$(macaddr_add ${addr} -2)
