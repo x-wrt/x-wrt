@@ -145,6 +145,9 @@ platform_do_upgrade() {
 	tenbay,wr3000k-gsw-emmc-nor)
 		tenbay_mmc_do_upgrade_dual_boot "$1"
 		;;
+	tenbay,ms3000k)
+		default_do_upgrade "$1"
+		;;
 	*)
 		nand_do_upgrade "$1"
 		;;
@@ -167,6 +170,7 @@ platform_check_image() {
 		}
 		return 0
 		;;
+	tenbay,ms3000k|\
 	tenbay,wr3000k-gsw-emmc-nor)
 		return 0
 		;;
