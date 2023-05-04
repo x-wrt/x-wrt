@@ -400,6 +400,7 @@ platform_do_upgrade() {
 	cudy,re3000-v1|\
 	cudy,wr3000-v1|\
 	kebidumei,ax3000-u22|\
+	tenbay,ms3000k|\
 	tenda,ax12l-pro|\
 	totolink,x6000r|\
 	wavlink,wl-wn573hx3|\
@@ -568,6 +569,13 @@ platform_check_image() {
 		tenbay_mmc_check_image "$1"
 		return $?
 		;;
+	tenbay,ms3000k)
+		[ "$(get_magic_long "$1")" = "d00dfeed" ] || {
+			echo "Invalid image type."
+			return 1
+		}
+		return 0
+		;;
 	creatlentem,clt-r30b1|\
 	creatlentem,clt-r30b1-112m|\
 	hiveton,h5000m|\
@@ -582,6 +590,7 @@ platform_check_image() {
 
 		return 0
 		;;
+	tenbay,ms3000k|\
 	tenbay,wr3000k-gsw-emmc-nor|\
 	tenda,ax12l-pro)
 		return 0
