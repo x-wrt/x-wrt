@@ -9,6 +9,10 @@ case $board in
 cudy,wr3000-v1)
 	ucidef_set_led_netdev "wan" "wan" "blue:wan" "wan"
 	;;
+xiaomi,mi-router-wr30u-stock|\
+xiaomi,mi-router-wr30u-ubootmod)
+	ucidef_set_led_netdev "wan" "wan" "blue:network" "wan"
+	;;
 xiaomi,redmi-router-ax6000-stock|\
 xiaomi,redmi-router-ax6000-ubootlayout|\
 xiaomi,redmi-router-ax6000-ubootmod)
