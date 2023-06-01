@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
+
+#include "mt7981b-qihoo-360t7.dts"
+
+/ {
+	model = "Qihoo 360T7 (uboot layout)";
+	compatible = "qihoo,360t7-ubootlayout", "mediatek,mt7981";
+};
+
+&chosen {
+	/delete-property/ bootargs-append;
+	/delete-property/ rootdisk;
+};
+
+&spi_nand {
+	spi-cal-enable;
+	spi-cal-mode = "read-data";
+	spi-cal-datalen = <7>;
+	spi-cal-data = /bits/ 8 <0x53 0x50 0x49 0x4E 0x41 0x4E 0x44>;
+	spi-cal-addrlen = <5>;
+	spi-cal-addr = /bits/ 32 <0x0 0x0 0x0 0x0 0x0>;
+
+	mediatek,nmbm;
+	mediatek,bmt-max-ratio = <1>;
+	mediatek,bmt-max-reserved-blocks = <64>;
+};
