@@ -129,6 +129,7 @@ case "$board" in
 	openembed,som7981)
 		[ "$PHYNBR" = "1" ] && cat /sys/class/net/eth0/address > /sys${DEVPATH}/macaddress
 		;;
+	qihoo,360t7-ubootlayout|\
 	qihoo,360t7)
 		addr=$(mtd_get_mac_ascii factory lanMac)
 		[ "$PHYNBR" = "0" ] && macaddr_add $addr 2 > /sys${DEVPATH}/macaddress
