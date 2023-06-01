@@ -20,7 +20,7 @@
 		led-upgrade = &led_status_green;
 	};
 
-	chosen {
+	chosen: chosen {
 		bootargs-append = " root=/dev/fit0 rootwait";
 		rootdisk = <&ubi_rootdisk>;
 		stdout-path = "serial0:115200n8";
@@ -97,7 +97,7 @@
 	pinctrl-0 = <&spi0_flash_pins>;
 	status = "okay";
 
-	spi_nand@0 {
+	spi_nand: spi_nand@0 {
 		compatible = "spi-nand";
 		reg = <0>;
 
