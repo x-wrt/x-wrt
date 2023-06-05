@@ -2,7 +2,7 @@
 # Copyright (c) 2023
 #
 
-name: Build Linksys ac1900v1
+name: Build Linksys ac1900v1passwall
 
 on:
   schedule:
@@ -28,7 +28,7 @@ env:
   REPO_URL: https://github.com/x-wrt/x-wrt.git
   REPO_BRANCH: master
   FEEDS_CONF: feeds.conf.default
-  CONFIG_FILE: .config-ac1900v1
+  CONFIG_FILE: .config-1900acv1passwall
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
   UPLOAD_BIN_DIR: false
@@ -158,7 +158,7 @@ jobs:
         uses: actions/upload-artifact@main
         if: steps.organize.outputs.status == 'success' && !cancelled()
         with:
-          name: x-wrt-${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+          name: DOANDUY-Passwall-${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
           path: ${{ env.FIRMWARE }}
 
       - name: Generate release tag
@@ -187,7 +187,4 @@ jobs:
           delete_tags: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    
-      - name: Push Firmware done compile notification #Telegram Push Notification
-        if: steps.organize.outputs.status == 'success' && !cancelled()
-        run: curl "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}&text=Congratulations! Firmware ${{ env.FILE_NAME }} successfully uploaded."
+  
