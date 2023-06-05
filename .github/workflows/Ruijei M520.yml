@@ -2,7 +2,7 @@
 # Copyright (c) 2023
 #
 
-name: Build Linksys 1900acv1
+name: Build Ruijei M520
 
 on:
   schedule:
@@ -157,7 +157,7 @@ jobs:
         uses: actions/upload-artifact@main
         if: steps.organize.outputs.status == 'success' && !cancelled()
         with:
-          name: x-wrt-${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+          name: DOANDUY-${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
           path: ${{ env.FIRMWARE }}
 
       - name: Generate release tag
@@ -186,4 +186,3 @@ jobs:
           delete_tags: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  
