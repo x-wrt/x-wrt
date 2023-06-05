@@ -157,7 +157,7 @@ jobs:
         uses: actions/upload-artifact@main
         if: steps.organize.outputs.status == 'success' && !cancelled()
         with:
-          name: DOANDUY-${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+          name: DOANDUY-Passwall-${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
           path: ${{ env.FIRMWARE }}
 
       - name: Generate release tag
