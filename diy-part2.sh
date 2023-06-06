@@ -13,4 +13,7 @@
 # Modify default IP
 sed -i 's/192.168.1.1/192.168.1.1/g' package/base-files/files/bin/config_generate
 sed -i '/CONFIG_PACKAGE_glib2=y/d' .config
-
+cd feeds/luci/applications/
+git clone https://github.com/4IceG/luci-app-atcommands.git
+cd ../../..
+./scripts/feeds update -a; ./scripts/feeds install -a
