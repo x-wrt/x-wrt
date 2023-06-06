@@ -22,3 +22,6 @@ sed -i '$a src-git small https://github.com/kenzok8/small' feeds.conf.default
 echo 'src-git 3Ginfo https://github.com/4IceG/luci-app-3ginfo-lite.git' >>feeds.conf.default
 echo 'src-git Modem https://github.com/4IceG/luci-app-modemband.git' >>feeds.conf.default
 echo 'src-git SMS https://github.com/4IceG/luci-app-sms-tool.git' >>feeds.conf.default
+cd feeds/luci/applications/
+git clone https://github.com/4IceG/luci-app-atcommands.git
+cd ../../..
