@@ -23,4 +23,5 @@ svn co https://github.com/ofmodemsandmen/ROOterSource2203/trunk/package/rooter/0
 svn co https://github.com/ofmodemsandmen/ROOterSource2203/trunk/package/rooter/0basicsupport/ext-buttons package/ext-buttons
 svn co https://github.com/ofmodemsandmen/ROOterSource2203/trunk/package/rooter/ext-rooter-basic package/ext-rooter-basic
 svn co https://github.com/Roxy09099/ROOterSource2203/trunk/package/rooter/0drivers/rmbim package/rmbim
+svn co https://github.com/ofmodemsandmen/ROOterSource2203/trunk/package/rooter/0drivers/rqmi package/rqmi
 
