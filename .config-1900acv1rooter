@@ -7535,7 +7535,7 @@ CONFIG_PACKAGE_ext-sms=y
 #
 # Drivers
 #
-CONFIG_PACKAGE_rmbim=y
+# CONFIG_PACKAGE_rmbim=y
 # CONFIG_PACKAGE_rqmi is not set
 # end of Drivers
 
