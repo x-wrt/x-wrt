@@ -6,7 +6,7 @@ name: Build Linksys 1900acv1
 
 on:
   schedule:
-    - cron: '40 16 * * 2'
+    - cron: '0 17 * * 6'
   release:
     types: [published]
   push:
