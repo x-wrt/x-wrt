@@ -6,7 +6,7 @@ name: Build Linksys ac1900v1passwall
 
 on:
   schedule:
-    - cron: '0 18 * * 2'
+    - cron: '0 17 * * 6'
   release:
     types: [published]
   push:
