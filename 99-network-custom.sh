@@ -94,22 +94,24 @@ uci set firewall.@include[0].fw4_compatible='1'
 uci commit firewall
 service firewall restart
 
+cat << EOI >> /etc/init.d/disable_interface.sh
+
 #!/bin/sh
 
 . /lib/functions.sh
 . /etc/openwrt_release
 
-usbwintel="$1"
+tencardmang="$1"
 
 action="$2"
 
 if [[ "$action" == "1" ]]
 then
-    uci set network."$usbwintel".auto='0'
+    uci set network."$tencardmang".auto='0'
     uci commit network
     /etc/init.d/network reload
 else
-    uci delete network."$usbwintel".auto='0'
+    uci delete network."$tencardmang".auto='0'
     uci commit network
     /etc/init.d/network reload
 fi
