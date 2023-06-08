@@ -6,7 +6,7 @@ name: Build G-Dock
 
 on:
   schedule:
-    - cron: '0 16 * * 2'
+    - cron: '0 17 * * 6'
   release:
     types: [published]
   push:
