@@ -94,6 +94,33 @@ uci set firewall.@include[0].fw4_compatible='1'
 uci commit firewall
 service firewall restart
 
+#!/bin/sh
+
+. /lib/functions.sh
+. /etc/openwrt_release
+
+tencardmang="$1"
+
+action="$2"
+
+if [[ "$action" == "1" ]]
+then
+    uci set network."$tencardmang".auto='0'
+    uci commit network
+    /etc/init.d/network reload
+else
+    uci delete network."$tencardmang".auto='0'
+    uci commit network
+    /etc/init.d/network reload
+fi
+
+EOI
+
+chmod 755 /etc/init.d/disable_interface.sh
+
+
 # /etc/init.d/network restart
 
 exit 0
+
+
