@@ -99,17 +99,17 @@ service firewall restart
 . /lib/functions.sh
 . /etc/openwrt_release
 
-tencardmang="$1"
+usbwintel="$1"
 
 action="$2"
 
 if [[ "$action" == "1" ]]
 then
-    uci set network."$tencardmang".auto='0'
+    uci set network."$usbwintel".auto='0'
     uci commit network
     /etc/init.d/network reload
 else
-    uci delete network."$tencardmang".auto='0'
+    uci delete network."$usbwintel".auto='0'
     uci commit network
     /etc/init.d/network reload
 fi
