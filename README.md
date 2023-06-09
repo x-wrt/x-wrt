@@ -1,3 +1,8 @@
+Tên Wifi : TPT Lam
+
+Pass Wifi : TPTlam011205@!
+
+
 ![OpenWrt logo](https://raw.githubusercontent.com/x-wrt/com.x-wrt/master/x-wrt-logo/x-wrt-logo-Aldrich-raw.svg)
 
 OpenWrt Project is a Linux operating system targeting embedded devices. Instead
