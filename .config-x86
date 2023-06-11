@@ -5283,7 +5283,7 @@ CONFIG_PACKAGE_libelf=y
 # CONFIG_PACKAGE_libestr is not set
 CONFIG_PACKAGE_libev=y
 CONFIG_PACKAGE_libevdev=y
-CONFIG_PACKAGE_libevent2=y
+CONFIG_PACKAGE_libevent2=m
 CONFIG_PACKAGE_libevent2-core=y
 # CONFIG_PACKAGE_libevent2-extra is not set
 # CONFIG_PACKAGE_libevent2-openssl is not set
