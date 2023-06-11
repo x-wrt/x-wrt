@@ -6869,7 +6869,7 @@ CONFIG_PACKAGE_atinout=y
 # CONFIG_PACKAGE_chaosvpn is not set
 # CONFIG_PACKAGE_eoip is not set
 # CONFIG_PACKAGE_fastd is not set
-CONFIG_PACKAGE_libreswan=m
+# CONFIG_PACKAGE_libreswan is not set
 # CONFIG_PACKAGE_netbird is not set
 # CONFIG_PACKAGE_ocserv is not set
 # CONFIG_PACKAGE_openconnect is not set
