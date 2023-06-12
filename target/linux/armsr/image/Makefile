@@ -36,6 +36,10 @@ GRUB_TITLE:=$(call qstrip,$(CONFIG_GRUB_TITLE))
 
 BOOTOPTS:=$(call qstrip,$(CONFIG_GRUB_BOOTOPTS))
 
+define Build/qemu-resize
+	qemu-img resize $@ $1
+endef
+
 define Build/combined
   $(INSTALL_DIR) $@.boot/
 	$(CP) $(KDIR)/$(KERNEL_NAME) $@.boot/efi/openwrt/
@@ -79,7 +83,7 @@ define Device/efi-default
   IMAGE/rootfs.img.gz := append-rootfs | pad-to $(ROOTFS_PARTSIZE) | gzip
   IMAGE/combined.img := grub-config efi | combined efi | grub-install efi | append-metadata
   IMAGE/combined.img.gz := grub-config efi | combined efi | grub-install efi | gzip | append-metadata
-  IMAGE/combined.vmdk := grub-config efi | combined efi | grub-install efi | qemu-image vmdk
+  IMAGE/combined.vmdk := grub-config efi | combined efi | grub-install efi | qemu-resize 8G | qemu-image vmdk
  ifeq ($(CONFIG_TARGET_IMAGES_GZIP),y)
     IMAGES-y := rootfs.img.gz
     IMAGES-y += combined.img.gz
