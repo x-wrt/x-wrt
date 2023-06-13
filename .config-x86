@@ -173,8 +173,8 @@ CONFIG_TARGET_IMAGES_GZIP=y
 #
 # Image Options
 #
-CONFIG_TARGET_KERNEL_PARTSIZE=48
-CONFIG_TARGET_ROOTFS_PARTSIZE=308
+CONFIG_TARGET_KERNEL_PARTSIZE=88
+CONFIG_TARGET_ROOTFS_PARTSIZE=508
 CONFIG_TARGET_ROOTFS_PARTNAME=""
 # CONFIG_TARGET_ROOTFS_PERSIST_VAR is not set
 # end of Target Images
@@ -2735,17 +2735,17 @@ CONFIG_PACKAGE_ar=y
 #
 # Telephony
 #
-# CONFIG_PACKAGE_modeminfo-qmi is not set
-# CONFIG_PACKAGE_modeminfo-serial-dell is not set
-# CONFIG_PACKAGE_modeminfo-serial-fibocom is not set
-# CONFIG_PACKAGE_modeminfo-serial-gosun is not set
-# CONFIG_PACKAGE_modeminfo-serial-huawei is not set
-# CONFIG_PACKAGE_modeminfo-serial-quectel is not set
-# CONFIG_PACKAGE_modeminfo-serial-sierra is not set
-# CONFIG_PACKAGE_modeminfo-serial-simcom is not set
-# CONFIG_PACKAGE_modeminfo-serial-telit is not set
-# CONFIG_PACKAGE_modeminfo-serial-xmm is not set
-# CONFIG_PACKAGE_modeminfo-telegram is not set
+CONFIG_PACKAGE_modeminfo-qmi=y
+CONFIG_PACKAGE_modeminfo-serial-dell=y
+CONFIG_PACKAGE_modeminfo-serial-fibocom=y
+CONFIG_PACKAGE_modeminfo-serial-gosun=y
+CONFIG_PACKAGE_modeminfo-serial-huawei=y
+CONFIG_PACKAGE_modeminfo-serial-quectel=y
+CONFIG_PACKAGE_modeminfo-serial-sierra=y
+CONFIG_PACKAGE_modeminfo-serial-simcom=y
+CONFIG_PACKAGE_modeminfo-serial-telit=y
+CONFIG_PACKAGE_modeminfo-serial-xmm=y
+CONFIG_PACKAGE_modeminfo-telegram=y
 # end of Telephony
 
 #
@@ -2766,8 +2766,8 @@ CONFIG_PACKAGE_nginx-util=y
 # CONFIG_PACKAGE_openvpn-dns-hotplug is not set
 # CONFIG_PACKAGE_rrm-nr-distributor is not set
 # CONFIG_PACKAGE_tang is not set
-# CONFIG_PACKAGE_telegrambot is not set
-# CONFIG_PACKAGE_xmm-modem is not set
+CONFIG_PACKAGE_telegrambot=y
+CONFIG_PACKAGE_xmm-modem=y
 # end of Extra packages
 
 #
@@ -3750,7 +3750,7 @@ CONFIG_PACKAGE_kmod-mmc-spi=y
 CONFIG_PACKAGE_kmod-chaoskey=y
 CONFIG_PACKAGE_kmod-usb-acm=y
 CONFIG_PACKAGE_kmod-usb-atm=y
-# CONFIG_PACKAGE_kmod-usb-atm-cxacru is not set
+CONFIG_PACKAGE_kmod-usb-atm-cxacru=y
 CONFIG_PACKAGE_kmod-usb-atm-speedtouch=y
 CONFIG_PACKAGE_kmod-usb-atm-ueagle=y
 CONFIG_PACKAGE_kmod-usb-cm109=y
@@ -5216,7 +5216,7 @@ CONFIG_PACKAGE_boost-system=y
 # CONFIG_PACKAGE_efivar is not set
 # CONFIG_PACKAGE_getdns is not set
 # CONFIG_PACKAGE_giflib is not set
-# CONFIG_PACKAGE_glib2 is not set
+CONFIG_PACKAGE_glib2=y
 # CONFIG_PACKAGE_google-authenticator-libpam is not set
 # CONFIG_PACKAGE_hidapi is not set
 # CONFIG_PACKAGE_ibrcommon is not set
@@ -5316,7 +5316,7 @@ CONFIG_LIBCURL_PROXY=y
 # CONFIG_PACKAGE_libdb47 is not set
 # CONFIG_PACKAGE_libdb47xx is not set
 # CONFIG_PACKAGE_libdbi is not set
-# CONFIG_PACKAGE_libdbus is not set
+CONFIG_PACKAGE_libdbus=y
 # CONFIG_PACKAGE_libdeflate is not set
 CONFIG_PACKAGE_libdevmapper=y
 # CONFIG_PACKAGE_libdevmapper-selinux is not set
@@ -5339,7 +5339,7 @@ CONFIG_PACKAGE_libevent2-core=y
 # CONFIG_PACKAGE_libevent2-openssl is not set
 CONFIG_PACKAGE_libevent2-pthreads=y
 # CONFIG_PACKAGE_libexif is not set
-# CONFIG_PACKAGE_libexpat is not set
+CONFIG_PACKAGE_libexpat=y
 # CONFIG_PACKAGE_libexslt is not set
 CONFIG_PACKAGE_libext2fs=y
 # CONFIG_PACKAGE_libextractor is not set
@@ -5349,7 +5349,7 @@ CONFIG_PACKAGE_libext2fs=y
 # CONFIG_PACKAGE_libfastjson is not set
 CONFIG_PACKAGE_libfdisk=y
 # CONFIG_PACKAGE_libfdt is not set
-# CONFIG_PACKAGE_libffi is not set
+CONFIG_PACKAGE_libffi=y
 # CONFIG_PACKAGE_libffmpeg-audio-dec is not set
 # CONFIG_PACKAGE_libffmpeg-custom is not set
 CONFIG_FFMPEG_X86ASM=y
@@ -5418,7 +5418,7 @@ CONFIG_PACKAGE_liblzo=y
 # CONFIG_PACKAGE_libmad is not set
 CONFIG_PACKAGE_libmagic=y
 # CONFIG_PACKAGE_libmaxminddb is not set
-# CONFIG_PACKAGE_libmbim is not set
+CONFIG_PACKAGE_libmbim=y
 # CONFIG_PACKAGE_libmcrypt is not set
 # CONFIG_PACKAGE_libmd is not set
 # CONFIG_PACKAGE_libmicrohttpd-no-ssl is not set
@@ -5515,9 +5515,19 @@ CONFIG_PACKAGE_libpopt=y
 # CONFIG_PACKAGE_libpri is not set
 # CONFIG_PACKAGE_libprotobuf-c is not set
 # CONFIG_PACKAGE_libpsl is not set
-# CONFIG_PACKAGE_libqmi is not set
+CONFIG_PACKAGE_libqmi=y
+
+#
+# Configuration
+#
+CONFIG_LIBQMI_WITH_MBIM_QMUX=y
+CONFIG_LIBQMI_WITH_QRTR_GLIB=y
+CONFIG_LIBQMI_COLLECTION_BASIC=y
+# CONFIG_LIBQMI_COLLECTION_FULL is not set
+# end of Configuration
+
 CONFIG_PACKAGE_libqrencode=y
-# CONFIG_PACKAGE_libqrtr-glib is not set
+CONFIG_PACKAGE_libqrtr-glib=y
 # CONFIG_PACKAGE_libradcli is not set
 # CONFIG_PACKAGE_libradiotap is not set
 CONFIG_PACKAGE_libreadline=y
@@ -5751,7 +5761,7 @@ CONFIG_LUCI_CSSTIDY=y
 # CONFIG_LUCI_LANG_uk is not set
 # CONFIG_LUCI_LANG_ur is not set
 # CONFIG_LUCI_LANG_vi is not set
-CONFIG_LUCI_LANG_zh_Hans=y
+# CONFIG_LUCI_LANG_zh_Hans is not set
 # CONFIG_LUCI_LANG_zh_Hant is not set
 # end of Translations
 
@@ -6031,7 +6041,7 @@ CONFIG_PACKAGE_luci-theme-openwrt-2020=y
 # CONFIG_PACKAGE_luci-proto-ipip is not set
 CONFIG_PACKAGE_luci-proto-ipv6=y
 CONFIG_PACKAGE_luci-proto-mbim=y
-# CONFIG_PACKAGE_luci-proto-modemmanager is not set
+CONFIG_PACKAGE_luci-proto-modemmanager=y
 # CONFIG_PACKAGE_luci-proto-ncm is not set
 # CONFIG_PACKAGE_luci-proto-nebula is not set
 # CONFIG_PACKAGE_luci-proto-openconnect is not set
@@ -6103,7 +6113,7 @@ CONFIG_PACKAGE_luci-lib-nixio=y
 # CONFIG_PACKAGE_luci-i18n-adblock-tr is not set
 # CONFIG_PACKAGE_luci-i18n-adblock-uk is not set
 # CONFIG_PACKAGE_luci-i18n-adblock-vi is not set
-CONFIG_PACKAGE_luci-i18n-adblock-zh-cn=y
+# CONFIG_PACKAGE_luci-i18n-adblock-zh-cn is not set
 # CONFIG_PACKAGE_luci-i18n-adblock-zh-tw is not set
 # CONFIG_PACKAGE_luci-i18n-atcommands-it is not set
 # CONFIG_PACKAGE_luci-i18n-atcommands-pl is not set
@@ -6139,7 +6149,7 @@ CONFIG_PACKAGE_luci-i18n-adblock-zh-cn=y
 # CONFIG_PACKAGE_luci-i18n-base-uk is not set
 # CONFIG_PACKAGE_luci-i18n-base-ur is not set
 # CONFIG_PACKAGE_luci-i18n-base-vi is not set
-CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
+# CONFIG_PACKAGE_luci-i18n-base-zh-cn is not set
 # CONFIG_PACKAGE_luci-i18n-base-zh-tw is not set
 # CONFIG_PACKAGE_luci-i18n-dashboard-ar is not set
 # CONFIG_PACKAGE_luci-i18n-dashboard-bg is not set
@@ -6172,7 +6182,7 @@ CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
 # CONFIG_PACKAGE_luci-i18n-dashboard-tr is not set
 # CONFIG_PACKAGE_luci-i18n-dashboard-uk is not set
 # CONFIG_PACKAGE_luci-i18n-dashboard-vi is not set
-CONFIG_PACKAGE_luci-i18n-dashboard-zh-cn=y
+# CONFIG_PACKAGE_luci-i18n-dashboard-zh-cn is not set
 # CONFIG_PACKAGE_luci-i18n-dashboard-zh-tw is not set
 # CONFIG_PACKAGE_luci-i18n-firewall-ar is not set
 # CONFIG_PACKAGE_luci-i18n-firewall-bg is not set
@@ -6206,7 +6216,7 @@ CONFIG_PACKAGE_luci-i18n-dashboard-zh-cn=y
 # CONFIG_PACKAGE_luci-i18n-firewall-uk is not set
 # CONFIG_PACKAGE_luci-i18n-firewall-ur is not set
 # CONFIG_PACKAGE_luci-i18n-firewall-vi is not set
-CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y
+# CONFIG_PACKAGE_luci-i18n-firewall-zh-cn is not set
 # CONFIG_PACKAGE_luci-i18n-firewall-zh-tw is not set
 # CONFIG_PACKAGE_luci-i18n-ksmbd-ar is not set
 # CONFIG_PACKAGE_luci-i18n-ksmbd-bg is not set
@@ -6239,7 +6249,7 @@ CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y
 # CONFIG_PACKAGE_luci-i18n-ksmbd-tr is not set
 # CONFIG_PACKAGE_luci-i18n-ksmbd-uk is not set
 # CONFIG_PACKAGE_luci-i18n-ksmbd-vi is not set
-CONFIG_PACKAGE_luci-i18n-ksmbd-zh-cn=y
+# CONFIG_PACKAGE_luci-i18n-ksmbd-zh-cn is not set
 # CONFIG_PACKAGE_luci-i18n-ksmbd-zh-tw is not set
 # CONFIG_PACKAGE_luci-i18n-modeminfo-ru is not set
 # CONFIG_PACKAGE_luci-i18n-mwan3-ar is not set
@@ -6272,7 +6282,7 @@ CONFIG_PACKAGE_luci-i18n-ksmbd-zh-cn=y
 # CONFIG_PACKAGE_luci-i18n-mwan3-tr is not set
 # CONFIG_PACKAGE_luci-i18n-mwan3-uk is not set
 # CONFIG_PACKAGE_luci-i18n-mwan3-vi is not set
-CONFIG_PACKAGE_luci-i18n-mwan3-zh-cn=y
+# CONFIG_PACKAGE_luci-i18n-mwan3-zh-cn is not set
 # CONFIG_PACKAGE_luci-i18n-mwan3-zh-tw is not set
 # CONFIG_PACKAGE_luci-i18n-opkg-ar is not set
 # CONFIG_PACKAGE_luci-i18n-opkg-bg is not set
@@ -6305,7 +6315,7 @@ CONFIG_PACKAGE_luci-i18n-mwan3-zh-cn=y
 # CONFIG_PACKAGE_luci-i18n-opkg-uk is not set
 # CONFIG_PACKAGE_luci-i18n-opkg-ur is not set
 # CONFIG_PACKAGE_luci-i18n-opkg-vi is not set
-CONFIG_PACKAGE_luci-i18n-opkg-zh-cn=y
+# CONFIG_PACKAGE_luci-i18n-opkg-zh-cn is not set
 # CONFIG_PACKAGE_luci-i18n-opkg-zh-tw is not set
 # CONFIG_PACKAGE_luci-i18n-watchcat-ar is not set
 # CONFIG_PACKAGE_luci-i18n-watchcat-bg is not set
@@ -6337,7 +6347,7 @@ CONFIG_PACKAGE_luci-i18n-opkg-zh-cn=y
 # CONFIG_PACKAGE_luci-i18n-watchcat-tr is not set
 # CONFIG_PACKAGE_luci-i18n-watchcat-uk is not set
 # CONFIG_PACKAGE_luci-i18n-watchcat-vi is not set
-CONFIG_PACKAGE_luci-i18n-watchcat-zh-cn=y
+# CONFIG_PACKAGE_luci-i18n-watchcat-zh-cn is not set
 # CONFIG_PACKAGE_luci-i18n-watchcat-zh-tw is not set
 # end of LuCI
 
@@ -7016,7 +7026,7 @@ CONFIG_PACKAGE_openssh-sftp-server=y
 # Telephony
 #
 # CONFIG_PACKAGE_asterisk is not set
-# CONFIG_PACKAGE_atinout is not set
+CONFIG_PACKAGE_atinout=y
 # CONFIG_PACKAGE_baresip is not set
 # CONFIG_PACKAGE_coturn is not set
 # CONFIG_PACKAGE_freeswitch is not set
@@ -7572,7 +7582,17 @@ CONFIG_PACKAGE_libipset=y
 # CONFIG_PACKAGE_minimalist-pcproxy is not set
 # CONFIG_PACKAGE_miredo is not set
 # CONFIG_PACKAGE_modemband is not set
-# CONFIG_PACKAGE_modemmanager is not set
+CONFIG_PACKAGE_modemmanager=y
+
+#
+# Configuration
+#
+CONFIG_MODEMMANAGER_WITH_MBIM=y
+CONFIG_MODEMMANAGER_WITH_QMI=y
+CONFIG_MODEMMANAGER_WITH_QRTR=y
+# CONFIG_MODEMMANAGER_WITH_AT_COMMAND_VIA_DBUS is not set
+# end of Configuration
+
 # CONFIG_PACKAGE_mosquitto-client-nossl is not set
 # CONFIG_PACKAGE_mosquitto-client-ssl is not set
 # CONFIG_PACKAGE_mosquitto-nossl is not set
@@ -8316,7 +8336,8 @@ CONFIG_PACKAGE_coreutils-stat=y
 # CONFIG_PACKAGE_csstidy is not set
 # CONFIG_PACKAGE_ct-bugcheck is not set
 # CONFIG_PACKAGE_ctop is not set
-# CONFIG_PACKAGE_dbus is not set
+CONFIG_PACKAGE_dbus=y
+# CONFIG_DBUS_VERBOSE is not set
 # CONFIG_PACKAGE_dbus-utils is not set
 # CONFIG_PACKAGE_device-observatory is not set
 # CONFIG_PACKAGE_dfu-util is not set
@@ -8521,7 +8542,7 @@ CONFIG_PACKAGE_procps-ng-w=y
 # CONFIG_PACKAGE_psmisc is not set
 # CONFIG_PACKAGE_pv is not set
 # CONFIG_PACKAGE_qfirehose is not set
-# CONFIG_PACKAGE_qmi-utils is not set
+CONFIG_PACKAGE_qmi-utils=y
 CONFIG_PACKAGE_qrencode=y
 # CONFIG_PACKAGE_quota is not set
 # CONFIG_PACKAGE_ravpower-mcu is not set
