@@ -78,11 +78,18 @@ nft add rule inet fw4 mangle_postrouting oifname wwan1 ip ttl set 64
 nft add rule inet fw4 mangle_prerouting iifname usb0 ip ttl set 65
 nft add rule inet fw4 mangle_postrouting oifname usb0 ip ttl set 65
 
+nft add rule inet fw4 mangle_prerouting iifname usb1 ip ttl set 65
+nft add rule inet fw4 mangle_postrouting oifname usb1 ip ttl set 65
+
+nft add rule inet fw4 mangle_prerouting iifname usb2 ip ttl set 65
+nft add rule inet fw4 mangle_postrouting oifname usb2 ip ttl set 65
 EOI
 
 cat << EOI >> /etc/firewall.user
 
 iptables -t mangle -I POSTROUTING -o usb0 -j TTL --ttl-set 65
+iptables -t mangle -I POSTROUTING -o usb1 -j TTL --ttl-set 65
+iptables -t mangle -I POSTROUTING -o usb2 -j TTL --ttl-set 65
 iptables -t mangle -I POSTROUTING -o wwan0 -j TTL --ttl-set 64
 iptables -t mangle -I POSTROUTING -o wwan1 -j TTL --ttl-set 64
 
@@ -101,17 +108,17 @@ cat << EOI >> /etc/init.d/disable_interface.sh
 . /lib/functions.sh
 . /etc/openwrt_release
 
-tencardmang="$1"
+usbwintel="$1"
 
 action="$2"
 
 if [[ "$action" == "1" ]]
 then
-    uci set network."$tencardmang".auto='0'
+    uci set network."$usbwintel".auto='0'
     uci commit network
     /etc/init.d/network reload
 else
-    uci delete network."$tencardmang".auto='0'
+    uci delete network."$usbwintel".auto='0'
     uci commit network
     /etc/init.d/network reload
 fi
