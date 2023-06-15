@@ -108,17 +108,30 @@ cat << EOI >> /etc/init.d/disable_interface.sh
 . /lib/functions.sh
 . /etc/openwrt_release
 
-usbwintel="$1"
+wwan0="$1"
+
+usb0='$1"
 
 action="$2"
 
 if [[ "$action" == "1" ]]
 then
-    uci set network."$usbwintel".auto='0'
+    uci set network."$wwan0".auto='0'
     uci commit network
     /etc/init.d/network reload
 else
-    uci delete network."$usbwintel".auto='0'
+    uci delete network."$wwan0".auto='0'
+    uci commit network
+    /etc/init.d/network reload
+fi
+
+if [[ "$action" == "1" ]]
+then
+    uci set network."$usb0".auto='0'
+    uci commit network
+    /etc/init.d/network reload
+else
+    uci delete network."$usb0".auto='0'
     uci commit network
     /etc/init.d/network reload
 fi
