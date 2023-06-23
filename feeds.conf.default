@@ -6,6 +6,6 @@ src-git-full x https://github.com/x-wrt/com.x-wrt.git;openwrt-23.06-b20230614225
 #src-git-full video https://github.com/openwrt/video.git
 #src-git-full targets https://github.com/openwrt/targets.git
 #src-git-full oldpackages http://git.openwrt.org/packages.git
-#src-link custom /usr/src/openwrt/custom-feed
+src-link custom /usr/src/openwrt/custom-feed
 src-git Modem https://github.com/4IceG/luci-app-modemband.git
 src-git small https://github.com/kenzok8/small
