@@ -1,8 +1,8 @@
-src-git-full packages https://github.com/x-wrt/packages.git
-src-git-full luci https://github.com/x-wrt/luci.git
-src-git-full routing https://github.com/x-wrt/routing.git
-src-git-full telephony https://github.com/x-wrt/telephony.git
-src-git-full x https://github.com/x-wrt/com.x-wrt.git
+src-git-full packages https://github.com/x-wrt/packages.git;openwrt-23.06
+src-git-full luci https://github.com/x-wrt/luci.git;openwrt-23.06
+src-git-full routing https://github.com/x-wrt/routing.git;openwrt-23.06
+src-git-full telephony https://github.com/x-wrt/telephony.git;openwrt-23.06
+src-git-full x https://github.com/x-wrt/com.x-wrt.git;openwrt-23.06
 #src-git-full video https://github.com/openwrt/video.git
 #src-git-full targets https://github.com/openwrt/targets.git
 #src-git-full oldpackages http://git.openwrt.org/packages.git
