@@ -634,7 +634,7 @@ CONFIG_TARGET_INIT_ENV=""
 CONFIG_TARGET_INIT_CMD="/sbin/init"
 CONFIG_TARGET_INIT_SUPPRESS_STDERR=y
 CONFIG_VERSIONOPT=y
-CONFIG_VERSION_DIST="X-WRT"
+CONFIG_VERSION_DIST="DOANDUY"
 CONFIG_VERSION_NUMBER="23.06_b202307010740"
 CONFIG_VERSION_CODE="Lunar"
 CONFIG_VERSION_REPO="http://downloads.openwrt.org/snapshots"
@@ -8504,4 +8504,441 @@ CONFIG_PACKAGE_dbus=y
 # CONFIG_PACKAGE_flent-tools is not set
 # CONFIG_PACKAGE_flock is not set
 # CONFIG_PACKAGE_fritz-caldata is not set
-# CO
+# CONFIG_PACKAGE_fritz-tffs is not set
+# CONFIG_PACKAGE_fritz-tffs-nand is not set
+# CONFIG_PACKAGE_ftdi_eeprom is not set
+# CONFIG_PACKAGE_fuse-overlayfs is not set
+# CONFIG_PACKAGE_fxload is not set
+# CONFIG_PACKAGE_gammu is not set
+# CONFIG_PACKAGE_gawk is not set
+# CONFIG_PACKAGE_gddrescue is not set
+# CONFIG_PACKAGE_getopt is not set
+# CONFIG_PACKAGE_giflib-utils is not set
+# CONFIG_PACKAGE_gkermit is not set
+# CONFIG_PACKAGE_gl-puli-mcu is not set
+# CONFIG_PACKAGE_gnuplot is not set
+# CONFIG_PACKAGE_gpioctl-sysfs is not set
+# CONFIG_PACKAGE_gpiod-tools is not set
+# CONFIG_PACKAGE_gpsd is not set
+# CONFIG_PACKAGE_gpsd-clients is not set
+# CONFIG_PACKAGE_gpsd-utils is not set
+# CONFIG_PACKAGE_grep is not set
+# CONFIG_PACKAGE_hamlib is not set
+# CONFIG_PACKAGE_haserl is not set
+# CONFIG_PACKAGE_hashdeep is not set
+# CONFIG_PACKAGE_haveged is not set
+# CONFIG_PACKAGE_hplip-common is not set
+# CONFIG_PACKAGE_hplip-sane is not set
+# CONFIG_PACKAGE_hub-ctrl is not set
+# CONFIG_PACKAGE_hwclock is not set
+# CONFIG_PACKAGE_hwinfo is not set
+# CONFIG_PACKAGE_hwloc-utils is not set
+CONFIG_PACKAGE_i2c-tools=m
+# CONFIG_PACKAGE_iconv is not set
+# CONFIG_PACKAGE_iio-utils is not set
+# CONFIG_PACKAGE_inotifywait is not set
+# CONFIG_PACKAGE_inotifywatch is not set
+# CONFIG_PACKAGE_io is not set
+# CONFIG_PACKAGE_ipcs is not set
+# CONFIG_PACKAGE_irqbalance is not set
+# CONFIG_PACKAGE_iwcap is not set
+CONFIG_PACKAGE_iwinfo=y
+# CONFIG_PACKAGE_jq is not set
+CONFIG_PACKAGE_jshn=y
+# CONFIG_PACKAGE_kmod is not set
+# CONFIG_PACKAGE_lcd4linux-custom is not set
+# CONFIG_PACKAGE_lcdproc-clients is not set
+# CONFIG_PACKAGE_lcdproc-drivers is not set
+# CONFIG_PACKAGE_lcdproc-server is not set
+# CONFIG_PACKAGE_less is not set
+CONFIG_PACKAGE_libjson-script=y
+# CONFIG_PACKAGE_librespeed-cli is not set
+# CONFIG_PACKAGE_libxml2-utils is not set
+# CONFIG_PACKAGE_lm-sensors is not set
+# CONFIG_PACKAGE_lm-sensors-detect is not set
+# CONFIG_PACKAGE_logger is not set
+# CONFIG_PACKAGE_logrotate is not set
+# CONFIG_PACKAGE_lolcat is not set
+# CONFIG_PACKAGE_look is not set
+# CONFIG_PACKAGE_losetup is not set
+# CONFIG_PACKAGE_lrzsz is not set
+# CONFIG_PACKAGE_lscpu is not set
+# CONFIG_PACKAGE_lslocks is not set
+# CONFIG_PACKAGE_lsns is not set
+CONFIG_PACKAGE_lsof=y
+# CONFIG_PACKAGE_lxc is not set
+# CONFIG_PACKAGE_maccalc is not set
+# CONFIG_PACKAGE_macchanger is not set
+# CONFIG_PACKAGE_mandoc is not set
+# CONFIG_PACKAGE_mbedtls-util is not set
+# CONFIG_PACKAGE_mbim-utils is not set
+# CONFIG_PACKAGE_mbtools is not set
+# CONFIG_PACKAGE_mc is not set
+# CONFIG_PACKAGE_mc-skins is not set
+# CONFIG_PACKAGE_mcookie is not set
+# CONFIG_PACKAGE_mdio-tools is not set
+# CONFIG_PACKAGE_memtester is not set
+# CONFIG_PACKAGE_mhz is not set
+# CONFIG_PACKAGE_micrond is not set
+# CONFIG_PACKAGE_miniflux is not set
+# CONFIG_PACKAGE_mmc-utils is not set
+# CONFIG_PACKAGE_more is not set
+# CONFIG_PACKAGE_moreutils is not set
+# CONFIG_PACKAGE_mosh-client is not set
+# CONFIG_PACKAGE_mosh-server is not set
+# CONFIG_PACKAGE_mount-utils is not set
+# CONFIG_PACKAGE_mpack is not set
+# CONFIG_PACKAGE_mqttled is not set
+# CONFIG_PACKAGE_mt-st is not set
+# CONFIG_PACKAGE_namei is not set
+# CONFIG_PACKAGE_nand-utils is not set
+# CONFIG_PACKAGE_naywatch is not set
+# CONFIG_PACKAGE_netopeer2-cli is not set
+# CONFIG_PACKAGE_netopeer2-server is not set
+# CONFIG_PACKAGE_netwhere is not set
+# CONFIG_PACKAGE_nnn is not set
+# CONFIG_PACKAGE_nsenter is not set
+# CONFIG_PACKAGE_nss-utils is not set
+# CONFIG_PACKAGE_nsutils is not set
+# CONFIG_PACKAGE_oath-toolkit is not set
+# CONFIG_PACKAGE_oci-runtime-tool is not set
+# CONFIG_PACKAGE_open-plc-utils is not set
+# CONFIG_PACKAGE_open2300 is not set
+# CONFIG_PACKAGE_opendoas is not set
+# CONFIG_PACKAGE_openobex is not set
+# CONFIG_PACKAGE_openobex-apps is not set
+# CONFIG_PACKAGE_openocd is not set
+# CONFIG_PACKAGE_opensc-utils is not set
+CONFIG_PACKAGE_openssl-util=m
+# CONFIG_PACKAGE_openzwave is not set
+# CONFIG_PACKAGE_openzwave-config is not set
+# CONFIG_PACKAGE_owipcalc is not set
+# CONFIG_PACKAGE_passh is not set
+# CONFIG_PACKAGE_pax-utils is not set
+# CONFIG_PACKAGE_pciids is not set
+# CONFIG_PACKAGE_pciutils is not set
+# CONFIG_PACKAGE_pcsc-tools is not set
+# CONFIG_PACKAGE_pcscd is not set
+# CONFIG_PACKAGE_podman is not set
+
+#
+# Configuration
+#
+# CONFIG_PODMAN_SELINUX_SUPPORT is not set
+# end of Configuration
+
+# CONFIG_PACKAGE_poemgr is not set
+# CONFIG_PACKAGE_policycoreutils is not set
+# CONFIG_PACKAGE_powertop is not set
+# CONFIG_PACKAGE_pps-tools is not set
+# CONFIG_PACKAGE_prlimit is not set
+CONFIG_PACKAGE_procps-ng=y
+# CONFIG_PACKAGE_procps-ng-free is not set
+# CONFIG_PACKAGE_procps-ng-kill is not set
+# CONFIG_PACKAGE_procps-ng-pgrep is not set
+# CONFIG_PACKAGE_procps-ng-pkill is not set
+# CONFIG_PACKAGE_procps-ng-pmap is not set
+CONFIG_PACKAGE_procps-ng-ps=y
+# CONFIG_PACKAGE_procps-ng-pwdx is not set
+# CONFIG_PACKAGE_procps-ng-skill is not set
+# CONFIG_PACKAGE_procps-ng-slabtop is not set
+# CONFIG_PACKAGE_procps-ng-snice is not set
+# CONFIG_PACKAGE_procps-ng-sysctl is not set
+# CONFIG_PACKAGE_procps-ng-tload is not set
+# CONFIG_PACKAGE_procps-ng-top is not set
+# CONFIG_PACKAGE_procps-ng-uptime is not set
+# CONFIG_PACKAGE_procps-ng-vmstat is not set
+# CONFIG_PACKAGE_procps-ng-w is not set
+# CONFIG_PACKAGE_procps-ng-watch is not set
+# CONFIG_PACKAGE_progress is not set
+# CONFIG_PACKAGE_prometheus is not set
+# CONFIG_PACKAGE_prometheus-node-exporter-lua is not set
+# CONFIG_PACKAGE_prometheus-statsd-exporter is not set
+# CONFIG_PACKAGE_pservice is not set
+# CONFIG_PACKAGE_psmisc is not set
+# CONFIG_PACKAGE_pv is not set
+# CONFIG_PACKAGE_qfirehose is not set
+# CONFIG_PACKAGE_qmi-utils is not set
+CONFIG_PACKAGE_qrencode=m
+# CONFIG_PACKAGE_quota is not set
+# CONFIG_PACKAGE_ravpower-mcu is not set
+# CONFIG_PACKAGE_readsb is not set
+# CONFIG_PACKAGE_relayctl is not set
+# CONFIG_PACKAGE_rename is not set
+# CONFIG_PACKAGE_restic is not set
+# CONFIG_PACKAGE_rev is not set
+# CONFIG_PACKAGE_ripgrep is not set
+# CONFIG_PACKAGE_rng-tools is not set
+# CONFIG_PACKAGE_rtl-ais is not set
+# CONFIG_PACKAGE_rtl-sdr is not set
+# CONFIG_PACKAGE_rtl_433 is not set
+# CONFIG_PACKAGE_rtl_433-ssl is not set
+# CONFIG_PACKAGE_runc is not set
+# CONFIG_PACKAGE_sane-backends is not set
+# CONFIG_PACKAGE_sane-daemon is not set
+# CONFIG_PACKAGE_sane-frontends is not set
+# CONFIG_PACKAGE_secilc is not set
+# CONFIG_PACKAGE_sed is not set
+# CONFIG_PACKAGE_sedutil is not set
+# CONFIG_PACKAGE_selinux-audit2allow is not set
+# CONFIG_PACKAGE_selinux-chcat is not set
+# CONFIG_PACKAGE_selinux-python is not set
+# CONFIG_PACKAGE_selinux-semanage is not set
+# CONFIG_PACKAGE_selinux-sepolgen-ifgen is not set
+# CONFIG_PACKAGE_selinux-sepolicy is not set
+# CONFIG_PACKAGE_semodule-expand is not set
+# CONFIG_PACKAGE_semodule-link is not set
+# CONFIG_PACKAGE_semodule-package is not set
+# CONFIG_PACKAGE_semodule-unpackage is not set
+# CONFIG_PACKAGE_serdisplib-tools is not set
+# CONFIG_PACKAGE_setools-sechecker is not set
+# CONFIG_PACKAGE_setools-sediff is not set
+# CONFIG_PACKAGE_setools-sedta is not set
+# CONFIG_PACKAGE_setools-seinfo is not set
+# CONFIG_PACKAGE_setools-seinfoflow is not set
+# CONFIG_PACKAGE_setools-sesearch is not set
+# CONFIG_PACKAGE_setserial is not set
+# CONFIG_PACKAGE_sexpect is not set
+# CONFIG_PACKAGE_shadow-utils is not set
+# CONFIG_PACKAGE_shared-mime-info is not set
+# CONFIG_PACKAGE_sipcalc is not set
+# CONFIG_PACKAGE_sispmctl is not set
+# CONFIG_PACKAGE_slide-switch is not set
+# CONFIG_PACKAGE_smartd is not set
+# CONFIG_PACKAGE_smartd-mail is not set
+# CONFIG_PACKAGE_smartmontools is not set
+# CONFIG_PACKAGE_smartmontools-drivedb is not set
+CONFIG_PACKAGE_sms-tool=y
+# CONFIG_PACKAGE_smstools3 is not set
+# CONFIG_PACKAGE_sockread is not set
+# CONFIG_PACKAGE_spi-tools is not set
+# CONFIG_PACKAGE_spidev-test is not set
+# CONFIG_PACKAGE_ssdeep is not set
+# CONFIG_PACKAGE_sshpass is not set
+# CONFIG_PACKAGE_stdiscosrv is not set
+# CONFIG_PACKAGE_strace is not set
+CONFIG_STRACE_NONE=y
+# CONFIG_STRACE_LIBDW is not set
+# CONFIG_STRACE_LIBUNWIND is not set
+# CONFIG_PACKAGE_strelaysrv is not set
+# CONFIG_PACKAGE_stress is not set
+# CONFIG_PACKAGE_stress-ng is not set
+# CONFIG_PACKAGE_sumo is not set
+# CONFIG_PACKAGE_syncthing is not set
+# CONFIG_PACKAGE_sysrepo is not set
+# CONFIG_PACKAGE_sysrepocfg is not set
+# CONFIG_PACKAGE_sysrepoctl is not set
+# CONFIG_PACKAGE_sysstat is not set
+# CONFIG_PACKAGE_tar is not set
+# CONFIG_PACKAGE_taskd is not set
+# CONFIG_PACKAGE_taskset is not set
+# CONFIG_PACKAGE_taskwarrior is not set
+# CONFIG_PACKAGE_telegraf is not set
+# CONFIG_PACKAGE_telegraf-full is not set
+# CONFIG_PACKAGE_telldus-core is not set
+# CONFIG_PACKAGE_temperusb is not set
+# CONFIG_PACKAGE_tesseract is not set
+# CONFIG_PACKAGE_tini is not set
+# CONFIG_PACKAGE_tinyionice is not set
+# CONFIG_PACKAGE_tracertools is not set
+# CONFIG_PACKAGE_tree is not set
+# CONFIG_PACKAGE_triggerhappy is not set
+CONFIG_PACKAGE_ubi-utils=y
+# CONFIG_PACKAGE_ubnt-manager is not set
+# CONFIG_PACKAGE_ucode-mod-bpf is not set
+CONFIG_PACKAGE_ucode-mod-html=y
+CONFIG_PACKAGE_ucode-mod-lua=y
+# CONFIG_PACKAGE_udns-dnsget is not set
+# CONFIG_PACKAGE_udns-ex-rdns is not set
+# CONFIG_PACKAGE_udns-rblcheck is not set
+# CONFIG_PACKAGE_ugps is not set
+# CONFIG_PACKAGE_uhubctl is not set
+# CONFIG_PACKAGE_uledd is not set
+# CONFIG_PACKAGE_unix2dos is not set
+# CONFIG_PACKAGE_unshare is not set
+# CONFIG_PACKAGE_upx is not set
+CONFIG_PACKAGE_usb-modeswitch=m
+# CONFIG_PACKAGE_usbids is not set
+CONFIG_PACKAGE_usbutils=m
+# CONFIG_PACKAGE_uuidd is not set
+# CONFIG_PACKAGE_uuidgen is not set
+# CONFIG_PACKAGE_uvcdynctrl is not set
+# CONFIG_PACKAGE_v2dat is not set
+# CONFIG_PACKAGE_v4l-utils is not set
+# CONFIG_PACKAGE_view1090 is not set
+# CONFIG_PACKAGE_viewadsb is not set
+CONFIG_PACKAGE_watchcat=y
+# CONFIG_PACKAGE_whereis is not set
+# CONFIG_PACKAGE_which is not set
+# CONFIG_PACKAGE_whiptail is not set
+# CONFIG_PACKAGE_whois is not set
+# CONFIG_PACKAGE_wifitoggle is not set
+# CONFIG_PACKAGE_wipe is not set
+# CONFIG_PACKAGE_xsltproc is not set
+# CONFIG_PACKAGE_xxd is not set
+# CONFIG_PACKAGE_xxhash is not set
+# CONFIG_PACKAGE_yafut is not set
+# CONFIG_PACKAGE_yanglint is not set
+# CONFIG_PACKAGE_yara is not set
+# CONFIG_PACKAGE_ykclient is not set
+# CONFIG_PACKAGE_ykpers is not set
+# CONFIG_PACKAGE_yq is not set
+# CONFIG_PACKAGE_zyxel-reset is not set
+# end of Utilities
+
+#
+# X
+#
+
+#
+# Auto reboot bot app.
+#
+CONFIG_PACKAGE_luci-app-autoreboot=y
+# end of Auto reboot bot app.
+
+#
+# Base config setting for this board
+#
+CONFIG_PACKAGE_base-config-setting=y
+
+#
+# Configuration
+#
+CONFIG_BASE_CONFIG_SETTING_LUCI_LOGIN="admin"
+
+#
+# Packages
+#
+# CONFIG_PACKAGE_base-config-setting-ext4fs is not set
+# end of Base config setting for this board
+
+#
+# Configuration Fake Mesh Support
+#
+CONFIG_PACKAGE_luci-app-fakemesh=y
+# end of Configuration Fake Mesh Support
+
+#
+# Configuration SimpleNetwork Support
+#
+# CONFIG_PACKAGE_luci-app-simplenetwork is not set
+# end of Configuration SimpleNetwork Support
+
+#
+# Configuration Wizard Support
+#
+# CONFIG_PACKAGE_luci-app-wizard is not set
+# end of Configuration Wizard Support
+
+#
+# Fast Forward Stacks
+#
+CONFIG_PACKAGE_kmod-natflow=y
+CONFIG_PACKAGE_natflow-auth=y
+CONFIG_PACKAGE_natflow-boot=y
+# end of Fast Forward Stacks
+
+#
+# Filesystems
+#
+# CONFIG_PACKAGE_kmod-exfat-linux is not set
+# end of Filesystems
+
+#
+# Libs
+#
+CONFIG_PACKAGE_lua-ipops=y
+# end of Libs
+
+#
+# Macvlan
+#
+CONFIG_PACKAGE_luci-app-macvlan=y
+# end of Macvlan
+
+#
+# Mentohust
+#
+CONFIG_PACKAGE_kmod-rproxy=m
+CONFIG_PACKAGE_luci-app-mentohust=m
+CONFIG_PACKAGE_mentohust=m
+# CONFIG_PACKAGE_mentohust-proxy is not set
+# end of Mentohust
+
+#
+# Natcap Support
+#
+# CONFIG_PACKAGE_kmod-natcap is not set
+# CONFIG_PACKAGE_luci-app-natcap is not set
+# CONFIG_PACKAGE_natcapd is not set
+# CONFIG_PACKAGE_natcapd-client is not set
+# CONFIG_PACKAGE_natcapd-peer is not set
+# CONFIG_PACKAGE_natcapd-server is not set
+# end of Natcap Support
+
+#
+# Natflow users module support
+#
+# CONFIG_PACKAGE_luci-app-natflow-users is not set
+# end of Natflow users module support
+
+#
+# PPTP XWAN Support
+#
+# CONFIG_PACKAGE_luci-app-pptpxwan is not set
+# end of PPTP XWAN Support
+
+#
+# PROXY XWAN Support
+#
+# CONFIG_PACKAGE_luci-app-proxyxwan is not set
+# end of PROXY XWAN Support
+
+#
+# Printer
+#
+CONFIG_PACKAGE_p910nd-helper=m
+# end of Printer
+
+#
+# Xwan
+#
+CONFIG_PACKAGE_luci-app-xwan=y
+# end of Xwan
+
+#
+# aws
+#
+# CONFIG_PACKAGE_amazon-kinesis-video-streams-producer-c is not set
+# CONFIG_PACKAGE_amazon-kinesis-video-streams-producer-sdk-cpp is not set
+# end of aws
+
+#
+# hmac-sha1-util tools
+#
+CONFIG_PACKAGE_hmac-sha1-util=y
+# end of hmac-sha1-util tools
+
+#
+# mbed tools
+#
+# CONFIG_PACKAGE_mbed-hmac-sha1 is not set
+# end of mbed tools
+
+# CONFIG_PACKAGE_initramfs-upgrade-fw is not set
+CONFIG_PACKAGE_sendip=m
+# CONFIG_PACKAGE_telnetd-test is not set
+CONFIG_PACKAGE_urllogger=m
+# CONFIG_PACKAGE_vhusbd-online is not set
+# end of X
+
+#
+# Xorg
+#
+
+#
+# Font-Utils
+#
+# CONFIG_PACKAGE_fontconfig is not set
+# end of Font-Utils
+# end of Xorg
