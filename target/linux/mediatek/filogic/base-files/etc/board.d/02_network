@@ -47,6 +47,7 @@ mediatek_setup_interfaces()
 	cudy,wr3000-v1|\
 	jcg,q30-pro|\
 	keenetic,kn-3811|\
+	jcg,q30-pro-nmbm|\
 	qihoo,360t7-ubootlayout|\
 	qihoo,360t7|\
 	routerich,ax3000|\
