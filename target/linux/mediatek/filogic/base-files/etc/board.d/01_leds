@@ -30,6 +30,10 @@ xiaomi,redmi-router-ax6000-ubootlayout|\
 xiaomi,redmi-router-ax6000-ubootmod)
 	ucidef_set_led_netdev "wan" "wan" "rgb:network" "wan"
 	;;
+konka,komi-a31|\
+konka,komi-a31-nmbm)
+         ucidef_set_led_netdev "eth1" "eth1" "blue:status" "eth1" "link"
+	;;
 esac
 
 board_config_flush
