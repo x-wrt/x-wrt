@@ -175,6 +175,7 @@ platform_do_upgrade() {
 	jcg,q30-pro|\
 	mediatek,mt7981-rfb|\
 	netcore,n60|\
+	konka,komi-a31|\
 	qihoo,360t7|\
 	xiaomi,mi-router-ax3000t-ubootmod|\
 	xiaomi,mi-router-wr30u-ubootmod)
