@@ -10,6 +10,8 @@ mediatek_setup_interfaces()
 	case $board in
 	abt,asr3000|\
 	cmcc,rax3000m|\
+	konka,komi-a31|\
+	konka,komi-a31-nmbm|\
 	h3c,magic-nx30-pro-nmbm|\
 	h3c,magic-nx30-pro|\
 	netis,nx31|\
