@@ -180,6 +180,10 @@ platform_do_upgrade() {
 		CI_ROOTPART="rootfs"
 		emmc_do_upgrade "$1"
 		;;
+	konka,komi-a31)
+		CI_KERNPART="fit"
+		nand_do_upgrade "$1"
+		;;
 	mercusys,mr90x-v1|\
 	tplink,re6000xd)
 		CI_UBIPART="ubi0"
