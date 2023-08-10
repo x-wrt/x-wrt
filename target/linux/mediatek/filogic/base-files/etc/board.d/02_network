@@ -27,6 +27,8 @@ mediatek_setup_interfaces()
 	glinet,gl-mt3000)
 		ucidef_set_interfaces_lan_wan eth1 eth0
 		;;
+	konka,komi-a31|\
+	konka,komi-a31-nmbm|\
 	h3c,magic-nx30-pro-nmbm|\
 	h3c,magic-nx30-pro)
 		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3" eth1
