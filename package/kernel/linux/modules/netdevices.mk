@@ -1695,7 +1695,7 @@ define KernelPackage/of-mdio
   KCONFIG:=CONFIG_OF_MDIO
   FILES:= \
 	$(LINUX_DIR)/drivers/net/mdio/of_mdio.ko \
-	$(LINUX_DIR)/drivers/net/mdio/fwnode_mdio.ko
+	$(LINUX_DIR)/drivers/net/mdio/fwnode_mdio.ko@ge5.15
   AUTOLOAD:=$(call AutoLoad,41,of_mdio)
 endef
 
