@@ -522,7 +522,7 @@ define KernelPackage/iio-sps30
 	CONFIG_SPS30_I2C
   FILES:= \
 	$(LINUX_DIR)/drivers/iio/chemical/sps30.ko \
-	$(LINUX_DIR)/drivers/iio/chemical/sps30_i2c.ko
+	$(LINUX_DIR)/drivers/iio/chemical/sps30_i2c.ko@ge5.14
   AUTOLOAD:=$(call AutoProbe,sps30 sps30_i2c)
   $(call AddDepends/iio)
 endef
