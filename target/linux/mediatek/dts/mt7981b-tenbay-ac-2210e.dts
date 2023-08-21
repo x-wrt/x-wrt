@@ -43,6 +43,22 @@
 			label = "green:system";
 			gpios = <&pio 34 GPIO_ACTIVE_LOW>;
 		};
+
+		netleds-toggle {
+			label = "netleds-toggle";
+			gpios = <&pio 11 GPIO_ACTIVE_LOW>;
+			linux,default-trigger = "default-on";
+		};
+
+		wan1 {
+			label = "yellow:wan1";
+			gpios = <&pio 7 GPIO_ACTIVE_LOW>;
+		};
+
+		wan2 {
+			label = "yellow:wan2";
+			gpios = <&pio 8 GPIO_ACTIVE_LOW>;
+		};
 	};
 
 	mdio2: mdio {
@@ -122,8 +138,16 @@
 		reg = <7>;
 		compatible = "ethernet-phy-ieee802.3-c45";
 		reset-gpios = <&pio 14 GPIO_ACTIVE_LOW>;
-		reset-assert-us = <100000>;
-		reset-deassert-us = <100000>;
+		reset-assert-us = <10000>;
+		reset-deassert-us = <68000>;
+	};
+
+	phy5: ethernet-phy@5 {
+		reg = <5>;
+		compatible = "ethernet-phy-ieee802.3-c45";
+		reset-gpios = <&pio 5 GPIO_ACTIVE_LOW>;
+		reset-assert-us = <10000>;
+		reset-deassert-us = <68000>;
 	};
 
 	switch0: switch@0 {
@@ -131,10 +155,10 @@
 		reg = <31>;
 		dsa,member = <0 0>;
 		reset-gpios = <&pio 39 GPIO_ACTIVE_HIGH>;
-		//interrupt-controller;
-		//#interrupt-cells = <1>;
-		//interrupt-parent = <&pio>;
-		//interrupts = <38 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-controller;
+		#interrupt-cells = <1>;
+		interrupt-parent = <&pio>;
+		interrupts = <38 IRQ_TYPE_LEVEL_HIGH>;
 	};
 };
 
@@ -192,14 +216,6 @@
 &mdio2 {
 	gpios = <&pio 12 GPIO_ACTIVE_HIGH>, <&pio 13 GPIO_ACTIVE_HIGH>;
 
-	ephy7: ethernet-ephy@7 {
-		reg = <7>;
-		compatible = "ethernet-phy-ieee802.3-c45";
-		reset-gpios = <&pio 5 GPIO_ACTIVE_LOW>;
-		reset-assert-us = <100000>;
-		reset-deassert-us = <100000>;
-	};
-
 	switch1: switch@1 {
 		compatible = "mediatek,mt7531";
 		reg = <31>;
@@ -207,10 +223,10 @@
 		reset-gpios = <&pio 4 GPIO_ACTIVE_HIGH>;
 		reset-delay-us = <600>;
 		reset-post-delay-us = <20000>;
-		//interrupt-controller;
-		//#interrupt-cells = <1>;
-		//interrupt-parent = <&pio>;
-		//interrupts = <6 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-controller;
+		#interrupt-cells = <1>;
+		interrupt-parent = <&pio>;
+		interrupts = <6 IRQ_TYPE_LEVEL_HIGH>;
 	};
 };
 
@@ -248,7 +264,7 @@
 			reg = <5>;
 			label = "wan2";
 			phy-mode = "2500base-x";
-			phy-handle = <&ephy7>;
+			phy-handle = <&phy5>;
 		};
 
 		port@6 {
