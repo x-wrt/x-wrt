@@ -13,6 +13,7 @@ mediatek_setup_interfaces()
 		;;
 	abt,asr3000|\
 	cmcc,rax3000m|\
+	h3c,magic-nx30-pro-nmbm|\
 	h3c,magic-nx30-pro|\
 	nokia,ea0326gmp|\
 	zbtlink,zbt-z8103ax)
@@ -152,6 +153,7 @@ mediatek_setup_macs()
 	bananapi,bpi-r4)
 		wan_mac=$(macaddr_add $(cat /sys/class/net/eth0/address) 1)
 		;;
+	h3c,magic-nx30-pro-nmbm|\
 	h3c,magic-nx30-pro)
 		wan_mac=$(mtd_get_mac_ascii pdt_data_1 ethaddr)
 		lan_mac=$(macaddr_add "$wan_mac" 1)
