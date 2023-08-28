@@ -1,0 +1,20 @@
+// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
+
+/dts-v1/;
+#include "mt7981b-h3c-magic-nx30-pro.dts"
+
+/ {
+	model = "H3C Magic NX30 Pro (NMBM-Enabled layout)";
+	compatible = "h3c,magic-nx30-pro-nmbm", "mediatek,mt7981";
+};
+
+&chosen {
+	/delete-property/ bootargs-append;
+	/delete-property/ rootdisk;
+};
+
+&spi_nand {
+	mediatek,nmbm;
+	mediatek,bmt-max-ratio = <1>;
+	mediatek,bmt-max-reserved-blocks = <64>;
+};
