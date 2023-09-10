@@ -1,0 +1,159 @@
+From 81c1afdae66a1e225e332d344f6564e7a244323a Mon Sep 17 00:00:00 2001
+From: Chen Minqiang <ptpt52@gmail.com>
+Date: Sun, 10 Sep 2023 23:06:13 +0800
+Subject: [PATCH] usb: rndis_host: enable rx aggregation
+
+---
+ drivers/net/usb/rndis_host.c | 62 ++++++++++++++++++++++++++----------
+ drivers/net/usb/usbnet.c     |  2 +-
+ include/linux/usb/usbnet.h   |  1 +
+ 3 files changed, 47 insertions(+), 18 deletions(-)
+
+--- a/drivers/net/usb/rndis_host.c
++++ b/drivers/net/usb/rndis_host.c
+@@ -4,6 +4,7 @@
+  * Copyright (C) 2005 by David Brownell
+  */
+ #include <linux/module.h>
++#include <linux/moduleparam.h>
+ #include <linux/netdevice.h>
+ #include <linux/etherdevice.h>
+ #include <linux/ethtool.h>
+@@ -15,6 +16,11 @@
+ #include <linux/usb/usbnet.h>
+ #include <linux/usb/rndis_host.h>
+ 
++// default max receive size is 2048, which
++// has no rx aggregation or de-aggreation.
++// this param can be changed on the fly via insmod.
++static unsigned int rx_max_xfer_size = 16384;
++module_param(rx_max_xfer_size, uint, 0600);
+ 
+ /*
+  * RNDIS is NDIS remoted over USB.  It's a MSFT variant of CDC ACM ... of
+@@ -344,6 +350,12 @@ generic_rndis_bind(struct usbnet *dev, s
+ 
+ 	dev->rx_urb_size = dev->hard_mtu + (dev->maxpacket + 1);
+ 	dev->rx_urb_size &= ~(dev->maxpacket - 1);
++
++	if (rx_max_xfer_size && (rx_max_xfer_size > dev->rx_urb_size)) {
++		printk("%s: host max_xfer_size overridden: %d->%d\n", __func__, (int)dev->rx_urb_size, rx_max_xfer_size);
++		dev->rx_urb_size = rx_max_xfer_size;
++	}
++
+ 	u.init->max_transfer_size = cpu_to_le32(dev->rx_urb_size);
+ 
+ 	net->netdev_ops = &rndis_netdev_ops;
+@@ -507,10 +519,17 @@ int rndis_rx_fixup(struct usbnet *dev, s
+ 		struct sk_buff		*skb2;
+ 		u32			msg_type, msg_len, data_offset, data_len;
+ 
+-		msg_type = le32_to_cpu(hdr->msg_type);
+-		msg_len = le32_to_cpu(hdr->msg_len);
+-		data_offset = le32_to_cpu(hdr->data_offset);
+-		data_len = le32_to_cpu(hdr->data_len);
++		if (((size_t)hdr % 4) == 0) {
++			msg_type = le32_to_cpu(hdr->msg_type);
++			msg_len = le32_to_cpu(hdr->msg_len);
++			data_offset = le32_to_cpu(hdr->data_offset);
++			data_len = le32_to_cpu(hdr->data_len);
++		} else {
++			msg_type = get_unaligned_le32(&hdr->msg_type);
++			msg_len = get_unaligned_le32(&hdr->msg_len);
++			data_offset = get_unaligned_le32(&hdr->data_offset);
++			data_len = get_unaligned_le32(&hdr->data_len);
++		}
+ 
+ 		/* don't choke if we see oob, per-packet data, etc */
+ 		if (unlikely(msg_type != RNDIS_MSG_PACKET || skb->len < msg_len
+@@ -523,23 +542,32 @@ int rndis_rx_fixup(struct usbnet *dev, s
+ 		}
+ 		skb_pull(skb, 8 + data_offset);
+ 
+-		/* at most one packet left? */
+-		if (likely((data_len - skb->len) <= sizeof *hdr)) {
+-			skb_trim(skb, data_len);
+-			break;
++		if (((size_t)skb->data + 6 + 6 + 2) % 4 == 0) {
++			skb2 = skb_clone(skb, GFP_ATOMIC);
++			if (unlikely(!skb2))
++				break;
++			skb_trim(skb2, data_len);
++		} else {
++			/* try to return all the packets in the batch */
++			skb2 = netdev_alloc_skb_ip_align(dev->net, data_len);
++			if (unlikely(!skb2))
++				break;
++			__skb_put_data(skb2, skb->data, data_len);
+ 		}
+ 
+-		/* try to return all the packets in the batch */
+-		skb2 = skb_clone(skb, GFP_ATOMIC);
+-		if (unlikely(!skb2))
+-			break;
+-		skb_pull(skb, msg_len - sizeof *hdr);
+-		skb_trim(skb2, data_len);
++		skb_pull(skb, msg_len - (data_offset + 8));
+ 
+ 		if (unlikely(dst_mac_fixup))
+ 			usbnet_cdc_zte_rx_fixup(dev, skb2);
+ 
+ 		usbnet_skb_return(dev, skb2);
++
++		// is no more packet left?
++		if (skb->len <= sizeof(*hdr)) {
++			// with flag FLAG_MULTI_PACKET, skb will
++			// not pass to stack by usbnet framework
++			break;
++		}
+ 	}
+ 
+ 	/* caller will usbnet_skb_return the remaining packet */
+@@ -600,7 +628,7 @@ EXPORT_SYMBOL_GPL(rndis_tx_fixup);
+ 
+ static const struct driver_info	rndis_info = {
+ 	.description =	"RNDIS device",
+-	.flags =	FLAG_ETHER | FLAG_POINTTOPOINT | FLAG_FRAMING_RN | FLAG_NO_SETINT,
++	.flags =	FLAG_ETHER | FLAG_POINTTOPOINT | FLAG_FRAMING_RN | FLAG_NO_SETINT | FLAG_MULTI_PKT_RX,
+ 	.bind =		rndis_bind,
+ 	.unbind =	rndis_unbind,
+ 	.status =	rndis_status,
+@@ -610,7 +638,7 @@ static const struct driver_info	rndis_in
+ 
+ static const struct driver_info	rndis_poll_status_info = {
+ 	.description =	"RNDIS device (poll status before control)",
+-	.flags =	FLAG_ETHER | FLAG_POINTTOPOINT | FLAG_FRAMING_RN | FLAG_NO_SETINT,
++	.flags =	FLAG_ETHER | FLAG_POINTTOPOINT | FLAG_FRAMING_RN | FLAG_NO_SETINT | FLAG_MULTI_PKT_RX,
+ 	.data =		RNDIS_DRIVER_DATA_POLL_STATUS,
+ 	.bind =		rndis_bind,
+ 	.unbind =	rndis_unbind,
+@@ -621,7 +649,7 @@ static const struct driver_info	rndis_po
+ 
+ static const struct driver_info	zte_rndis_info = {
+ 	.description =	"ZTE RNDIS device",
+-	.flags =	FLAG_ETHER | FLAG_POINTTOPOINT | FLAG_FRAMING_RN | FLAG_NO_SETINT,
++	.flags =	FLAG_ETHER | FLAG_POINTTOPOINT | FLAG_FRAMING_RN | FLAG_NO_SETINT | FLAG_MULTI_PKT_RX,
+ 	.data =		RNDIS_DRIVER_DATA_DST_MAC_FIXUP,
+ 	.bind =		zte_rndis_bind,
+ 	.unbind =	rndis_unbind,
+--- a/drivers/net/usb/usbnet.c
++++ b/drivers/net/usb/usbnet.c
+@@ -568,7 +568,7 @@ static inline void rx_process (struct us
+ 	// else network stack removes extra byte if we forced a short packet
+ 
+ 	/* all data was already cloned from skb inside the driver */
+-	if (dev->driver_info->flags & FLAG_MULTI_PACKET)
++	if (dev->driver_info->flags & (FLAG_MULTI_PACKET | FLAG_MULTI_PKT_RX))
+ 		goto done;
+ 
+ 	if (skb->len < ETH_HLEN) {
+--- a/include/linux/usb/usbnet.h
++++ b/include/linux/usb/usbnet.h
+@@ -122,6 +122,7 @@ struct driver_info {
+ #define FLAG_MULTI_PACKET	0x2000
+ #define FLAG_RX_ASSEMBLE	0x4000	/* rx packets may span >1 frames */
+ #define FLAG_NOARP		0x8000	/* device can't do ARP */
++#define FLAG_MULTI_PKT_RX	0x80000
+ 
+ 	/* init device ... can sleep, or cause probe() failure */
+ 	int	(*bind)(struct usbnet *, struct usb_interface *);
