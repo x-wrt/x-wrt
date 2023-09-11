@@ -57,6 +57,7 @@ platform_pre_upgrade() {
 	local board=$(board_name)
 
 	case "$board" in
+	xwrt,5g-cpe1801k|\
 	xwrt,fm10-ax-nand|\
 	xwrt,wr1800k-ax-nand)
 		tenbay_dualboot_fixup
@@ -188,6 +189,7 @@ platform_do_upgrade() {
 	z-router,zr-2660|\
 	xwrt,nxc2005ex|\
 	xwrt,nxc2009e-v100|\
+	xwrt,5g-cpe1801k|\
 	xwrt,fm10-ax-nand|\
 	xwrt,wr1800k-ax-nand|\
 	zyxel,nwa50ax|\
