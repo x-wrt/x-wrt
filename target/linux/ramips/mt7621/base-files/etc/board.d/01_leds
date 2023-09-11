@@ -289,6 +289,12 @@ xwrt,nxc2009e-v100)
 	ucidef_set_led_switch "port7_M_led" "port7_M_led" "port7_M_led" "switch0" "0x08" "0x0e" "link"
 	ucidef_set_led_switch "port8_M_led" "port8_M_led" "port8_M_led" "switch0" "0x10" "0x0e" "link"
 	;;
+xwrt,5g-cpe1801k)
+	ucidef_set_led_netdev "wan" "wan" "WAN_LED" "wan" "link"
+	ucidef_set_led_netdev "lan1" "lan1" "LAN1_LED" "lan1" "link"
+	ucidef_set_led_netdev "lan2" "lan2" "LAN2_LED" "lan2" "link"
+	ucidef_set_led_netdev "wan4g" "wan4g" "RGB_5G_G" "wan4g" "link tx rx"
+	;;
 xwrt,wr1800k-ax-nand)
 	ucidef_set_led_netdev "wan" "wan" "ether:blue" "wan" "link"
 	ucidef_set_led_netdev "wifi2g" "Wifi 2.4G" "wlan:green" "wlan0" "link"
