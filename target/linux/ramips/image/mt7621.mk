@@ -3786,6 +3786,22 @@ endif
 endef
 TARGET_DEVICES += xwrt_fm10-ax-nand
 
+define Device/xwrt_5g-cpe1801k
+  $(Device/nand)
+  $(Device/uimage-lzma-loader)
+  IMAGE_SIZE := 120320k
+  IMAGES += factory.bin
+  IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | check-size
+ifneq ($(CONFIG_TARGET_ROOTFS_INITRAMFS),)
+  ARTIFACTS := initramfs-5G-CPE1801K-factory.bin
+  ARTIFACT/initramfs-5G-CPE1801K-factory.bin := append-image-stage initramfs-kernel.bin | tenbay-factory 5G-CPE1801K
+endif
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := 5G-CPE1801K
+  DEVICE_PACKAGES := kmod-mt7915-firmware kmod-usb3 kmod-usb-ledtrig-usbport lte-modem-xwrt-5g-cpe1801k
+endef
+TARGET_DEVICES += xwrt_5g-cpe1801k
+
 define Device/xwrt_wr1800k-ax-nand
   $(Device/nand)
   $(Device/uimage-lzma-loader)
