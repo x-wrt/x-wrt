@@ -1,0 +1,29 @@
+#!/bin/sh
+
+test -f /etc/config/independent && exit 0
+
+uci -q batch <<-EOT
+	delete network.usbwan
+	delete network.usbwan6
+	set network.usbwan=interface
+	set network.usbwan.proto='ncm'
+	set network.usbwan.mtu='1492'
+	set network.usbwan.device='/dev/ttyUSB3'
+	set network.usbwan.pdptype='IPV4V6'
+	set network.usbwan.ipv6='auto'
+	set network.usbwan.ifname='wan4g'
+	set network.usbwan.profile='3'
+	set network.usbwan.metric='1001'
+	commit network
+	EOT
+
+[ x`uci get firewall.@zone[1].name 2>/dev/null` = xwan ] && {
+	wans="$(uci get firewall.@zone[1].network 2>/dev/null) usbwan"
+	wans=$(for w in $wans; do echo $w; done | sort | uniq)
+	wans=`echo $wans`
+	uci set firewall.@zone[1].network="$wans"
+	uci commit firewall
+}
+
+touch /etc/config/independent
+exit 0
