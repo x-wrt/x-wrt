@@ -1,0 +1,22 @@
+#!/bin/sh /etc/rc.common
+# (C) 2012 Daniel Golle, Allnet GmbH <dgolle@allnet.de>
+
+START=11
+STOP=90
+
+boot() {
+	#echo "out" >/sys/class/gpio/sim_det_pin/direction
+	#echo "1" >/sys/class/gpio/sim_det_pin/value
+	#echo "1" >/sys/class/gpio/sim_sel_pin/value
+	#sleep 1
+
+	#power on ec20_1
+	echo "1" >/sys/class/gpio/4v_en/value
+	sleep 1
+	echo "0" >/sys/class/gpio/4v_en/value
+
+	#reset ec20_1
+	echo "1" >/sys/class/gpio/pd9_reset_ec20/value
+	sleep 1
+	echo "0" >/sys/class/gpio/pd9_reset_ec20/value
+}
