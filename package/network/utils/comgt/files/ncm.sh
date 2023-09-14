@@ -55,8 +55,8 @@ proto_ncm_setup() {
 
 	device="$(readlink -f $device)"
 	[ -e "$device" ] || {
-		echo "Control device not valid"
-		proto_set_available "$interface" 0
+		echo "Control device not valid, wait.."
+		sleep 1
 		return 1
 	}
 
@@ -115,9 +115,9 @@ proto_ncm_setup() {
 	json_load "$(cat /etc/gcom/ncm.json)"
 	json_select "$manufacturer"
 	[ $? -ne 0 ] && {
-		echo "Unsupported modem"
+		echo "Unsupported modem=$manufacturer"
 		proto_notify_error "$interface" UNSUPPORTED_MODEM
-		proto_set_available "$interface" 0
+		sleep 1
 		return 1
 	}
 
@@ -240,8 +240,8 @@ proto_ncm_teardown() {
 
 	device="$(readlink -f $device)"
 	[ -e "$device" ] || {
-		echo "Control device not valid"
-		proto_set_available "$interface" 0
+		echo "Control device not valid, wait .."
+		sleep 1
 		return 1
 	}
 
@@ -265,7 +265,7 @@ proto_ncm_teardown() {
 
 	json_load "$(cat /etc/gcom/ncm.json)"
 	json_select "$manufacturer" || {
-		echo "Unsupported modem"
+		echo "Unsupported modem=$manufacturer"
 		proto_notify_error "$interface" UNSUPPORTED_MODEM
 		return 1
 	}
