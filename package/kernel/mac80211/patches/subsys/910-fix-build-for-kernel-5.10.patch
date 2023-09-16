@@ -1,0 +1,20 @@
+--- a/backport-include/net/dropreason-core.h
++++ b/backport-include/net/dropreason-core.h
+@@ -21,6 +21,17 @@
+ #define SKB_CONSUMED SKB_DROP_REASON_NOT_SPECIFIED
+ #endif
+ 
++#if LINUX_VERSION_IS_LESS(5,15,0)
++#define SKB_DROP_REASON_NOT_SPECIFIED 0
++#define SKB_DROP_REASON_MAX 12
++static inline void kfree_skb_reason(struct sk_buff *skb, int reason)
++{
++	if (!skb_unref(skb))
++		return;
++	__kfree_skb(skb);
++}
++#endif
++
+ #if LINUX_VERSION_IS_LESS(6,4,0)
+ #define SKB_DROP_REASON_SUBSYS_MASK			0xffff0000
+ #define SKB_DROP_REASON_SUBSYS_SHIFT			16
