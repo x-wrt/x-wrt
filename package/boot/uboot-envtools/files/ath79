@@ -30,6 +30,7 @@ asus,rt-ac59u-v2|\
 asus,zenwifi-cd6n|\
 asus,zenwifi-cd6r|\
 buffalo,bhr-4grv2|\
+bm100,hq55|\
 devolo,magic-2-wifi|\
 dlink,dir-859-a1|\
 dlink,dir-859-a3|\
@@ -88,6 +89,9 @@ ubnt,rocket-m|\
 watchguard,ap100|\
 watchguard,ap200|\
 watchguard,ap300|\
+x-wrt,gw521-nand|\
+x-wrt,gw521-nor|\
+x-wrt,gw521-16m|\
 yuncore,a770|\
 yuncore,a782|\
 yuncore,a930|\
@@ -118,6 +122,7 @@ buffalo,wzr-hp-g300nh-s|\
 linksys,ea4500-v3)
 	ubootenv_add_uci_config "/dev/mtd1" "0x0" "0x20000" "0x20000"
 	;;
+domywifi,dw33d-nor|\
 domywifi,dw33d)
 	ubootenv_add_uci_config "/dev/mtd4" "0x0" "0x10000" "0x10000"
 	;;

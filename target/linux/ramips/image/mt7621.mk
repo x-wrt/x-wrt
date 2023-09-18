@@ -119,7 +119,7 @@ define Build/belkin-header
 
 	( \
 		type_fw_date=$$(printf "01%02x%02x%02x" \
-			$$(date -d "@$(SOURCE_DATE_EPOCH)" "+%y %m %d")); \
+			$$(date -d "@$(SOURCE_DATE_EPOCH)" "+%-y %-m %-d")); \
 		hw_fw_ver=$$(printf "%02x%02x%02x%02x" \
 			$(hw_ver) $$(echo $(fw_ver) | cut -d. -f-3 | tr . ' ')); \
 		fw_len_crc=$$(gzip -c $@ | tail -c 8 | od -An -tx8 | tr -d ' \n'); \
@@ -186,6 +186,151 @@ define Device/nand
   PAGESIZE := 2048
   UBINIZE_OPTS := -E 5
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+endef
+
+define Build/norplusemmc-combined-tar
+	-[ -f "$@" ] && mv "$@" "$@.flash"
+
+	rm -fR $@.boot
+	mkdir -p $@.boot
+
+	$(CP) $(IMAGE_KERNEL) $@.boot/linux.itb
+
+	( \
+		GPT_ROOTPART=`echo $(IMG_PART_DISKGUID) | sed 's/00$$/02/'`; \
+		echo \
+			"bootargs=console=ttyS0,115200 root=PARTUUID=$${GPT_ROOTPART}" \
+			> $@.boot/uEnv.txt; \
+	)
+
+	GUID=$(IMG_PART_DISKGUID) \
+	PADDING="1" \
+	SIGNATURE="$(IMG_PART_SIGNATURE)" \
+	$(SCRIPT_DIR)/gen_image_generic.sh \
+		$@ \
+		16 $@.boot \
+		$(if $(CONFIG_TARGET_ROOTFS_PARTSIZE),$(CONFIG_TARGET_ROOTFS_PARTSIZE),256) $(IMAGE_ROOTFS) \
+		256
+
+	printf '\xeb\x48' | dd of="$@" conv=notrunc
+
+	gzip -f -9n -c "$@" > "$@.emmc"
+
+	sh $(TOPDIR)/scripts/sysupgrade-tar.sh \
+		--board $(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME)) \
+		--kernel "$@.flash" \
+		--rootfs "$@.emmc" \
+		$@
+
+	rm -f "$@.flash" "$@.emmc"
+endef
+
+define Build/initrd-kernel
+	rm -fR $@.initrd
+	rm -fR $@.initrd.cpio
+
+	mkdir -p $@.initrd/{bin,dev,lib,proc,root,sys}
+	mkdir -p $@.initrd/lib/modules/$(LINUX_VERSION)
+
+	$(CP) ./initrd/init $@.initrd/
+	chmod +x $@.initrd/init
+
+	$(CP) $(TARGET_DIR)/bin/busybox $@.initrd/bin/
+	$(LN) busybox $@.initrd/bin/sh
+	$(LN) busybox $@.initrd/bin/ls
+	$(LN) busybox $@.initrd/bin/ln
+	$(LN) busybox $@.initrd/bin/mkdir
+	$(LN) busybox $@.initrd/bin/mount
+	$(LN) busybox $@.initrd/bin/umount
+	$(LN) busybox $@.initrd/bin/find
+	$(LN) busybox $@.initrd/bin/grep
+	$(LN) busybox $@.initrd/bin/sed
+	$(LN) busybox $@.initrd/bin/cat
+	$(LN) busybox $@.initrd/bin/mknod
+	$(LN) busybox $@.initrd/bin/switch_root
+	$(LN) busybox $@.initrd/bin/reboot
+	$(LN) busybox $@.initrd/bin/sleep
+
+	$(CP) $(TARGET_DIR)/sbin/kmodloader $@.initrd/bin/
+	$(LN) kmodloader $@.initrd/bin/modprobe
+
+	$(CP) $(TARGET_DIR)/usr/sbin/blkid $@.initrd/bin/
+
+	( \
+		KMODS=(ext4 crc32c_generic mtk_sd mmc_block xhci-mtk usb-storage sd_mod); \
+		for kmod in "$${KMODS[@]}"; do \
+			$(CP) \
+				$(TARGET_DIR)/lib/modules/$(LINUX_VERSION)/$$kmod.ko \
+				$@.initrd/lib/modules/$(LINUX_VERSION)/; \
+		done; \
+	)
+
+	$(CP) $(TARGET_DIR)/lib/ld* $@.initrd/lib/
+	( \
+		FLAG_FILE="$@.initrd/.new"; \
+		touch "$$FLAG_FILE"; \
+		while [ -f "$$FLAG_FILE" ]; do \
+			rm "$$FLAG_FILE"; \
+			( \
+				export \
+					READELF=$(TARGET_CROSS)readelf \
+					OBJCOPY=$(TARGET_CROSS)objcopy \
+					XARGS="$(XARGS)"; \
+				$(SCRIPT_DIR)/gen-dependencies.sh "$@.initrd/"; \
+			) | while read DEPS; do \
+				if [ "$${DEPS##*.}" == "ko" ]; then \
+					SRC_PATHS=("$(TARGET_DIR)/lib/modules/$(LINUX_VERSION)"); \
+					TARGET_PATH="$@.initrd/lib/modules/$(LINUX_VERSION)"; \
+				else \
+					SRC_PATHS=("$(TARGET_DIR)/lib" "$(TARGET_DIR)/usr/lib"); \
+					TARGET_PATH="$@.initrd/lib"; \
+				fi; \
+				if [ ! -f "$$TARGET_PATH/$$DEPS" ]; then \
+					touch "$$FLAG_FILE"; \
+					for src in "$${SRC_PATHS[@]}"; do \
+						if [ -f "$$src/$$DEPS" ]; then \
+							cp "$$src/$$DEPS" "$$TARGET_PATH/$$DEPS"; \
+						fi; \
+					done; \
+				fi; \
+			done; \
+		done; \
+		rm -f "$$FLAG_FILE"; \
+	)
+
+	rm -f $(LINUX_DIR)/.config.prev
+	mv $(LINUX_DIR)/.config $(LINUX_DIR)/.config.old
+	grep -v \
+		-e INITRAMFS \
+		-e CONFIG_RD_ \
+		-e CONFIG_BLK_DEV_INITRD \
+		$(LINUX_DIR)/.config.old > $(LINUX_DIR)/.config
+	echo 'CONFIG_INITRAMFS_ROOT_UID=$(shell id -u)' >> $(LINUX_DIR)/.config
+	echo 'CONFIG_INITRAMFS_ROOT_GID=$(shell id -g)' >> $(LINUX_DIR)/.config
+	echo "# CONFIG_INITRAMFS_FORCE is not set"                                               >> $(LINUX_DIR)/.config
+	echo "# CONFIG_INITRAMFS_PRESERVE_MTIME is not set"                                      >> $(LINUX_DIR)/.config
+	echo "# CONFIG_INITRAMFS_COMPRESSION_NONE is not set"                                    >> $(LINUX_DIR)/.config
+	echo -e "# CONFIG_INITRAMFS_COMPRESSION_GZIP is not set\n# CONFIG_RD_GZIP is not set"    >> $(LINUX_DIR)/.config
+	echo -e "# CONFIG_INITRAMFS_COMPRESSION_BZIP2 is not set\n# CONFIG_RD_BZIP2 is not set"  >> $(LINUX_DIR)/.config
+	echo -e "CONFIG_INITRAMFS_COMPRESSION_LZMA=y\nCONFIG_RD_LZMA=y"                          >> $(LINUX_DIR)/.config
+	echo -e "# CONFIG_INITRAMFS_COMPRESSION_LZO is not set\n# CONFIG_RD_LZO is not set"      >> $(LINUX_DIR)/.config
+	echo -e "# CONFIG_INITRAMFS_COMPRESSION_XZ is not set\n# CONFIG_RD_XZ is not set"        >> $(LINUX_DIR)/.config
+	echo -e "# CONFIG_INITRAMFS_COMPRESSION_LZ4 is not set\n# CONFIG_RD_LZ4 is not set"      >> $(LINUX_DIR)/.config
+	echo -e "# CONFIG_INITRAMFS_COMPRESSION_ZSTD is not set\n# CONFIG_RD_ZSTD is not set"    >> $(LINUX_DIR)/.config
+	echo 'CONFIG_BLK_DEV_INITRD=y'                                                           >> $(LINUX_DIR)/.config
+	echo 'CONFIG_INITRAMFS_SOURCE="$(strip $@.initrd $(GENERIC_PLATFORM_DIR)/image/initramfs-base-files.txt)"' >> $(LINUX_DIR)/.config
+	$(KERNEL_MAKE) $(KERNEL_MAKEOPTS_IMAGE) $(if $(KERNELNAME),$(KERNELNAME),all) modules
+	$(KERNEL_CROSS)objcopy -O binary $(OBJCOPY_STRIP) -S $(LINUX_DIR)/vmlinux $@
+endef
+
+define Build/tenbay-factory
+  mkdir -p "$@.tmp"
+  mv "$@" "$@.tmp/UploadBrush-bin.img"
+  $(MKHASH) md5 "$@.tmp/UploadBrush-bin.img" | head -c32 > "$@.tmp/check_MD5.txt"
+  $(TAR) -czf "$@.tmp.tgz" -C "$@.tmp" UploadBrush-bin.img check_MD5.txt
+  $(STAGING_DIR_HOST)/bin/openssl aes-256-cbc -e -salt -in "$@.tmp.tgz" -out "$@" -k QiLunSmartWL
+  printf %32s $(1) >> "$@"
+  rm -rf "$@.tmp" "$@.tmp.tgz"
 endef
 
 define Device/adslr_g7
@@ -836,6 +981,8 @@ TARGET_DEVICES += dual-q_h721
 
 define Device/d-team_newifi-d2
   $(Device/dsa-migration)
+  DEVICE_COMPAT_VERSION := 1.0
+  DEVICE_COMPAT_MESSAGE := Config is compat with swconfig
   $(Device/uimage-lzma-loader)
   IMAGE_SIZE := 32448k
   DEVICE_VENDOR := D-Team
@@ -846,6 +993,7 @@ endef
 TARGET_DEVICES += d-team_newifi-d2
 
 define Device/d-team_pbr-m1
+  $(Device/uimage-lzma-loader)
   $(Device/dsa-migration)
   IMAGE_SIZE := 32448k
   DEVICE_VENDOR := PandoraBox
@@ -1051,6 +1199,8 @@ TARGET_DEVICES += firefly_firewrt
 
 define Device/gehua_ghl-r-001
   $(Device/dsa-migration)
+  DEVICE_COMPAT_VERSION := 1.0
+  DEVICE_COMPAT_MESSAGE := Config is compat with swconfig
   IMAGE_SIZE := 32448k
   DEVICE_VENDOR := GeHua
   DEVICE_MODEL := GHL-R-001
@@ -1126,7 +1276,8 @@ TARGET_DEVICES += h3c_tx1801-plus
 
 define Device/h3c_tx1806
   $(Device/h3c_tx180x)
-  DEVICE_MODEL := TX1806
+  DEVICE_MODEL := TX1806/TX1801 Plus/TX1800 Plus
+  SUPPORTED_DEVICES += h3c,tx1800-plus h3c,tx1801-plus
 endef
 TARGET_DEVICES += h3c_tx1806
 
@@ -1442,6 +1593,8 @@ TARGET_DEVICES += jcg_q20
 define Device/jcg_y2
   $(Device/dsa-migration)
   $(Device/uimage-lzma-loader)
+  DEVICE_COMPAT_VERSION := 1.0
+  DEVICE_COMPAT_MESSAGE := Config is compat with swconfig
   IMAGE_SIZE := 16064k
   IMAGES += factory.bin
   IMAGE/factory.bin := $$(sysupgrade_bin) | check-size | jcg-header 95.1
@@ -1451,6 +1604,16 @@ define Device/jcg_y2
   DEVICE_PACKAGES := kmod-mt7615-firmware kmod-usb3 -uboot-envtools
 endef
 TARGET_DEVICES += jcg_y2
+
+define Device/jdcloud_re-sp-01b
+  $(Device/dsa-migration)
+  IMAGE_SIZE := 27328k
+  DEVICE_VENDOR := JDCloud
+  DEVICE_MODEL := RE-SP-01B
+  DEVICE_PACKAGES := kmod-fs-ext4 kmod-mt7603 \
+	kmod-mt7615-firmware kmod-sdhci-mt7620 kmod-usb3
+endef
+TARGET_DEVICES += jdcloud_re-sp-01b
 
 define Device/keenetic_kn-3010
   $(Device/dsa-migration)
@@ -1747,12 +1910,13 @@ TARGET_DEVICES += netgear_ex6150
 define Device/netgear_sercomm_nand
   $(Device/nand)
   $(Device/uimage-lzma-loader)
-  IMAGES += factory.img kernel.bin rootfs.bin
+  IMAGES += factory.img breed-factory.bin kernel.bin rootfs.bin
   IMAGE/factory.img := pad-extra 2048k | append-kernel | pad-to 6144k | \
 	append-ubi | pad-to $$$$(BLOCKSIZE) | sercom-footer | pad-to 128 | \
 	zip $$$$(SERCOMM_HWNAME).bin | sercom-seal
   IMAGE/kernel.bin := append-kernel
   IMAGE/rootfs.bin := append-ubi | check-size
+  IMAGE/breed-factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | check-size
   DEVICE_VENDOR := NETGEAR
   DEVICE_PACKAGES := kmod-mt7603 kmod-usb3 kmod-usb-ledtrig-usbport \
 	-uboot-envtools
@@ -1760,6 +1924,8 @@ endef
 
 define Device/netgear_r6220
   $(Device/netgear_sercomm_nand)
+  DEVICE_COMPAT_VERSION := 1.0
+  DEVICE_COMPAT_MESSAGE := Config is compat with swconfig
   DEVICE_MODEL := R6220
   SERCOMM_HWNAME := R6220
   SERCOMM_HWID := AYA
@@ -1922,6 +2088,8 @@ define Device/netgear_wndr3700-v5
   $(Device/dsa-migration)
   $(Device/netgear_sercomm_nor)
   $(Device/uimage-lzma-loader)
+  DEVICE_COMPAT_VERSION := 1.0
+  DEVICE_COMPAT_MESSAGE := Config is compat with swconfig
   IMAGE_SIZE := 15232k
   DEVICE_MODEL := WNDR3700
   DEVICE_VARIANT := v5
@@ -1965,6 +2133,8 @@ TARGET_DEVICES += oraybox_x3a
 
 define Device/phicomm_k2p
   $(Device/dsa-migration)
+  DEVICE_COMPAT_VERSION := 1.0
+  DEVICE_COMPAT_MESSAGE := Config is compat with swconfig
   IMAGE_SIZE := 15744k
   DEVICE_VENDOR := Phicomm
   DEVICE_MODEL := K2P
@@ -2135,7 +2305,7 @@ define Device/thunder_timecloud
   IMAGE_SIZE := 16064k
   DEVICE_VENDOR := Thunder
   DEVICE_MODEL := Timecloud
-  DEVICE_PACKAGES := kmod-usb3 -wpad-basic-mbedtls -uboot-envtools
+  DEVICE_PACKAGES := kmod-usb3 kmod-sdhci-mt7620 -wpad-basic-mbedtls -uboot-envtools
   SUPPORTED_DEVICES += timecloud
 endef
 TARGET_DEVICES += thunder_timecloud
@@ -2606,6 +2776,8 @@ TARGET_DEVICES += winstars_ws-wn583a6
 
 define Device/xiaomi_nand_separate
   $(Device/nand)
+  DEVICE_COMPAT_VERSION := 1.0
+  DEVICE_COMPAT_MESSAGE := Config is compat with swconfig
   $(Device/uimage-lzma-loader)
   DEVICE_VENDOR := Xiaomi
   IMAGES += kernel1.bin rootfs0.bin
@@ -2615,6 +2787,11 @@ endef
 
 define Device/xiaomi_mi-router-3g
   $(Device/xiaomi_nand_separate)
+  IMAGES += breed-factory.bin factory.bin
+  IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | check-size
+  IMAGE/breed-factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | \
+			     append-kernel | pad-to $$(KERNEL_SIZE) | \
+			     append-ubi | check-size
   DEVICE_MODEL := Mi Router 3G
   IMAGE_SIZE := 124416k
   DEVICE_PACKAGES += kmod-mt7603 kmod-mt76x2 kmod-usb3 \
@@ -2623,6 +2800,17 @@ define Device/xiaomi_mi-router-3g
 endef
 TARGET_DEVICES += xiaomi_mi-router-3g
 
+define Device/xiaomi_mi-router-3g-nor
+  $(Device/uimage-lzma-loader)
+  IMAGE_SIZE := 16064k
+  DEVICE_VENDOR := Xiaomi
+  DEVICE_MODEL := Mi Router 3G
+  DEVICE_VARIANT := NOR (16M)
+  DEVICE_PACKAGES := kmod-mt7603 kmod-mt76x2 kmod-usb3 kmod-usb-ledtrig-usbport
+  SUPPORTED_DEVICES += xiaomi,mir3g-nor
+endef
+TARGET_DEVICES += xiaomi_mi-router-3g-nor
+
 define Device/xiaomi_mi-router-3g-v2
   $(Device/dsa-migration)
   $(Device/uimage-lzma-loader)
@@ -2630,7 +2818,7 @@ define Device/xiaomi_mi-router-3g-v2
   DEVICE_VENDOR := Xiaomi
   DEVICE_MODEL := Mi Router 3G
   DEVICE_VARIANT := v2
-  DEVICE_PACKAGES := kmod-mt7603 kmod-mt76x2 -uboot-envtools
+  DEVICE_PACKAGES := kmod-mt7603 kmod-mt76x2
   SUPPORTED_DEVICES += xiaomi,mir3g-v2
 endef
 TARGET_DEVICES += xiaomi_mi-router-3g-v2
@@ -2641,9 +2829,14 @@ define Device/xiaomi_mi-router-3-pro
   IMAGE_SIZE := 255488k
   DEVICE_VENDOR := Xiaomi
   DEVICE_MODEL := Mi Router 3 Pro
-  IMAGES += factory.bin
+  IMAGES += kernel1.bin rootfs0.bin breed-factory.bin factory.bin
   IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | \
 	check-size
+  IMAGE/kernel1.bin := append-kernel
+  IMAGE/rootfs0.bin := append-ubi | check-size
+  IMAGE/breed-factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | \
+			     append-kernel | pad-to $$(KERNEL_SIZE) | \
+			     append-ubi | check-size
   DEVICE_PACKAGES := kmod-mt7615-firmware kmod-usb3 kmod-usb-ledtrig-usbport
   SUPPORTED_DEVICES += xiaomi,mir3p
 endef
@@ -2657,6 +2850,16 @@ define Device/xiaomi_mi-router-4
 endef
 TARGET_DEVICES += xiaomi_mi-router-4
 
+define Device/xiaomi_mi-router-3-pro-nor
+  $(Device/uimage-lzma-loader)
+  IMAGE_SIZE := 16064k
+  DEVICE_VENDOR := Xiaomi
+  DEVICE_MODEL := Mi Router 3 Pro NOR (16M)
+  DEVICE_PACKAGES := kmod-mt7615e kmod-mt7615-firmware kmod-usb3 kmod-usb-ledtrig-usbport
+  SUPPORTED_DEVICES += xiaomi,mir3p-nor
+endef
+TARGET_DEVICES += xiaomi_mi-router-3-pro-nor
+
 define Device/xiaomi_mi-router-4a-gigabit
   $(Device/dsa-migration)
   $(Device/uimage-lzma-loader)
@@ -2664,7 +2867,7 @@ define Device/xiaomi_mi-router-4a-gigabit
   DEVICE_VENDOR := Xiaomi
   DEVICE_MODEL := Mi Router 4A
   DEVICE_VARIANT := Gigabit Edition
-  DEVICE_PACKAGES := kmod-mt7603 kmod-mt76x2 -uboot-envtools
+  DEVICE_PACKAGES := kmod-mt7603 kmod-mt76x2
 endef
 TARGET_DEVICES += xiaomi_mi-router-4a-gigabit
 
@@ -2688,7 +2891,7 @@ define Device/xiaomi_mi-router-ac2100
 endef
 TARGET_DEVICES += xiaomi_mi-router-ac2100
 
-define Device/xiaomi_mi-router-cr660x
+define Device/xiaomi_mi-router-cr660x-default
   $(Device/nand)
   $(Device/uimage-lzma-loader)
   DEVICE_VENDOR := Xiaomi
@@ -2700,22 +2903,34 @@ define Device/xiaomi_mi-router-cr660x
 endef
 
 define Device/xiaomi_mi-router-cr6606
-  $(Device/xiaomi_mi-router-cr660x)
+  $(Device/xiaomi_mi-router-cr660x-default)
   DEVICE_MODEL := Mi Router CR6606
 endef
 TARGET_DEVICES += xiaomi_mi-router-cr6606
 
 define Device/xiaomi_mi-router-cr6608
-  $(Device/xiaomi_mi-router-cr660x)
+  $(Device/xiaomi_mi-router-cr660x-default)
   DEVICE_MODEL := Mi Router CR6608
 endef
 TARGET_DEVICES += xiaomi_mi-router-cr6608
 
 define Device/xiaomi_mi-router-cr6609
-  $(Device/xiaomi_mi-router-cr660x)
+  $(Device/xiaomi_mi-router-cr660x-default)
   DEVICE_MODEL := Mi Router CR6609
 endef
 TARGET_DEVICES += xiaomi_mi-router-cr6609
+
+define Device/xiaomi_mi-router-cr660x
+  $(Device/xiaomi_mi-router-cr660x-default)
+  DEVICE_COMPAT_VERSION := 1.0
+  DEVICE_COMPAT_MESSAGE := Config is compat with swconfig
+  IMAGES := sysupgrade.bin factory.bin
+  IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | \
+	check-size
+  DEVICE_MODEL := Mi Router CR660x
+  SUPPORTED_DEVICES += xiaomi,mi-router-cr6606 xiaomi,mi-router-cr6608 xiaomi,mi-router-cr6609
+endef
+TARGET_DEVICES += xiaomi_mi-router-cr660x
 
 define Device/xiaomi_redmi-router-ac2100
   $(Device/xiaomi_nand_separate)
@@ -2735,6 +2950,79 @@ define Device/xiaoyu_xy-c5
 endef
 TARGET_DEVICES += xiaoyu_xy-c5
 
+define Device/xwrt_mac500f
+  $(Device/uimage-lzma-loader)
+  $(Device/dsa-migration)
+  IMAGE_SIZE := 16064k
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := MAC500F
+  DEVICE_PACKAGES := uboot-envtools kmod-sfp kmod-usb3 kmod-usb-ledtrig-usbport
+endef
+TARGET_DEVICES += xwrt_mac500f
+
+define Device/xwrt_ac8000p
+  $(Device/uimage-lzma-loader)
+  IMAGE_SIZE := 16064k
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := AC8000P
+  IMAGES += factory.bin
+  IMAGE/factory.bin := $$(IMAGE/sysupgrade.bin) | tenbay-factory AC8000P
+  DEVICE_PACKAGES := uboot-envtools kmod-i2c-gpio i2c-tools poe-controller
+endef
+TARGET_DEVICES += xwrt_ac8000p
+
+define Device/xwrt_nxc200p
+  $(Device/uimage-lzma-loader)
+  IMAGE_SIZE := 16064k
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := NXC200P
+  IMAGES += factory.bin
+  IMAGE/factory.bin := $$(IMAGE/sysupgrade.bin) | tenbay-factory AC7621
+  DEVICE_PACKAGES := uboot-envtools kmod-usb3 kmod-usb-ledtrig-usbport
+  SUPPORTED_DEVICES += nxc200p
+endef
+TARGET_DEVICES += xwrt_nxc200p
+
+define Device/xwrt_puppies
+  $(Device/uimage-lzma-loader)
+  IMAGE_SIZE := 16064k
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := PUPPIES
+  IMAGES += factory.bin
+  IMAGE/factory.bin := $$(IMAGE/sysupgrade.bin) | tenbay-factory AC7621
+  DEVICE_PACKAGES := uboot-envtools kmod-usb3 kmod-usb-ledtrig-usbport
+  SUPPORTED_DEVICES += puppies
+endef
+TARGET_DEVICES += xwrt_puppies
+
+define Device/xwrt_nxc2009e-v100
+  $(Device/nand)
+  $(Device/uimage-lzma-loader)
+  IMAGE_SIZE := 120320k
+  DEVICE_COMPAT_VERSION := 1.0
+  DEVICE_COMPAT_MESSAGE := Config is compat with swconfig
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := NXC2009E-V100
+  IMAGES += factory.bin
+  IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | check-size
+  DEVICE_PACKAGES := uboot-envtools kmod-gsw150 kmod-i2c-gpio i2c-tools xs2184
+endef
+TARGET_DEVICES += xwrt_nxc2009e-v100
+
+define Device/xwrt_nxc2005ex
+  $(Device/nand)
+  $(Device/uimage-lzma-loader)
+  IMAGE_SIZE := 120320k
+  DEVICE_COMPAT_VERSION := 1.0
+  DEVICE_COMPAT_MESSAGE := Config is compat with swconfig
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := NXC2005EX
+  IMAGES += factory.bin
+  IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | check-size
+  DEVICE_PACKAGES := uboot-envtools kmod-i2c-gpio i2c-tools xs2184
+endef
+TARGET_DEVICES += xwrt_nxc2005ex
+
 define Device/xzwifi_creativebox-v1
   $(Device/dsa-migration)
   IMAGE_SIZE := 32448k
@@ -2744,6 +3032,190 @@ define Device/xzwifi_creativebox-v1
 	kmod-usb3 -wpad-basic-mbedtls -uboot-envtools
 endef
 TARGET_DEVICES += xzwifi_creativebox-v1
+
+define Device/xwrt_fm10-ax-nand
+  $(Device/nand)
+  $(Device/uimage-lzma-loader)
+  IMAGE_SIZE := 120320k
+  IMAGES += factory.bin
+  IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | check-size
+ifneq ($(CONFIG_TARGET_ROOTFS_INITRAMFS),)
+  ARTIFACTS := initramfs-FM10-factory.bin
+  ARTIFACT/initramfs-FM10-factory.bin := append-image-stage initramfs-kernel.bin | \
+	tenbay-factory FM10
+endif
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := FM10-AX
+  DEVICE_VARIANT := NAND
+  DEVICE_PACKAGES := kmod-mt7915-firmware kmod-usb3 kmod-usb-ledtrig-usbport lte-modem-xwrt-fm10-ax-nand
+endef
+TARGET_DEVICES += xwrt_fm10-ax-nand
+
+define Device/xwrt_5g-cpe1801k
+  $(Device/nand)
+  $(Device/uimage-lzma-loader)
+  IMAGE_SIZE := 120320k
+  IMAGES += factory.bin
+  IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | check-size
+ifneq ($(CONFIG_TARGET_ROOTFS_INITRAMFS),)
+  ARTIFACTS := initramfs-5G-CPE1801K-factory.bin
+  ARTIFACT/initramfs-5G-CPE1801K-factory.bin := append-image-stage initramfs-kernel.bin | tenbay-factory 5G-CPE1801K
+endif
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := 5G-CPE1801K
+  DEVICE_PACKAGES := kmod-mt7915-firmware kmod-usb3 kmod-usb-ledtrig-usbport lte-modem-xwrt-5g-cpe1801k
+endef
+TARGET_DEVICES += xwrt_5g-cpe1801k
+
+define Device/xwrt_wr1800k-ax-nand
+  $(Device/nand)
+  $(Device/uimage-lzma-loader)
+  IMAGE_SIZE := 120320k
+  IMAGES += factory.bin
+  IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | check-size
+ifneq ($(CONFIG_TARGET_ROOTFS_INITRAMFS),)
+  ARTIFACTS := initramfs-G-AX18OO-factory.bin initramfs-WR1800K-factory.bin
+  ARTIFACT/initramfs-G-AX18OO-factory.bin := append-image-stage initramfs-kernel.bin | \
+	tenbay-factory G-AX18OO
+  ARTIFACT/initramfs-WR1800K-factory.bin := append-image-stage initramfs-kernel.bin | \
+	tenbay-factory WR1800K
+endif
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := WR1800K-AX
+  DEVICE_VARIANT := NAND
+  DEVICE_PACKAGES := kmod-mt7915-firmware
+endef
+TARGET_DEVICES += xwrt_wr1800k-ax-nand
+
+define Device/xwrt_wr1800k-ax-norplusemmc
+  $(Device/dsa-migration)
+  DEVICE_COMPAT_VERSION := 1.0
+  DEVICE_COMPAT_MESSAGE := Config is compat with swconfig
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := WR1800K-AX
+  DEVICE_VARIANT := NORPLUSEMMC
+  DEVICE_PACKAGES += kmod-ata-ahci kmod-sdhci-mt7620 kmod-mt7915-firmware \
+		     kmod-usb3 kmod-i2c-core kmod-eeprom-at24 i2c-tools \
+		     uboot-envtools partx-utils mkf2fs e2fsprogs kmod-fs-msdos \
+		     base-config-setting-ext4fs
+  SUPPORTED_DEVICES += mt7621-dm2-t-mb5eu-v01-nor
+  LOADER_TYPE := bin
+  KERNEL := kernel-bin | append-dtb | lzma | loader-kernel | uImage none
+  IMAGES := sysupgrade.tar
+  IMAGE/sysupgrade.tar := initrd-kernel | append-dtb | lzma | loader-kernel | uImage none | norplusemmc-combined-tar | append-metadata
+endef
+TARGET_DEVICES += xwrt_wr1800k-ax-norplusemmc
+
+define Device/xwrt_wr1800k-ax-nor
+  $(Device/uimage-lzma-loader)
+  $(Device/dsa-migration)
+  DEVICE_COMPAT_VERSION := 1.0
+  DEVICE_COMPAT_MESSAGE := Config is compat with swconfig
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := WR1800K-AX
+  DEVICE_VARIANT := NOR
+  DEVICE_PACKAGES += kmod-ata-ahci kmod-sdhci-mt7620 kmod-mt7915-firmware \
+		     kmod-usb3 kmod-i2c-core kmod-eeprom-at24 i2c-tools \
+		     uboot-envtools partx-utils mkf2fs e2fsprogs
+  IMAGE_SIZE := 15808k
+  SUPPORTED_DEVICES += mt7621-dm2-t-mb5eu-v01-nor
+endef
+TARGET_DEVICES += xwrt_wr1800k-ax-nor
+
+define Device/ruijie_rg-ew1800gx
+  $(Device/uimage-lzma-loader)
+  $(Device/dsa-migration)
+  DEVICE_COMPAT_VERSION := 1.0
+  DEVICE_COMPAT_MESSAGE := Config is compat with swconfig
+  DEVICE_VENDOR := Ruijie
+  DEVICE_MODEL := RG-EW1800GX
+  DEVICE_PACKAGES += kmod-mt7915-firmware uboot-envtools
+  IMAGE_SIZE := 15616k
+endef
+TARGET_DEVICES += ruijie_rg-ew1800gx
+
+define Device/xwrt_dm2-t-mb2ep-v02-nor
+  $(Device/uimage-lzma-loader)
+  $(Device/dsa-migration)
+  DEVICE_COMPAT_VERSION := 1.0
+  DEVICE_COMPAT_MESSAGE := Config is compat with swconfig
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := DM2 T-MB2EP-V02 (802.11ax, NOR)
+  DEVICE_PACKAGES += kmod-mt7915-firmware uboot-envtools
+  IMAGE_SIZE := 15808k
+  SUPPORTED_DEVICES += mt7621-dm2-t-mb2ep-v02-nor
+  IMAGES += factory.bin
+  IMAGE/factory.bin := append-kernel | append-rootfs | pad-rootfs | check-size | append-metadata | tenbay-factory WR1800K
+endef
+TARGET_DEVICES += xwrt_dm2-t-mb2ep-v02-nor
+
+define Device/xwrt_ms1800k-ax-nor
+  $(Device/uimage-lzma-loader)
+  $(Device/dsa-migration)
+  DEVICE_COMPAT_VERSION := 1.0
+  DEVICE_COMPAT_MESSAGE := Config is compat with swconfig
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := MS1800K (802.11ax, NOR)
+  DEVICE_PACKAGES += kmod-mt7915-firmware uboot-envtools
+  IMAGE_SIZE := 15808k
+  SUPPORTED_DEVICES += mt7621-ms1800k-ax-nor
+  IMAGES += factory.bin
+  IMAGE/factory.bin := append-kernel | append-rootfs | pad-rootfs | check-size | append-metadata | tenbay-factory WR1800K
+endef
+TARGET_DEVICES += xwrt_ms1800k-ax-nor
+
+define Device/xwrt_t-cpe1200k-v01
+  $(Device/uimage-lzma-loader)
+  IMAGE_SIZE := 16000k
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := T-CPE1200K
+  DEVICE_VARIANT := V01
+  DEVICE_PACKAGES := \
+	kmod-mt7603 kmod-mt76x2 kmod-usb3 kmod-usb-ledtrig-usbport rssileds base-settings-xwrt-t-cpe1200k-v01
+endef
+TARGET_DEVICES += xwrt_t-cpe1200k-v01
+
+define Device/xwrt_t-cpe1201k-v01
+  $(Device/uimage-lzma-loader)
+  IMAGE_SIZE := 16000k
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := T-CPE1201K
+  DEVICE_VARIANT := V01
+  DEVICE_PACKAGES := \
+	kmod-mt7603 kmod-mt76x2 kmod-usb3 kmod-usb-ledtrig-usbport base-settings-xwrt-t-cpe1201k-v01
+endef
+TARGET_DEVICES += xwrt_t-cpe1201k-v01
+
+define Device/xwrt_t-cpe1202kd-v01
+  $(Device/uimage-lzma-loader)
+  IMAGE_SIZE := 16000k
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := T-CPE1202KD
+  DEVICE_VARIANT := V01
+  DEVICE_PACKAGES := \
+	kmod-mt7603 kmod-mt76x2 kmod-usb3 kmod-usb-ledtrig-usbport base-settings-xwrt-t-cpe1202kd-v01
+endef
+TARGET_DEVICES += xwrt_t-cpe1202kd-v01
+
+define Device/xwrt_x-sdwan-1200
+  $(Device/uimage-lzma-loader)
+  IMAGE_SIZE := 16000k
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := X-SDWAN-1200
+  DEVICE_PACKAGES := \
+	kmod-mt7603 kmod-mt76x2 base-settings-xwrt-x-sdwan-1200
+endef
+TARGET_DEVICES += xwrt_x-sdwan-1200
+
+define Device/xwrt_ms1201k
+  $(Device/uimage-lzma-loader)
+  IMAGE_SIZE := 15808k
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := MS1201K
+  DEVICE_PACKAGES := \
+	kmod-mt7603 kmod-mt7615e kmod-mt7663-firmware-ap
+endef
+TARGET_DEVICES += xwrt_ms1201k
 
 define Device/youhua_wr1200js
   $(Device/dsa-migration)
@@ -2760,7 +3232,7 @@ define Device/youku_yk-l2
   IMAGE_SIZE := 16064k
   DEVICE_VENDOR := Youku
   DEVICE_MODEL := YK-L2
-  DEVICE_PACKAGES := kmod-mt7603 kmod-mt76x2 kmod-usb3 \
+  DEVICE_PACKAGES := kmod-mt7603 kmod-mt76x2 kmod-usb3 kmod-sdhci-mt7620 \
 	kmod-usb-ledtrig-usbport -uboot-envtools
   UIMAGE_MAGIC := 0x12291000
   UIMAGE_NAME := 400000000000000000003000
@@ -2809,6 +3281,15 @@ define Device/zbtlink_zbt-we1326
   SUPPORTED_DEVICES += zbt-we1326
 endef
 TARGET_DEVICES += zbtlink_zbt-we1326
+
+define Device/zbtlink_zbt-wg108
+  IMAGE_SIZE := 32448k
+  DEVICE_VENDOR := Zbtlink
+  DEVICE_MODEL := ZBT-WG108
+  DEVICE_PACKAGES := kmod-mt7603 kmod-mt76x2 kmod-usb2 kmod-sdhci-mt7620
+  SUPPORTED_DEVICES += zbt-wg108
+endef
+TARGET_DEVICES += zbtlink_zbt-wg108
 
 define Device/zbtlink_zbt-we3526
   $(Device/dsa-migration)

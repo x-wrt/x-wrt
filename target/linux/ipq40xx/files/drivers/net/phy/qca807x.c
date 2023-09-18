@@ -576,6 +576,16 @@ static int qca807x_config_intr(struct phy_device *phydev)
 	return ret;
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,12,0)
+static int qca807x_ack_intr(struct phy_device *phydev)
+{
+	int ret;
+
+	ret = phy_read(phydev, QCA807X_INTR_STATUS);
+
+	return (ret < 0) ? ret : 0;
+}
+#else
 static irqreturn_t qca807x_handle_interrupt(struct phy_device *phydev)
 {
 	int irq_status, int_enabled;
@@ -601,6 +611,7 @@ static irqreturn_t qca807x_handle_interrupt(struct phy_device *phydev)
 
 	return IRQ_HANDLED;
 }
+#endif
 
 static int qca807x_led_config(struct phy_device *phydev)
 {
@@ -644,8 +655,13 @@ static int qca807x_sfp_insert(void *upstream, const struct sfp_eeprom_id *id)
 	__ETHTOOL_DECLARE_LINK_MODE_MASK(support) = { 0, };
 	phy_interface_t iface;
 	int ret;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,1,0)
+	DECLARE_PHY_INTERFACE_MASK(interfaces);
 
+	sfp_parse_support(phydev->sfp_bus, id, support, interfaces);
+#else
 	sfp_parse_support(phydev->sfp_bus, id, support);
+#endif
 	iface = sfp_select_interface(phydev->sfp_bus, support);
 
 	dev_info(&phydev->mdio.dev, "%s SFP module inserted\n", phy_modes(iface));
@@ -791,7 +807,11 @@ static struct phy_driver qca807x_drivers[] = {
 		.config_init	= qca807x_config,
 		.read_status	= qca807x_read_status,
 		.config_intr	= qca807x_config_intr,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,12,0)
+		.ack_interrupt	= qca807x_ack_intr,
+#else
 		.handle_interrupt = qca807x_handle_interrupt,
+#endif
 		.soft_reset	= genphy_soft_reset,
 		.get_tunable	= qca807x_get_tunable,
 		.set_tunable	= qca807x_set_tunable,
@@ -809,7 +829,11 @@ static struct phy_driver qca807x_drivers[] = {
 		.config_init	= qca807x_config,
 		.read_status	= qca807x_read_status,
 		.config_intr	= qca807x_config_intr,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,12,0)
+		.ack_interrupt	= qca807x_ack_intr,
+#else
 		.handle_interrupt = qca807x_handle_interrupt,
+#endif
 		.soft_reset	= genphy_soft_reset,
 		.get_tunable	= qca807x_get_tunable,
 		.set_tunable	= qca807x_set_tunable,

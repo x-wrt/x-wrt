@@ -22,7 +22,7 @@ define Package/firewall4
   CATEGORY:=Base system
   TITLE:=OpenWrt 4th gen firewall
   DEPENDS:= \
-	+kmod-nft-core +kmod-nft-fib +kmod-nft-offload \
+	+kmod-nft-core +kmod-nft-fib \
 	+kmod-nft-nat \
 	+nftables-json \
 	+ucode +ucode-mod-fs +ucode-mod-ubus +ucode-mod-uci
@@ -38,10 +38,13 @@ endef
 define Package/firewall4/conffiles
 /etc/config/firewall
 /etc/nftables.d/
+/etc/firewall.include
 endef
 
 define Package/firewall4/install
 	$(CP) -a $(PKG_BUILD_DIR)/root/* $(1)/
+	$(INSTALL_DIR) $(1)/etc/
+	$(INSTALL_CONF) ./files/firewall.include $(1)/etc/firewall.include
 endef
 
 define Build/Compile

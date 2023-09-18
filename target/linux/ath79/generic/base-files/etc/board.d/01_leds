@@ -133,6 +133,13 @@ avm,fritzdvbc)
 buffalo,wzr-hp-g300nh-rb|\
 buffalo,wzr-hp-g300nh-s)
 	ucidef_set_led_netdev "router" "Router" "green:router" "eth1"
+        ;;
+bm100,hq55)
+	ucidef_set_led_netdev "wan" "WAN" "green:wan" "eth1"
+	ucidef_set_led_switch "lan1" "LAN1" "green:lan1" "switch0" "0x02"
+	ucidef_set_led_switch "lan2" "LAN2" "green:lan2" "switch0" "0x04"
+	ucidef_set_led_switch "lan3" "LAN3" "green:lan3" "switch0" "0x08"
+	ucidef_set_led_switch "lan4" "LAN4" "green:lan4" "switch0" "0x10"
 	;;
 comfast,cf-e110n-v2)
 	ucidef_set_led_netdev "lan" "LAN" "green:lan" "eth1"
@@ -524,6 +531,25 @@ wd,mynet-wifi-rangeextender)
 	;;
 xiaomi,aiot-ac2350)
 	ucidef_set_led_switch "wan" "WAN" "blue:wan" "switch0" "0x02"
+	;;
+xwrt,mk-v0201)
+	ucidef_set_rssimon "wlan0" "200000" "1"
+	ucidef_set_led_rssi "rssilow" "RSSILOW" "blue:rssi0" "wlan0" "1" "100"
+	ucidef_set_led_rssi "rssimediumlow" "RSSIMEDIUMLOW" "blue:rssi1" "wlan0" "26" "100"
+	ucidef_set_led_rssi "rssimediumhigh" "RSSIMEDIUMHIGH" "blue:rssi2" "wlan0" "51" "100"
+	ucidef_set_led_rssi "rssihigh" "RSSIHIGH" "blue:rssi3" "wlan0" "76" "100"
+	;;
+xwrt,csac|\
+xwrt,csac2)
+	ucidef_set_led_wlan "wlan5g" "WLAN5G" "blue:wlan5g" "phy0tpt"
+	ucidef_set_led_wlan "wlan2g" "WLAN2G" "blue:wlan2g" "phy0tpt"
+	;;
+xwrt,gw521-16m)
+	ucidef_set_led_switch "eth" "ETH" "green:eth" "switch0" "0x6"
+	ucidef_set_led_wlan "wifi" "WIFI" "green:wifi" "phy1tpt"
+	;;
+xwrt,xd1202g)
+	ucidef_set_led_wlan "wlan2g" "WLAN2G" "blue:wlan" "phy0tpt"
 	;;
 yuncore,a770)
 	ucidef_set_led_netdev "wan" "WAN" "green:wan" "eth1"

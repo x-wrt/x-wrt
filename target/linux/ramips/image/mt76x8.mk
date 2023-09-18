@@ -259,6 +259,7 @@ define Device/hiwifi_hc5661a
   DEVICE_VENDOR := HiWiFi
   DEVICE_MODEL := HC5661A
   SUPPORTED_DEVICES += hc5661a
+  DEVICE_PACKAGES := kmod-sdhci-mt7620
 endef
 TARGET_DEVICES += hiwifi_hc5661a
 
@@ -266,7 +267,7 @@ define Device/hiwifi_hc5761a
   IMAGE_SIZE := 15808k
   DEVICE_VENDOR := HiWiFi
   DEVICE_MODEL := HC5761A
-  DEVICE_PACKAGES := kmod-mt76x0e kmod-usb2 kmod-usb-ohci
+  DEVICE_PACKAGES := kmod-mt76x0e kmod-usb2 kmod-usb-ohci kmod-sdhci-mt7620
 endef
 TARGET_DEVICES += hiwifi_hc5761a
 
@@ -1029,6 +1030,25 @@ define Device/xiaomi_mi-ra75
   SUPPORTED_DEVICES += xiaomi,mira75
 endef
 TARGET_DEVICES += xiaomi_mi-ra75
+
+define Device/xwrt_g4303k-v1
+  SOC := mt7628an
+  IMAGE_SIZE := 16064k
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := G4303K
+  DEVICE_VARIANT := v1
+  DEVICE_PACKAGES := kmod-usb2 kmod-usb-ohci kmod-usb-ledtrig-usbport led-ctrl-xwrt-g4303k-v1
+  SUPPORTED_DEVICES += g4303k-v1
+endef
+TARGET_DEVICES += xwrt_g4303k-v1
+
+define Device/xwrt_xf-949
+  IMAGE_SIZE := 16064k
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := XF-949
+  DEVICE_PACKAGES := kmod-usb2 kmod-usb-ohci kmod-usb-ledtrig-usbport p910nd-helper
+endef
+TARGET_DEVICES += xwrt_xf-949
 
 define Device/zbtlink_zbt-we1226
   IMAGE_SIZE := 7872k

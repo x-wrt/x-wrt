@@ -88,6 +88,10 @@ ipq806x_setup_interfaces()
 		ucidef_add_switch "switch0" \
 			"1:lan" "2:lan" "3:lan" "4:lan" "6@eth1" "5:wan" "0@eth0"
 		;;
+	ruijie,rg-mtfi-m520)
+		ucidef_add_switch "switch0" \
+			"1:lan" "6@eth1" "5:wan" "0@eth0"
+		;;
 	*)
 		echo "Unsupported hardware. Network interfaces not intialized"
 		;;
@@ -113,6 +117,11 @@ ipq806x_setup_mac_address()
 		hw_mac_addr=$(mtd_get_mac_ascii 0:appsblenv ethaddr)
 		ucidef_set_interface_macaddr "lan" "$(macaddr_add $hw_mac_addr 2)"
 		ucidef_set_interface_macaddr "wan" "$(macaddr_add $hw_mac_addr 3)"
+		;;
+	ruijie,rg-mtfi-m520)
+		hw_mac_addr=$(mtd_get_mac_ascii PRODUCTINFO ethaddr)
+		ucidef_set_interface_macaddr "wan" "$hw_mac_addr"
+		ucidef_set_interface_macaddr "lan" "$(macaddr_add $hw_mac_addr 1)"
 		;;
 	esac
 }

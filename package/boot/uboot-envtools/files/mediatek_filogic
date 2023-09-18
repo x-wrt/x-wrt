@@ -50,11 +50,16 @@ netgear,wax220)
 	;;
 xiaomi,mi-router-wr30u-112m-nmbm|\
 xiaomi,mi-router-wr30u-stock|\
+xiaomi,redmi-router-ax6000-ubootlayout|\
 xiaomi,redmi-router-ax6000-stock)
 	ubootenv_add_uci_config "/dev/mtd1" "0x0" "0x10000" "0x20000"
 	ubootenv_add_uci_sys_config "/dev/mtd2" "0x0" "0x10000" "0x20000"
 	;;
+konka,komi-a31-nmbm)
+	ubootenv_add_uci_config "/dev/mtd2" "0x0" "0x20000" "0x80000" "1"
+	;;
 h3c,magic-nx30-pro|\
+konka,komi-a31|\
 qihoo,360t7|\
 tplink,tl-xdr4288|\
 tplink,tl-xdr6086|\
@@ -74,6 +79,18 @@ zyxel,ex5601-t0)
 	;;
 zyxel,ex5700-telenor)
 	ubootenv_add_uci_config "/dev/ubootenv" "0x0" "0x4000" "0x4000" "1"
+	;;
+tenbay,wr3000k-gsw-emmc-nor)
+	if cat /proc/device-tree/chosen/bootargs-append | grep -q env=emmc; then
+		blk_dev=$(blkid -t "PARTLABEL=ubootenv" -o device)
+		ubootenv_add_uci_config "$blk_dev" "0x0" "0x80000" "0x200"
+	else
+		ubootenv_add_uci_config "/dev/mtd1" "0x0" "0x10000" "0x10000"
+	fi
+	;;
+tenbay,ac-2205ex|\
+tenbay,wr3000k)
+	ubootenv_add_uci_config "/dev/mtd1" "0" "0x20000" "0x20000" 1
 	;;
 esac
 

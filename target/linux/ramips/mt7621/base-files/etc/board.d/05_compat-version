@@ -8,6 +8,35 @@
 board_config_update
 
 case "$(board_name)" in
+	d-team,newifi-d2|\
+	gehua,ghl-r-001|\
+	jcg,y2|\
+	netgear,r6220|\
+	netgear,wndr3700-v5|\
+	phicomm,k2p|\
+	ruijie,rg-ew1800gx|\
+	xiaomi_mi-router-3g-nor|\
+	xiaomi,mi-router-3g|\
+	xiaomi_mi-router-4|\
+	xiaomi,mi-router-ac2100|\
+	xiaomi,mi-router-cr660x|\
+	xiaomi,redmi-router-ac2100|\
+	xwrt,dm2-t-mb2ep-v02-nor|\
+	xwrt,ms1800k-ax-nor|\
+	xwrt,ms1201k|\
+	xwrt,nxc2009e-v100|\
+	xwrt,nxc2005ex|\
+	xwrt,ac8000p|\
+	xwrt,nxc200p|\
+	xwrt,puppies|\
+	xwrt,t-cpe1201k-v01|\
+	xwrt,t-cpe1200k-v01|\
+	xwrt_t-cpe1202kd-v01|\
+	xwrt,wr1800k-ax-norplusemmc|\
+	xwrt,wr1800k-ax-nor|\
+	xwrt,x-sdwan-1200)
+		ucidef_set_compat_version "1.0"
+		;;
 	*)
 		ucidef_set_compat_version "1.1"
 		;;

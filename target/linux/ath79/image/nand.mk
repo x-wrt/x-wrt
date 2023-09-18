@@ -79,6 +79,25 @@ define Device/aerohive_hiveap-121
 endef
 TARGET_DEVICES += aerohive_hiveap-121
 
+define Device/arris_sbr-ac1750
+  SOC := qca9558
+  DEVICE_VENDOR := Arris
+  DEVICE_MODEL := SBR-AC1750
+  DEVICE_PACKAGES := kmod-usb2 kmod-usb-ledtrig-usbport kmod-ath10k-ct ath10k-firmware-qca988x-ct
+  KERNEL_SIZE := 4096k
+  BLOCKSIZE := 128k
+  IMAGE_SIZE := 32m
+  PAGESIZE := 2048
+  KERNEL := kernel-bin | append-dtb | gzip | uImage gzip
+  KERNEL_INITRAMFS := kernel-bin | append-dtb | uImage none
+  IMAGES += kernel1.bin rootfs1.bin
+  IMAGE/kernel1.bin := append-kernel | check-size $$$$(KERNEL_SIZE)
+  IMAGE/rootfs1.bin := append-ubi | check-size
+  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+  UBINIZE_OPTS := -E 5
+endef
+TARGET_DEVICES += arris_sbr-ac1750
+
 define Device/domywifi_dw33d
   SOC := qca9558
   DEVICE_VENDOR := DomyWifi
@@ -96,6 +115,30 @@ define Device/domywifi_dw33d
 	check-size
 endef
 TARGET_DEVICES += domywifi_dw33d
+
+define Build/append-rootfs-64k
+	dd if=$(IMAGE_ROOTFS) bs=64k count=1 >> $@
+endef
+
+define Device/domywifi_dw33d-nor
+  $(Device/loader-okli-uimage)
+  SOC := qca9558
+  DEVICE_VENDOR := DomyWifi
+  DEVICE_MODEL := DW33D
+  DEVICE_VARIANT := NOR
+  DEVICE_PACKAGES := kmod-usb2 kmod-usb-storage kmod-usb-ledtrig-usbport \
+	kmod-ath10k-ct ath10k-firmware-qca988x-ct
+  IMAGE_SIZE := 14464k
+  BLOCKSIZE := 64k
+  LOADER_FLASH_OFFS := 0x60000
+  KERNEL := kernel-bin | append-dtb | lzma | uImage lzma -M 0x4f4b4c49
+  IMAGES := sysupgrade.bin breed-factory.bin
+  IMAGE/sysupgrade.bin := append-kernel | pad-to $$$$(BLOCKSIZE) | append-rootfs | pad-rootfs | \
+			  append-metadata | check-size
+  IMAGE/breed-factory.bin := append-rootfs-64k | append-kernel | pad-to $$$$(BLOCKSIZE) | append-rootfs | pad-rootfs | \
+			     pad-to 14528k | append-okli-kernel $(1)
+endef
+TARGET_DEVICES += domywifi_dw33d-nor
 
 define Device/dongwon_dw02-412h
   SOC := qca9557
@@ -486,3 +529,34 @@ define Device/zyxel_emg2926_q10a
   RAS_BOARD := AAVK-EMG2926Q10A
 endef
 TARGET_DEVICES += zyxel_emg2926_q10a
+
+define Device/xwrt_gw521-common-nand
+  SOC := qca9531
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := GW521
+  DEVICE_PACKAGES := kmod-usb2 kmod-ath10k-ct ath10k-firmware-qca9888-ct
+  IMAGE_SIZE := 16000k
+  KERNEL_SIZE := 4096k
+  PAGESIZE := 2048
+  VID_HDR_OFFSET := 2048
+endef
+
+define Device/xwrt_gw521-nand
+  $(Device/xwrt_gw521-common-nand)
+  DEVICE_VARIANT := NAND
+  BLOCKSIZE := 128k
+  UBINIZE_OPTS := -E 5
+  IMAGES += factory.img
+  IMAGE/factory.img := append-kernel | pad-to $$$$(KERNEL_SIZE) | append-ubi
+  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+  SUPPORTED_DEVICES += gw521 xwrt,gw521-nand
+endef
+TARGET_DEVICES += xwrt_gw521-nand
+
+define Device/xwrt_gw521-nor
+  $(Device/xwrt_gw521-common-nand)
+  DEVICE_VARIANT := NOR
+  BLOCKSIZE := 64k
+  SUPPORTED_DEVICES += gw521 xwrt,gw521-nand
+endef
+TARGET_DEVICES += xwrt_gw521-nor

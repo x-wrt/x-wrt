@@ -27,6 +27,9 @@ mediatek_setup_interfaces()
 	glinet,gl-mt3000)
 		ucidef_set_interfaces_lan_wan eth1 eth0
 		;;
+	konka,komi-a31|\
+	konka,komi-a31-nmbm|\
+	h3c,magic-nx30-pro-nmbm|\
 	h3c,magic-nx30-pro)
 		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3" eth1
 		;;
@@ -43,6 +46,8 @@ mediatek_setup_interfaces()
 		ucidef_set_interfaces_lan_wan "lan0 lan1 lan2" eth1
 		;;
 	cetron,ct3003|\
+	jcg,q30-pro-nmbm|\
+	qihoo,360t7-ubootlayout|\
 	qihoo,360t7)
 		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3" wan
 		;;
@@ -53,12 +58,26 @@ mediatek_setup_interfaces()
 	tplink,tl-xdr6086)
 		ucidef_set_interfaces_lan_wan "lan1 lan2" eth1
 		;;
+	tenbay,ac-2205ex)
+		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4" eth1
+		;;
+	tenbay,ms3000k)
+		ucidef_set_interfaces_lan_wan "eth0" eth1
+		;;
+	tenbay,wr3000k|\
+	tenbay,wr3000k-gsw-emmc-nor)
+		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3" eth1
+		;;
 	xiaomi,mi-router-wr30u-112m-nmbm|\
 	xiaomi,mi-router-wr30u-stock|\
 	xiaomi,mi-router-wr30u-ubootmod|\
 	xiaomi,redmi-router-ax6000-stock|\
+	xiaomi,redmi-router-ax6000-ubootlayout|\
 	xiaomi,redmi-router-ax6000-ubootmod)
 		ucidef_set_interfaces_lan_wan "lan2 lan3 lan4" wan
+		;;
+	tenbay,ac-2210e)
+		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4 wan1 lan5 lan6 lan7 lan8" wan2
 		;;
 	*)
 		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4" wan
@@ -101,6 +120,7 @@ mediatek_setup_macs()
 		lan_mac=$(mtd_get_mac_ascii u-boot-env mac)
 		label_mac=$lan_mac
 		;;
+	qihoo,360t7-ubootlayout|\
 	qihoo,360t7)
 		lan_mac=$(mtd_get_mac_ascii factory lanMac)
 		wan_mac=$(macaddr_add "$lan_mac" 1)
@@ -110,9 +130,15 @@ mediatek_setup_macs()
 	xiaomi,mi-router-wr30u-stock|\
 	xiaomi,mi-router-wr30u-ubootmod|\
 	xiaomi,redmi-router-ax6000-stock|\
+	xiaomi,redmi-router-ax6000-ubootlayout|\
 	xiaomi,redmi-router-ax6000-ubootmod)
 		wan_mac=$(mtd_get_mac_ascii Bdata ethaddr_wan)
 		label_mac=$wan_mac
+		;;
+	tenbay,wr3000k-gsw-emmc-nor)
+		addr=$(mtd_get_mac_binary "Factory" 0x4)
+		wan_mac=$(macaddr_add ${addr} -2)
+		lan_mac=$(macaddr_add ${addr} -1)
 		;;
 	esac
 

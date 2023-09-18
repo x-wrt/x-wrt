@@ -65,13 +65,11 @@ cudy,wr2100)
 	ucidef_set_led_netdev "wan" "wan" "green:wan" "wan"
 	;;
 d-team,newifi-d2)
-	ucidef_set_led_netdev "internet" "internet" "amber:internet" "wan"
+	ucidef_set_led_switch "internet" "internet" "amber:internet" "switch0" "0x10"
 	ucidef_set_led_netdev "wlan2g" "WiFi 2.4GHz" "blue:wlan2g" "wlan0"
 	ucidef_set_led_netdev "wlan5g" "WiFi 5GHz" "blue:wlan5g" "wlan1"
 	;;
 d-team,pbr-m1|\
-gehua,ghl-r-001|\
-jcg,y2|\
 xzwifi,creativebox-v1)
 	ucidef_set_led_netdev "internet" "internet" "blue:internet" "wan"
 	;;
@@ -113,6 +111,10 @@ dlink,dir-878-a1|\
 dlink,dir-882-a1|\
 dlink,dir-882-r1)
 	ucidef_set_led_netdev "wan" "wan" "green:net" "wan"
+	;;
+gehua,ghl-r-001|\
+jcg,y2)
+	ucidef_set_led_switch "internet" "Internet" "blue:internet" "switch0" "0x10"
 	;;
 gnubee,gb-pc2)
 	ucidef_set_led_netdev "ethyellow" "ethyellow" "orange:ethyellow" "ethyellow" "link tx rx"
@@ -157,13 +159,15 @@ netgear,eax12)
 	ucidef_set_led_netdev "eth_act" "LAN act" "yellow:eth" "lan" "tx rx"
 	ucidef_set_led_netdev "eth_link" "LAN link" "green:eth" "lan" "link"
 	;;
-netgear,r6220|\
 netgear,r6260|\
 netgear,r6350|\
 netgear,r6850|\
-netgear,wac124|\
-netgear,wndr3700-v5)
+netgear,wac124)
 	ucidef_set_led_netdev "wan" "wan" "green:wan" "wan"
+	;;
+netgear,r6220|\
+netgear,wndr3700-v5)
+	ucidef_set_led_switch "wan" "wan" "green:wan" "switch0" "0x10"
 	;;
 netgear,r6700-v2|\
 netgear,r6800|\
@@ -224,16 +228,84 @@ tplink,tl-wpa8631p-v3)
 xiaomi,mi-router-4a-gigabit-v2)
 	ucidef_set_led_netdev "wan" "wan" "blue:wan" "wan" "link"
 	;;
+xiaomi,mi-router-3g-nor|\
+xiaomi,mi-router-3g)
+	ucidef_set_led_switch "wan-amber"  "WAN (amber)"  "amber:wan"  "switch0" "0x02" "0x08"
+	ucidef_set_led_switch "lan1-amber" "LAN1 (amber)" "amber:lan1" "switch0" "0x08" "0x08"
+	ucidef_set_led_switch "lan2-amber" "LAN2 (amber)" "amber:lan2" "switch0" "0x04" "0x08"
+	;;
+xwrt,t-cpe1200k-v01)
+	ucidef_set_led_switch "led_eth"  "led_eth"  "blue:eth"  "switch0" "0x1"
+	ucidef_set_led_netdev "wifi_led" "wifi" "blue:wifi" "wlan0"
+	ucidef_set_rssimon "wlan0" "200000" "1"
+	ucidef_set_led_rssi "rssilow" "RSSILOW" "blue:rssi1" "wlan0" "1" "100"
+	ucidef_set_led_rssi "rssimediumlow" "RSSIMEDIUMLOW" "blue:rssi2" "wlan0" "20" "100"
+	ucidef_set_led_rssi "rssimedium" "RSSIMEDIUM" "blue:rssi3" "wlan0" "40" "100"
+	ucidef_set_led_rssi "rssihigh" "RSSIHIGH" "blue:rssi4" "wlan0" "70" "100"
+	;;
+xwrt,t-cpe1201k-v01)
+	ucidef_set_led_netdev "wlan2g" "WiFi 2.4GHz" "green:wlan2g" "wlan0"
+	ucidef_set_led_netdev "wlan5g" "WiFi 5GHz" "green:wlan5g" "wlan1"
+	;;
+xwrt,mac500f)
+	ucidef_set_led_netdev "sfp" "SFP link" "green:sfp" "sfp"
+	;;
+xwrt,ms1201k)
+	ucidef_set_led_netdev "wlan2g" "WiFi 2.4GHz" "wifi_2g:status" "wlan0"
+	ucidef_set_led_netdev "wlan5g" "WiFi 5.8GHz" "wifi_5g:status" "wlan1"
+	ucidef_set_led_switch "eth" "eth" "eth:status" "switch0" "0x11"
+	;;
+xwrt,nxc2005ex)
+	ucidef_set_led_switch "internet" "Internet" "green:link" "switch0" "0x10"
+	;;
+xwrt,nxc2009e-v100)
+	ucidef_set_led_switch "port0_M_led" "port0_M_led" "port0_M_led" "switch1" "0x01" "0x0e" "link"
+	ucidef_set_led_switch "port1_M_led" "port1_M_led" "port1_M_led" "switch1" "0x02" "0x0e" "link"
+	ucidef_set_led_switch "port2_M_led" "port2_M_led" "port2_M_led" "switch1" "0x04" "0x0e" "link"
+	ucidef_set_led_switch "port3_M_led" "port3_M_led" "port3_M_led" "switch1" "0x08" "0x0e" "link"
+	ucidef_set_led_switch "port4_M_led" "port4_M_led" "port4_M_led" "switch0" "0x01" "0x0e" "link"
+	ucidef_set_led_switch "port5_M_led" "port5_M_led" "port5_M_led" "switch0" "0x02" "0x0e" "link"
+	ucidef_set_led_switch "port6_M_led" "port6_M_led" "port6_M_led" "switch0" "0x04" "0x0e" "link"
+	ucidef_set_led_switch "port7_M_led" "port7_M_led" "port7_M_led" "switch0" "0x08" "0x0e" "link"
+	ucidef_set_led_switch "port8_M_led" "port8_M_led" "port8_M_led" "switch0" "0x10" "0x0e" "link"
+	;;
+xwrt,5g-cpe1801k)
+	ucidef_set_led_netdev "wan" "wan" "WAN_LED" "wan" "link"
+	ucidef_set_led_netdev "lan1" "lan1" "LAN1_LED" "lan1" "link"
+	ucidef_set_led_netdev "lan2" "lan2" "LAN2_LED" "lan2" "link"
+	;;
+xwrt,wr1800k-ax-nand)
+	ucidef_set_led_netdev "wan" "wan" "ether:blue" "wan" "link"
+	ucidef_set_led_netdev "wifi2g" "Wifi 2.4G" "wlan:green" "wlan0" "link"
+	;;
+xwrt,dm2-t-mb2ep-v02-nor)
+	ucidef_set_led_netdev "internet" "Internet" "ether:blue" "eth1"
+	;;
+xwrt,ms1800k-ax-nor)
+	ucidef_set_led_netdev "wan" "wan" "ether:blue" "eth1"
+	ucidef_set_led_netdev "wifi2g" "Wifi 2.4G" "wlan:green" "wlan0" "link"
+	;;
+ruijie,rg-ew1800gx)
+	ucidef_set_led_netdev "wifi2g" "Wifi 2.4G" "status:green" "wlan0" "link"
+	;;
+xwrt,wr1800k-ax-norplusemmc|\
+xwrt,wr1800k-ax-nor)
+	ucidef_set_led_switch "wan" "wan" "ether:blue" "switch0" "0x10"
+	ucidef_set_led_netdev "wifi2g" "Wifi 2.4G" "wlan:green" "wlan0" "link"
+	;;
 xiaomi,mi-router-ac2100)
-	ucidef_set_led_netdev "wan-blue" "WAN (blue)" "blue:wan" "wan"
+	ucidef_set_led_switch "wan-blue" "WAN (blue)" "blue:wan" "switch0" "0x01"
 	;;
 xiaomi,mi-router-cr6606|\
 xiaomi,mi-router-cr6608|\
 xiaomi,mi-router-cr6609)
 	ucidef_set_led_netdev "internet" "Internet" "blue:net" "wan"
 	;;
+xiaomi,mi-router-cr660x)
+	ucidef_set_led_switch "wan" "wan" "blue:net" "switch0" "0x10"
+	;;
 xiaomi,redmi-router-ac2100)
-	ucidef_set_led_netdev "wan" "wan" "white:wan" "wan"
+	ucidef_set_led_switch "wan" "wan" "white:wan" "switch0" "0x01"
 	;;
 youhua,wr1200js)
 	ucidef_set_led_netdev "internet" "INTERNET" "green:wan" "wan"

@@ -28,6 +28,11 @@ alfa-network,ax1800rm|\
 allnet,all0256n-4m|\
 allnet,all0256n-8m|\
 allnet,all5002|\
+xwrt,wr1800k-ax-norplusemmc|\
+xwrt,wr1800k-ax-nor|\
+xwrt,ms1201k|\
+xwrt,nxc200p|\
+xwrt,puppies|\
 yuncore,ax820)
 	ubootenv_add_uci_config "/dev/mtd1" "0x0" "0x10000" "0x10000"
 	;;
@@ -78,6 +83,9 @@ netgear,wax202|\
 zyxel,wsm20)
 	ubootenv_add_uci_config "/dev/mtd1" "0x0" "0x20000" "0x20000"
 	;;
+xwrt,5g-cpe1801k|\
+xwrt,fm10-ax-nand|\
+xwrt,wr1800k-ax-nand|\
 haier,har-20s2u1|\
 sim,simax1800t)
 	ubootenv_add_uci_config "/dev/mtd1" "0x0" "0x20000" "0x20000"
@@ -120,9 +128,13 @@ xiaomi,mi-router-3g|\
 xiaomi,mi-router-3-pro|\
 xiaomi,mi-router-4|\
 xiaomi,mi-router-ac2100|\
+xiaomi,miwifi-r3|\
 xiaomi,redmi-router-ac2100)
 	ubootenv_add_uci_config "/dev/mtd1" "0x0" "0x1000" "0x20000"
 	ubootenv_add_uci_sys_config "/dev/mtd2" "0x0" "0x4000" "0x20000"
+	;;
+xiaomi,mi-router-cr660x)
+	ubootenv_add_uci_config "/dev/mtd1" "0x0" "0x10000" "0x20000"
 	;;
 zyxel,lte3301-plus)
 	ubootenv_add_uci_config "/dev/mtd1" "0x0" "0x1000" "0x80000"
@@ -137,6 +149,17 @@ xiaomi,mi-router-cr6606|\
 xiaomi,mi-router-cr6608|\
 xiaomi,mi-router-cr6609)
 	ubootenv_add_uci_config "/dev/mtd1" "0x0" "0x10000" "0x20000"
+	;;
+ruijie,rg-ew1800gx)
+	ubootenv_add_uci_config "/dev/mtd1" "0x0" "0x10000" "0x10000"
+	ubootenv_add_uci_sys_config "/dev/mtd3" "0x0" "0x10000" "0x10000"
+	;;
+esac
+
+case "$board" in
+xwrt,wr1800k-ax-norplusemmc|\
+xwrt,wr1800k-ax-nor)
+	ubootenv_add_uci_sys_config "/dev/mtd2" "0x0" "0x10000" "0x10000"
 	;;
 esac
 

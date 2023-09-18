@@ -9,7 +9,52 @@ RAMFS_COPY_BIN='fw_printenv fw_setenv'
 RAMFS_COPY_DATA='/etc/fw_env.config /var/lock/fw_printenv.lock'
 
 platform_check_image() {
+	local board=$(board_name)
+	case "$board" in
+	xwrt,wr1800k-ax-norplusemmc)
+		norplusemmc_check_image "$1"
+		return $?
+		;;
+	esac
+
 	return 0
+}
+
+platform_copy_config() {
+	local board=$(board_name)
+	case "$board" in
+	xwrt,wr1800k-ax-norplusemmc)
+		norplusemmc_copy_config
+	esac
+}
+
+tenbay_dualboot_fixup()
+{
+	[ "$(rootfs_type)" = "tmpfs" ] || return 0
+
+	if ! fw_printenv -n boot_from &>/dev/null; then
+		echo "unable to read uboot-env"
+	else
+		fw_setenv boot_from ubi
+	fi
+
+	if ! fw_printenv -n firmware_select &>/dev/null; then
+		echo "unable to read firmware_select"
+	else
+		fw_setenv firmware_select 1
+	fi
+}
+
+platform_pre_upgrade() {
+	local board=$(board_name)
+
+	case "$board" in
+	xwrt,5g-cpe1801k|\
+	xwrt,fm10-ax-nand|\
+	xwrt,wr1800k-ax-nand)
+		tenbay_dualboot_fixup
+		;;
+	esac
 }
 
 platform_do_upgrade() {
@@ -109,16 +154,29 @@ platform_do_upgrade() {
 	sim,simax1800t|\
 	tplink,ec330-g5u-v1|\
 	wifire,s1500-nbn|\
+	xiaomi,mi-router-cr6606|\
+	xiaomi,mi-router-cr6608|\
+	xiaomi,mi-router-cr6609|\
+	xiaomi,mi-router-cr660x|\
+	xwrt,nxc2005ex|\
+	xwrt,nxc2009e-v100|\
+	xwrt,5g-cpe1801k|\
+	xwrt,fm10-ax-nand|\
+	xwrt,wr1800k-ax-nand|\
+	zyxel,nwa50ax|\
+	zyxel,nwa55axe)
+		nand_do_upgrade "$1"
+		;;
 	xiaomi,mi-router-3g|\
 	xiaomi,mi-router-3-pro|\
 	xiaomi,mi-router-4|\
 	xiaomi,mi-router-ac2100|\
-	xiaomi,mi-router-cr6606|\
-	xiaomi,mi-router-cr6608|\
-	xiaomi,mi-router-cr6609|\
-	xiaomi,redmi-router-ac2100|\
-	zyxel,nwa50ax|\
-	zyxel,nwa55axe)
+	xiaomi,redmi-router-ac2100)
+		# this make it compatible with breed
+		dd if=/dev/mtd0 bs=64 count=1 2>/dev/null | grep -qi breed && CI_KERNPART_EXT="kernel_stock"
+		dd if=/dev/mtd7 bs=64 count=1 2>/dev/null | grep -o MIPS.*Linux | grep -qi X-WRT && CI_KERNPART_EXT="kernel_stock"
+		dd if=/dev/mtd7 bs=64 count=1 2>/dev/null | grep -o MIPS.*Linux | grep -qi NATCAP && CI_KERNPART_EXT="kernel0_rsvd"
+		dd if=/dev/mtd0 2>/dev/null | grep -qi pb-boot && CI_KERNPART_EXT="kernel_stock"
 		nand_do_upgrade "$1"
 		;;
 	iodata,wn-ax1167gr2|\
@@ -146,7 +204,12 @@ platform_do_upgrade() {
 		;;
 	ubnt,edgerouter-x|\
 	ubnt,edgerouter-x-sfp)
-		platform_upgrade_ubnt_erx "$1"
+		CI_KERNPART="kernel1"
+		CI_KERNPART_EXT="kernel2"
+		nand_do_upgrade "$1"
+		;;
+	xwrt,wr1800k-ax-norplusemmc)
+		norplusemmc_do_upgrade "$1"
 		;;
 	zyxel,lte3301-plus|\
 	zyxel,nr7101)

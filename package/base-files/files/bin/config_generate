@@ -89,7 +89,7 @@ generate_static_network() {
 	fi
 }
 
-addr_offset=2
+addr_offset=16
 generate_network() {
 	local ports device macaddr protocol type ipaddr netmask vlan
 	local bridge=$2
@@ -162,7 +162,7 @@ generate_network() {
 		static)
 			local ipad
 			case "$1" in
-				lan) ipad=${ipaddr:-"192.168.1.1"} ;;
+				lan) ipad=${ipaddr:-"192.168.15.1"} ;;
 				*) ipad=${ipaddr:-"192.168.$((addr_offset++)).1"} ;;
 			esac
 
@@ -450,9 +450,10 @@ generate_led() {
 		;;
 
 		switch)
-			local port_mask speed_mask mode
-			json_get_vars port_mask speed_mask mode
+			local device port_mask speed_mask mode
+			json_get_vars device port_mask speed_mask mode
 			uci -q batch <<-EOF
+				set system.$cfg.device='$device'
 				set system.$cfg.port_mask='$port_mask'
 				set system.$cfg.speed_mask='$speed_mask'
 				set system.$cfg.mode='$mode'

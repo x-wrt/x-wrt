@@ -148,6 +148,16 @@ define Device/bdcom_wap2100-sk
 endef
 TARGET_DEVICES += bdcom_wap2100-sk
 
+define Device/bolt_bl201
+  SOC := mt7620a
+  IMAGE_SIZE := 15872k
+  DEVICE_VENDOR := Bolt
+  DEVICE_MODEL := BL201
+  DEVICE_PACKAGES := kmod-mt76x2
+  SUPPORTED_DEVICES += bolt_bl201
+endef
+TARGET_DEVICES += bolt_bl201
+
 define Device/buffalo_whr-1166d
   SOC := mt7620a
   IMAGE_SIZE := 16064k
@@ -792,6 +802,23 @@ define Device/netcore_nw5212
 endef
 TARGET_DEVICES += netcore_nw5212
 
+define Device/modou_m101c
+  SOC := mt7620a
+  BLOCKSIZE := 128k
+  PAGESIZE := 2048
+  KERNEL_SIZE := 6144k
+  IMAGE_SIZE := 18432k
+  UBINIZE_OPTS := -E 5
+  IMAGES += kernel0.bin rootfs0.bin
+  IMAGE/kernel0.bin := append-kernel | check-size $$$$(KERNEL_SIZE)
+  IMAGE/rootfs0.bin := append-ubi | check-size
+  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+  DEVICE_VENDOR := Modou
+  DEVICE_MODEL := M101C
+  DEVICE_PACKAGES := kmod-mt76x0e kmod-usb2 kmod-usb-ohci uboot-envtools
+endef
+TARGET_DEVICES += modou_m101c
+
 define Device/netgear_ex2700
   SOC := mt7620a
   NETGEAR_HW_ID := 29764623+4+0+32+2x2+0
@@ -989,7 +1016,7 @@ define Device/phicomm_psg1208
   SOC := mt7620a
   IMAGE_SIZE := 7872k
   DEVICE_VENDOR := Phicomm
-  DEVICE_MODEL := PSG1208
+  DEVICE_MODEL := PSG1208 (K1)
   DEVICE_PACKAGES := kmod-mt76x2
   SUPPORTED_DEVICES += psg1208
 endef
@@ -999,7 +1026,7 @@ define Device/phicomm_psg1218b
   SOC := mt7620a
   IMAGE_SIZE := 7872k
   DEVICE_VENDOR := Phicomm
-  DEVICE_MODEL := PSG1218
+  DEVICE_MODEL := PSG1218 (K2C)
   DEVICE_VARIANT := Bx
   DEVICE_PACKAGES := kmod-mt76x2
   SUPPORTED_DEVICES += psg1218 psg1218b
@@ -1326,6 +1353,27 @@ define Device/xiaomi_miwifi-mini
   SUPPORTED_DEVICES += miwifi-mini
 endef
 TARGET_DEVICES += xiaomi_miwifi-mini
+
+define Device/xiaomi_miwifi-r3
+  SOC := mt7620a
+  BLOCKSIZE := 128k
+  PAGESIZE := 2048
+  KERNEL_SIZE := 4096k
+  IMAGE_SIZE := 32768k
+  UBINIZE_OPTS := -E 5
+  IMAGES += kernel1.bin rootfs0.bin breed-factory.bin factory.bin
+  IMAGE/kernel1.bin := append-kernel | check-size $$$$(KERNEL_SIZE)
+  IMAGE/rootfs0.bin := append-ubi | check-size
+  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+  IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | check-size
+  IMAGE/breed-factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | \
+			     append-kernel | pad-to $$(KERNEL_SIZE) | \
+			     append-ubi | check-size
+  DEVICE_VENDOR := Xiaomi
+  DEVICE_MODEL := Mi Router R3
+  DEVICE_PACKAGES := kmod-mt76x2 kmod-usb2 kmod-usb-ohci uboot-envtools
+endef
+TARGET_DEVICES += xiaomi_miwifi-r3
 
 define Device/youku_x2
   SOC := mt7620a

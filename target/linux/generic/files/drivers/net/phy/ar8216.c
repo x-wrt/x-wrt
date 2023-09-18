@@ -891,7 +891,11 @@ ar8216_phy_write(struct ar8xxx_priv *priv, int addr, int regnum, u16 val)
 static int
 ar8229_hw_init(struct ar8xxx_priv *priv)
 {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 5, 0)
 	phy_interface_t phy_if_mode;
+#else
+	int phy_if_mode;
+#endif
 
 	if (priv->initialized)
 		return 0;
@@ -899,7 +903,11 @@ ar8229_hw_init(struct ar8xxx_priv *priv)
 	ar8xxx_write(priv, AR8216_REG_CTRL, AR8216_CTRL_RESET);
 	ar8xxx_reg_wait(priv, AR8216_REG_CTRL, AR8216_CTRL_RESET, 0, 1000);
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 5, 0)
 	of_get_phy_mode(priv->pdev->of_node, &phy_if_mode);
+#else
+	phy_if_mode = of_get_phy_mode(priv->pdev->of_node);
+#endif
 
 	if (phy_if_mode == PHY_INTERFACE_MODE_GMII) {
 		ar8xxx_write(priv, AR8229_REG_OPER_MODE0,
@@ -2460,8 +2468,10 @@ ar8xxx_phy_config_init(struct phy_device *phydev)
 		dev->phy_ptr = priv;
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6,1,0)
 		dev->priv_flags |= IFF_NO_IP_ALIGN;
-#else
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5,15,0)
 		dev->extra_priv_flags |= IFF_NO_IP_ALIGN;
+#else
+		dev->priv_flags |= IFF_NO_IP_ALIGN;
 #endif
 		dev->eth_mangle_rx = ar8216_mangle_rx;
 		dev->eth_mangle_tx = ar8216_mangle_tx;
@@ -2699,8 +2709,10 @@ ar8xxx_phy_detach(struct phy_device *phydev)
 	dev->phy_ptr = NULL;
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6,1,0)
 	dev->priv_flags &= ~IFF_NO_IP_ALIGN;
-#else
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5,15,0)
 	dev->extra_priv_flags &= ~IFF_NO_IP_ALIGN;
+#else
+	dev->priv_flags &= ~IFF_NO_IP_ALIGN;
 #endif
 	dev->eth_mangle_rx = NULL;
 	dev->eth_mangle_tx = NULL;

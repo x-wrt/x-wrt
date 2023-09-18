@@ -224,7 +224,10 @@ define Device/asus_rt-ac42u
 #	Rather, this device is a/k/a RT-AC42U
 #	But we'll go with what the vendor firmware has...
 	UIMAGE_NAME:=$(shell echo -e '\03\01\01\01RT-AC82U')
+	KERNEL_INITRAMFS := $$(KERNEL) | uImage none
+	KERNEL_INITRAMFS_SUFFIX := -factory.trx
 	DEVICE_PACKAGES := ath10k-firmware-qca9984-ct kmod-usb-ledtrig-usbport
+	SUPPORTED_DEVICES += asus,rt-acrh17
 endef
 TARGET_DEVICES += asus_rt-ac42u
 
@@ -245,6 +248,8 @@ define Device/asus_rt-ac58u
 #	to add a version... or we are very careful not to add '\0' into that
 #	string and call it a day.... Yeah, we do the latter!
 	UIMAGE_NAME:=$(shell echo -e '\03\01\01\01RT-AC58U')
+	KERNEL_INITRAMFS := $$(KERNEL) | uImage none
+	KERNEL_INITRAMFS_SUFFIX := -factory.trx
 	DEVICE_PACKAGES := -kmod-ath10k-ct kmod-ath10k-ct-smallbuffers \
 		kmod-usb-ledtrig-usbport
 endef
@@ -951,6 +956,7 @@ define Device/p2w_r619ac
 	DEVICE_DTS_CONFIG := config@10
 	BLOCKSIZE := 128k
 	PAGESIZE := 2048
+	DEVICE_PACKAGES := lte-modem-p2w-r619ac
 endef
 
 define Device/p2w_r619ac-64m
@@ -958,6 +964,7 @@ define Device/p2w_r619ac-64m
 	DEVICE_VARIANT := 64M NAND
 	IMAGES += factory.bin
 	IMAGE/factory.bin := append-ubi | qsdk-ipq-factory-nand
+	SUPPORTED_DEVICES += p2w,r619ac
 endef
 TARGET_DEVICES += p2w_r619ac-64m
 
@@ -1121,6 +1128,20 @@ define Device/wallys_dr40x9
 	DEVICE_PACKAGES := ipq-wifi-wallys_dr40x9
 endef
 TARGET_DEVICES += wallys_dr40x9
+
+define Device/yyets_le1
+	$(call Device/FitzImage)
+	DEVICE_VENDOR := YYeTs
+	DEVICE_MODEL := LE1
+	SOC := qcom-ipq4019
+	KERNEL_SIZE := 4096k
+	IMAGE_SIZE := 31232k
+	IMAGES += factory.bin
+	IMAGE/factory.bin := qsdk-ipq-factory-nor | check-size
+	IMAGE/sysupgrade.bin := append-kernel | append-rootfs | pad-rootfs | append-metadata
+	DEVICE_PACKAGES := kmod-usb-ledtrig-usbport
+endef
+TARGET_DEVICES += yyets_le1
 
 define Device/zte_mf18a
 	$(call Device/FitImage)
