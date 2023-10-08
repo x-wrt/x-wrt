@@ -589,6 +589,24 @@ endif
 endef
 TARGET_DEVICES += bananapi_bpi-r4-poe
 
+define Device/cetron_ct3003-ubootlayout
+  DEVICE_VENDOR := Cetron
+  DEVICE_MODEL := CT3003 (uboot layout)
+  DEVICE_DTS := mt7981b-cetron-ct3003-ubootlayout
+  DEVICE_DTS_DIR := ../dts
+  SUPPORTED_DEVICES += mediatek,mt7981-spim-snand-rfb
+  DEVICE_PACKAGES := kmod-mt7915e kmod-mt7981-firmware mt7981-wo-firmware
+  UBINIZE_OPTS := -E 5
+  BLOCKSIZE := 128k
+  PAGESIZE := 2048
+  IMAGE_SIZE := 114816k
+  KERNEL_IN_UBI := 1
+  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+  IMAGES += factory.bin
+  IMAGE/factory.bin := append-ubi | check-size $$$$(IMAGE_SIZE)
+endef
+TARGET_DEVICES += cetron_ct3003-ubootlayout
+
 define Device/cetron_ct3003
   DEVICE_VENDOR := Cetron
   DEVICE_MODEL := CT3003
