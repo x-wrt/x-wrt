@@ -15,6 +15,7 @@ mediatek_setup_interfaces()
 		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 game" eth1
 		;;
 	asus,rt-ax59u|\
+	cetron,ct3003-ubootlayout|\
 	cetron,ct3003|\
 	confiabits,mt7981|\
 	cudy,wr3000-v1|\
