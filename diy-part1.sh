@@ -27,6 +27,3 @@ mkdir -p feeds/luci/applications/
 cd feeds/luci/applications/
 git clone https://github.com/4IceG/luci-app-atcommands.git
 cd ../../..
-pushd feeds/packages/lang
-rm -rf golang && svn co https://github.com/openwrt/packages/branches/openwrt-23.05/lang/golang
-popd
