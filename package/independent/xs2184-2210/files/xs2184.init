@@ -1,0 +1,136 @@
+#!/bin/sh /etc/rc.common
+# Copyright (C) 2006-2011 OpenWrt.org
+
+USE_PROCD=1
+NAME=xs2184
+PROG=/usr/sbin/xs2184
+
+START=97
+
+# Bus define ...
+LAN_BUS_NUM=0
+WAN_BUS_NUM=1
+
+# chip addr define ...
+WAN_PSE_CHIP_ADDR=0x74
+LAN_PSE_CHIP_ADDR=0x74
+
+# register define ...
+PAGE_REG=0x00
+LAN_PORT_EN_REG="0x98 0x99 0x9a 0x9b 0x9c 0x9d 0x9e 0x9f"
+LAN_PORT_STATE_MCN_REG="0x90 0x91 0x92 0x93 0x94 0x95 0x96 0x97"
+WAN_PORT_EN_REG="0x98 0x99"
+WAN_PORT_STATE_MCN_REG="0x90 0x91"
+AF_AT_MODE_REG=0x25
+IVT_POLL_CONTROL_REG=0xE3
+
+PAGE0=0x00
+PAGE1=0x44
+
+chip_init(){
+    local en_reg_range
+    local state_reg_range
+    local addr
+
+    if [ $1 -eq $LAN_BUS_NUM ]; then
+        en_reg_range=$LAN_PORT_EN_REG
+        state_reg_range=$LAN_PORT_STATE_MCN_REG
+        addr=$LAN_PSE_CHIP_ADDR
+    else
+        en_reg_range=$WAN_PORT_EN_REG
+        state_reg_range=$WAN_PORT_STATE_MCN_REG
+        addr=$WAN_PSE_CHIP_ADDR
+    fi
+
+    #1:chip_addr
+    echo "xs2184 init on bus $1, addr $addr"
+
+    i2cset -y $1 $addr $PAGE_REG $PAGE1
+
+    # set state machine
+    for i in $state_reg_range
+    do
+        i2cset -y $1 $addr $i 0x80
+    done
+
+    i2cset -y $1 $addr $PAGE_REG $PAGE0
+    # set AT mode
+    i2cset -y $1 $addr $AF_AT_MODE 0xff
+    i2cset -y $1 $addr $IVT_POLL_CONTROL_REG 0x20
+
+    i2cset -y $1 $addr $PAGE_REG $PAGE1
+    for i in $en_reg_range
+    do
+        i2cset -y $1 $addr $i 0x01
+    done
+    # control led
+    i2cset -y $1 $addr 0x08 0x91  
+}
+
+chip_power_off() {
+    local en_reg_range
+    local state_reg_range
+    local addr
+
+    if [ $1 -eq $LAN_BUS_NUM ]; then
+        en_reg_range=$LAN_PORT_EN_REG
+        addr=$LAN_PSE_CHIP_ADDR
+    else
+        en_reg_range=$WAN_PORT_EN_REG
+        addr=$WAN_PSE_CHIP_ADDR
+    fi
+
+    echo "xs2184 power off on bus $1, addr $addr"
+
+    i2cset -y $1 $addr $PAGE_REG $PAGE1
+    for i in $en_reg_range
+    do
+        i2cset -y $1 $addr $i 0x00
+    done
+}
+
+init_chips() {
+    i2cget -y ${LAN_BUS_NUM} ${LAN_PSE_CHIP_ADDR} ${PAGE_REG} 2>/dev/null && {
+        chip_init ${LAN_BUS_NUM}
+    }
+
+    i2cget -y ${WAN_BUS_NUM} ${WAN_PSE_CHIP_ADDR} ${PAGE_REG} 2>/dev/null && {
+        chip_init ${WAN_BUS_NUM}
+    }
+}
+
+close_chips() {
+    i2cget -y ${LAN_BUS_NUM} ${LAN_PSE_CHIP_ADDR} ${PAGE_REG} >/dev/null 2>&1 && {
+        chip_power_off ${LAN_BUS_NUM}
+    }
+
+    i2cget -y ${WAN_BUS_NUM} ${WAN_PSE_CHIP_ADDR} ${PAGE_REG} >/dev/null 2>&1 && {
+        chip_power_off ${WAN_BUS_NUM}
+    }
+}
+
+start_service() {
+    echo "start xs2184 PSE"
+
+    init_chips
+
+    procd_open_instance
+    procd_set_param command "$PROG"
+    procd_append_param command "-m 1000"
+    # procd_set_param stdout 1
+    procd_set_param stderr 1
+    procd_set_param respawn
+    procd_close_instance
+}
+
+stop() {
+    echo "stop xs2184 PSE"
+
+    service_stop $PROG
+    init_chips
+}
+
+reload() {
+    service_reload $PROG
+    close_chips
+}
