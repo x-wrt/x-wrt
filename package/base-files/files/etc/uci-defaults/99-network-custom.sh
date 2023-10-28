@@ -140,6 +140,9 @@ EOI
 
 chmod 755 /etc/init.d/disable_interface.sh
 
+sed -i '/net.ipv4.ip_default_ttl/d' /etc/sysctl.d/50-local.conf
+echo "net.ipv4.ip_default_ttl=64" >> /etc/sysctl.conf
+sysctl -p
 
 # /etc/init.d/network restart
 
