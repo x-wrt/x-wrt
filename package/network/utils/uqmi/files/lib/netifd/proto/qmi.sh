@@ -98,9 +98,7 @@ proto_qmi_setup() {
 			sleep 1;
 		else
 			echo "SIM not initialized"
-			proto_notify_error "$interface" SIM_NOT_INITIALIZED
-			proto_block_restart "$interface"
-			return 1
+			break;
 		fi
 	done
 
@@ -190,9 +188,6 @@ proto_qmi_setup() {
 				;;
 			*)
 				echo "PIN status failed (${pin1_status:-sim_not_present})"
-				proto_notify_error "$interface" PIN_STATUS_FAILED
-				proto_block_restart "$interface"
-				return 1
 			;;
 		esac
 		json_cleanup
