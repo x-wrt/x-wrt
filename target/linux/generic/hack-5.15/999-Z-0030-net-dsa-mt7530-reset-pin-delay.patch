@@ -1,0 +1,10 @@
+--- a/drivers/net/dsa/mt7530.c
++++ b/drivers/net/dsa/mt7530.c
+@@ -2462,6 +2462,7 @@ mt7531_setup(struct dsa_switch *ds)
+ 		gpiod_set_value_cansleep(priv->reset, 0);
+ 		usleep_range(1000, 1100);
+ 		gpiod_set_value_cansleep(priv->reset, 1);
++		msleep(500);
+ 	}
+ 
+ 	/* Waiting for MT7530 got to stable */
