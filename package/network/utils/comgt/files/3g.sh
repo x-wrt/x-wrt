@@ -40,6 +40,7 @@ proto_3g_setup() {
 		return 1
 	}
 
+	test "$((delay+0))" -lt 20 && test "$(cut -d\. -f1 </proc/uptime)" -lt 180 && delay=25
 	[ -n "$delay" ] && sleep "$delay"
 
 	case "$service" in
