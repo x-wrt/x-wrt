@@ -89,6 +89,8 @@ proto_ncm_setup() {
 		return 1
 	}
 
+	test "$((delay+0))" -lt 20 && test "$(cut -d\. -f1 </proc/uptime)" -lt 180 && delay=25
+
 	ifconfig "$ifname" up
 
 	start=$(date +%s)
