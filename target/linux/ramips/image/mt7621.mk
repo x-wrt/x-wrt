@@ -1315,8 +1315,7 @@ define Device/dual-q_h721
   IMAGE_SIZE := 16064k
   DEVICE_VENDOR := Dual-Q
   DEVICE_MODEL := H721
-  DEVICE_PACKAGES := kmod-ata-ahci kmod-mmc-mtk kmod-usb3 \
-	-wpad-basic-mbedtls -uboot-envtools
+  DEVICE_PACKAGES := kmod-ata-ahci kmod-sdhci-mt7620 kmod-usb3 lte-modem-dual-q-h721
 endef
 TARGET_DEVICES += dual-q_h721
 
