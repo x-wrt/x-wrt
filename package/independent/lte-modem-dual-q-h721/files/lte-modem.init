@@ -1,0 +1,13 @@
+#!/bin/sh /etc/rc.common
+# (C) 2012 Daniel Golle, Allnet GmbH <dgolle@allnet.de>
+
+START=11
+STOP=90
+
+boot() {
+	#power on usb-30-power
+	#echo "1" >/sys/class/gpio/usb-30-power/value
+
+	#delay 8s then power on usb-20-power
+	(sleep 8 && echo "1" >/sys/class/gpio/usb-20-power/value) &
+}
