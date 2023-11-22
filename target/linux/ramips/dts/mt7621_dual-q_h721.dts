@@ -33,7 +33,7 @@
 
 		usb-20-power {
 			gpio-export,name = "usb-20-power";
-			gpio-export,output = <0>;
+			gpio-export,output = <1>;
 			gpios = <&gpio 23 GPIO_ACTIVE_LOW>;
 		};
 	};
