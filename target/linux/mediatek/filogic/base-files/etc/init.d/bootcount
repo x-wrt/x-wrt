@@ -49,4 +49,18 @@ boot() {
 		fw_setenv uboot_bootcount 0
 		;;
 	esac
+
+	. /lib/upgrade/common.sh
+	if ! [ "$(rootfs_type)" = "tmpfs" ]; then
+		bootcmd=$(fw_printenv -n bootcmd)
+		if [ "$bootcmd" = "if pstore check ; then run boot_recovery ; else run boot_ubi ; fi" ]; then
+			(sleep 299 && fw_setenv bootcmd "run boot_ubi || run boot_recovery") &
+		elif [ "$bootcmd" = "if pstore check ; then run boot_recovery ; else run boot_emmc ; fi" ]; then
+			(sleep 299 && fw_setenv bootcmd "run boot_emmc || run boot_recovery") &
+		elif [ "$bootcmd" = "if pstore check ; then run boot_recovery ; else run boot_sdmmc ; fi" ]; then
+			(sleep 299 && fw_setenv bootcmd "run boot_sdmmc || run boot_recovery") &
+		elif [ "$bootcmd" = "if pstore check ; then run boot_recovery ; else run boot_nor ; fi" ]; then
+			(sleep 299 && fw_setenv bootcmd "run boot_nor || run boot_recovery") &
+		fi
+	fi
 }
