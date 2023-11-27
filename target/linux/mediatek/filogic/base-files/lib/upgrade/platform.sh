@@ -416,4 +416,17 @@ platform_pre_upgrade() {
 		tenbay_dualboot_fixup
 		;;
 	esac
+
+	if ! [ "$(rootfs_type)" = "tmpfs" ]; then
+		bootcmd=$(fw_printenv -n bootcmd)
+		if [ "$bootcmd" = "run boot_ubi || run boot_recovery" ]; then
+			fw_setenv bootcmd "if pstore check ; then run boot_recovery ; else run boot_ubi ; fi"
+		elif [ "$bootcmd" = "run boot_emmc || run boot_recovery" ]; then
+			fw_setenv bootcmd "if pstore check ; then run boot_recovery ; else run boot_emmc ; fi"
+		elif [ "$bootcmd" = "run boot_sdmmc || run boot_recovery" ]; then
+			fw_setenv bootcmd "if pstore check ; then run boot_recovery ; else run boot_sdmmc ; fi"
+		elif [ "$bootcmd" = "run boot_nor || run boot_recovery" ]; then
+			fw_setenv bootcmd "if pstore check ; then run boot_recovery ; else run boot_nor ; fi"
+		fi
+	fi
 }
