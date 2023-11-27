@@ -334,5 +334,32 @@ platform_pre_upgrade() {
 	tenbay,wr3000k)
 		tenbay_dualboot_fixup
 		;;
+	zyxel,ex5601-t0-ubootmod|\
+	bananapi,bpi-r3|\
+	cmcc,rax3000m|\
+	h3c,magic-nx30-pro|\
+	jcg,q30-pro|\
+	mediatek,mt7981-rfb|\
+	konka,komi-a31|\
+	qihoo,360t7|\
+	tplink,tl-xdr4288|\
+	tplink,tl-xdr6086|\
+	tplink,tl-xdr6088|\
+	xiaomi,mi-router-wr30u-ubootmod|\
+	xiaomi,mi-router-ax3000t-ubootmod|\
+	xiaomi,redmi-router-ax6000-ubootmod)
+		if ! [ "$(rootfs_type)" = "tmpfs" ]; then
+			bootcmd=$(fw_printenv -n bootcmd)
+			if [ "$bootcmd" = "run boot_ubi || run boot_recovery" ]; then
+				fw_setenv bootcmd "if pstore check ; then run boot_recovery ; else run boot_ubi ; fi"
+			elif [ "$bootcmd" = "run boot_emmc || run boot_recovery" ]; then
+				fw_setenv bootcmd "if pstore check ; then run boot_recovery ; else run boot_emmc ; fi"
+			elif [ "$bootcmd" = "run boot_sdmmc || run boot_recovery" ]; then
+				fw_setenv bootcmd "if pstore check ; then run boot_recovery ; else run boot_sdmmc ; fi"
+			elif [ "$bootcmd" = "run boot_nor || run boot_recovery" ]; then
+				fw_setenv bootcmd "if pstore check ; then run boot_recovery ; else run boot_nor ; fi"
+			fi
+		fi
+		;;
 	esac
 }
