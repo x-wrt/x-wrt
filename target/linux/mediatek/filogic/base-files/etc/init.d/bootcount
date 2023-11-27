@@ -15,5 +15,33 @@ boot() {
 	zyxel,ex5700-telenor)
 		fw_setenv uboot_bootcount 0
 		;;
+	zyxel,ex5601-t0-ubootmod|\
+	bananapi,bpi-r3|\
+	cmcc,rax3000m|\
+	h3c,magic-nx30-pro|\
+	jcg,q30-pro|\
+	mediatek,mt7981-rfb|\
+	konka,komi-a31|\
+	qihoo,360t7|\
+	tplink,tl-xdr4288|\
+	tplink,tl-xdr6086|\
+	tplink,tl-xdr6088|\
+	xiaomi,mi-router-wr30u-ubootmod|\
+	xiaomi,mi-router-ax3000t-ubootmod|\
+	xiaomi,redmi-router-ax6000-ubootmod)
+		. /lib/upgrade/common.sh
+		if ! [ "$(rootfs_type)" = "tmpfs" ]; then
+			bootcmd=$(fw_printenv -n bootcmd)
+			if [ "$bootcmd" = "if pstore check ; then run boot_recovery ; else run boot_ubi ; fi" ]; then
+				(sleep 299 && fw_setenv bootcmd "run boot_ubi || run boot_recovery") &
+			elif [ "$bootcmd" = "if pstore check ; then run boot_recovery ; else run boot_emmc ; fi" ]; then
+				(sleep 299 && fw_setenv bootcmd "run boot_emmc || run boot_recovery") &
+			elif [ "$bootcmd" = "if pstore check ; then run boot_recovery ; else run boot_sdmmc ; fi" ]; then
+				(sleep 299 && fw_setenv bootcmd "run boot_sdmmc || run boot_recovery") &
+			elif [ "$bootcmd" = "if pstore check ; then run boot_recovery ; else run boot_nor ; fi" ]; then
+				(sleep 299 && fw_setenv bootcmd "run boot_nor || run boot_recovery") &
+			fi
+		fi
+		;;
 	esac
 }
