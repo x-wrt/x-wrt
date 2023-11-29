@@ -72,6 +72,21 @@ cat << EOI >> /etc/firewall.include
 nft add rule inet fw4 mangle_prerouting iifname wwan0 ip ttl set 65
 nft add rule inet fw4 mangle_postrouting oifname wwan0 ip ttl set 64
 
+nft add rule inet fw4 mangle_prerouting iifname eth1 ip ttl set 65
+nft add rule inet fw4 mangle_postrouting oifname eth1 ip ttl set 64
+
+nft add rule inet fw4 mangle_prerouting iifname eth2 ip ttl set 65
+nft add rule inet fw4 mangle_postrouting oifname eth2 ip ttl set 64
+
+nft add rule inet fw4 mangle_prerouting iifname eth3 ip ttl set 65
+nft add rule inet fw4 mangle_postrouting oifname eth3 ip ttl set 64
+
+nft add rule inet fw4 mangle_prerouting iifname eth4 ip ttl set 65
+nft add rule inet fw4 mangle_postrouting oifname eth4 ip ttl set 64
+
+nft add rule inet fw4 mangle_prerouting iifname eth5 ip ttl set 65
+nft add rule inet fw4 mangle_postrouting oifname eth5 ip ttl set 64
+
 nft add rule inet fw4 mangle_prerouting iifname wwan1 ip ttl set 65
 nft add rule inet fw4 mangle_postrouting oifname wwan1 ip ttl set 64
 
@@ -83,6 +98,10 @@ nft add rule inet fw4 mangle_postrouting oifname usb1 ip ttl set 65
 
 nft add rule inet fw4 mangle_prerouting iifname usb2 ip ttl set 65
 nft add rule inet fw4 mangle_postrouting oifname usb2 ip ttl set 65
+
+nft add rule inet fw4 mangle_prerouting iifname usb82 ip ttl set 65
+nft add rule inet fw4 mangle_postrouting oifname usb82 ip ttl set 65
+
 EOI
 
 cat << EOI >> /etc/firewall.user
@@ -92,6 +111,11 @@ iptables -t mangle -I POSTROUTING -o usb1 -j TTL --ttl-set 65
 iptables -t mangle -I POSTROUTING -o usb2 -j TTL --ttl-set 65
 iptables -t mangle -I POSTROUTING -o wwan0 -j TTL --ttl-set 64
 iptables -t mangle -I POSTROUTING -o wwan1 -j TTL --ttl-set 64
+iptables -t mangle -I POSTROUTING -o eth1 -j TTL --ttl-set 64
+iptables -t mangle -I POSTROUTING -o eth2 -j TTL --ttl-set 64
+iptables -t mangle -I POSTROUTING -o eth3 -j TTL --ttl-set 64
+iptables -t mangle -I POSTROUTING -o eth4 -j TTL --ttl-set 64
+iptables -t mangle -I POSTROUTING -o eth5 -j TTL --ttl-set 64
 
 EOI
 
@@ -103,46 +127,16 @@ service firewall restart
 
 cat << EOI >> /etc/init.d/disable_interface.sh
 
-#!/bin/sh
-
-. /lib/functions.sh
-. /etc/openwrt_release
-
-wwan0="$1"
-
-usb0='$1"
-
-action="$2"
-
-if [[ "$action" == "1" ]]
-then
-    uci set network."$wwan0".auto='0'
-    uci commit network
-    /etc/init.d/network reload
-else
-    uci delete network."$wwan0".auto='0'
-    uci commit network
-    /etc/init.d/network reload
-fi
-
-if [[ "$action" == "1" ]]
-then
-    uci set network."$usb0".auto='0'
-    uci commit network
-    /etc/init.d/network reload
-else
-    uci delete network."$usb0".auto='0'
-    uci commit network
-    /etc/init.d/network reload
-fi
 
 EOI
 
 chmod 755 /etc/init.d/disable_interface.sh
 
+sed -i '/net.ipv4.ip_default_ttl/d' /etc/sysctl.d/50-local.conf
+echo "net.ipv4.ip_default_ttl=64" >> /etc/sysctl.conf
+sysctl -p
 
 # /etc/init.d/network restart
 
 exit 0
-
 
