@@ -13,7 +13,6 @@ DEVICE_TYPE?=router
 # Default packages - the really basic set
 DEFAULT_PACKAGES:=\
 	base-files \
-	ca-bundle \
 	dropbear \
 	fstools \
 	libc \
