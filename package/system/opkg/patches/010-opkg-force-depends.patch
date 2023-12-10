@@ -1,0 +1,13 @@
+diff --git a/src/opkg-cl.c b/src/opkg-cl.c
+index 793690d..8c2a96d 100644
+--- a/src/opkg-cl.c
++++ b/src/opkg-cl.c
+@@ -255,6 +255,8 @@ static int args_parse(int argc, char *argv[])
+ 		}
+ 	}
+ 
++	conf->force_depends = 1;
++
+ 	if (!conf->conf_file && !conf->offline_root)
+ 		conf->conf_file = xstrdup("/etc/opkg.conf");
+ 
