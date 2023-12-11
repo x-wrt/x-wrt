@@ -1,0 +1,74 @@
+From 36fa71834f5946cd4687bd9a88def3d9b282dea8 Mon Sep 17 00:00:00 2001
+From: Chen Minqiang <ptpt52@gmail.com>
+Date: Mon, 11 Dec 2023 15:26:59 +0800
+Subject: [PATCH] dsa: drop more bridge offload
+
+---
+ drivers/net/dsa/b53/b53_common.c | 2 +-
+ drivers/net/dsa/mv88e6xxx/chip.c | 4 ++--
+ drivers/net/dsa/qca/qca8k-8xxx.c | 2 +-
+ drivers/net/dsa/rtl8366rb.c      | 4 ++--
+ 4 files changed, 6 insertions(+), 6 deletions(-)
+
+--- a/drivers/net/dsa/b53/b53_common.c
++++ b/drivers/net/dsa/b53/b53_common.c
+@@ -2297,7 +2297,7 @@ static const struct dsa_switch_ops b53_s
+ 	.port_disable		= b53_disable_port,
+ 	.get_mac_eee		= b53_get_mac_eee,
+ 	.set_mac_eee		= b53_set_mac_eee,
+-	.port_bridge_join	= b53_br_join,
++	//.port_bridge_join	= b53_br_join,
+ 	.port_bridge_leave	= b53_br_leave,
+ 	.port_pre_bridge_flags	= b53_br_flags_pre,
+ 	.port_bridge_flags	= b53_br_flags,
+--- a/drivers/net/dsa/mv88e6xxx/chip.c
++++ b/drivers/net/dsa/mv88e6xxx/chip.c
+@@ -2482,7 +2482,7 @@ static int mv88e6xxx_bridge_map(struct m
+ 	return 0;
+ }
+ 
+-static int mv88e6xxx_port_bridge_join(struct dsa_switch *ds, int port,
++static inline int mv88e6xxx_port_bridge_join(struct dsa_switch *ds, int port,
+ 				      struct net_device *br)
+ {
+ 	struct mv88e6xxx_chip *chip = ds->priv;
+@@ -6344,7 +6344,7 @@ static const struct dsa_switch_ops mv88e
+ 	.get_rxnfc		= mv88e6xxx_get_rxnfc,
+ 	.set_rxnfc		= mv88e6xxx_set_rxnfc,
+ 	.set_ageing_time	= mv88e6xxx_set_ageing_time,
+-	.port_bridge_join	= mv88e6xxx_port_bridge_join,
++	//.port_bridge_join	= mv88e6xxx_port_bridge_join,
+ 	.port_bridge_leave	= mv88e6xxx_port_bridge_leave,
+ 	.port_pre_bridge_flags	= mv88e6xxx_port_pre_bridge_flags,
+ 	.port_bridge_flags	= mv88e6xxx_port_bridge_flags,
+--- a/drivers/net/dsa/qca/qca8k-8xxx.c
++++ b/drivers/net/dsa/qca/qca8k-8xxx.c
+@@ -1866,7 +1866,7 @@ static const struct dsa_switch_ops qca8k
+ 	.port_change_mtu	= qca8k_port_change_mtu,
+ 	.port_max_mtu		= qca8k_port_max_mtu,
+ 	.port_stp_state_set	= qca8k_port_stp_state_set,
+-	.port_bridge_join	= qca8k_port_bridge_join,
++	//.port_bridge_join	= qca8k_port_bridge_join,
+ 	.port_bridge_leave	= qca8k_port_bridge_leave,
+ 	.port_fast_age		= qca8k_port_fast_age,
+ 	.port_fdb_add		= qca8k_port_fdb_add,
+--- a/drivers/net/dsa/rtl8366rb.c
++++ b/drivers/net/dsa/rtl8366rb.c
+@@ -1184,7 +1184,7 @@ rtl8366rb_port_disable(struct dsa_switch
+ 	rb8366rb_set_port_led(smi, port, false);
+ }
+ 
+-static int
++static inline int
+ rtl8366rb_port_bridge_join(struct dsa_switch *ds, int port,
+ 			   struct net_device *bridge)
+ {
+@@ -1771,7 +1771,7 @@ static const struct dsa_switch_ops rtl83
+ 	.get_strings = rtl8366_get_strings,
+ 	.get_ethtool_stats = rtl8366_get_ethtool_stats,
+ 	.get_sset_count = rtl8366_get_sset_count,
+-	.port_bridge_join = rtl8366rb_port_bridge_join,
++	//.port_bridge_join = rtl8366rb_port_bridge_join,
+ 	.port_bridge_leave = rtl8366rb_port_bridge_leave,
+ 	.port_vlan_filtering = rtl8366rb_vlan_filtering,
+ 	.port_vlan_add = rtl8366_vlan_add,
