@@ -1,0 +1,125 @@
+From 28318100a2ad0c96c3b1e2c62e17be2f83a691f6 Mon Sep 17 00:00:00 2001
+From: Chen Minqiang <ptpt52@gmail.com>
+Date: Thu, 13 Feb 2025 08:22:37 +0800
+Subject: [PATCH] dsa: drop more bridge offload
+
+---
+ drivers/net/dsa/b53/b53_common.c    | 2 +-
+ drivers/net/dsa/lantiq_gswip.c      | 6 +++---
+ drivers/net/dsa/mv88e6xxx/chip.c    | 4 ++--
+ drivers/net/dsa/qca/qca8k-8xxx.c    | 2 +-
+ drivers/net/dsa/realtek/rtl8366rb.c | 4 ++--
+ drivers/net/dsa/xrs700x/xrs700x.c   | 4 ++--
+ 6 files changed, 11 insertions(+), 11 deletions(-)
+
+--- a/drivers/net/dsa/b53/b53_common.c
++++ b/drivers/net/dsa/b53/b53_common.c
+@@ -2317,7 +2317,7 @@ static const struct dsa_switch_ops b53_s
+ 	.port_disable		= b53_disable_port,
+ 	.get_mac_eee		= b53_get_mac_eee,
+ 	.set_mac_eee		= b53_set_mac_eee,
+-	.port_bridge_join	= b53_br_join,
++	//.port_bridge_join	= b53_br_join,
+ 	.port_bridge_leave	= b53_br_leave,
+ 	.port_pre_bridge_flags	= b53_br_flags_pre,
+ 	.port_bridge_flags	= b53_br_flags,
+--- a/drivers/net/dsa/lantiq_gswip.c
++++ b/drivers/net/dsa/lantiq_gswip.c
+@@ -1158,7 +1158,7 @@ static int gswip_vlan_remove(struct gswi
+ 	return 0;
+ }
+ 
+-static int gswip_port_bridge_join(struct dsa_switch *ds, int port,
++static inline int gswip_port_bridge_join(struct dsa_switch *ds, int port,
+ 				  struct dsa_bridge bridge,
+ 				  bool *tx_fwd_offload,
+ 				  struct netlink_ext_ack *extack)
+@@ -1823,7 +1823,7 @@ static const struct dsa_switch_ops gswip
+ 	.setup			= gswip_setup,
+ 	.port_enable		= gswip_port_enable,
+ 	.port_disable		= gswip_port_disable,
+-	.port_bridge_join	= gswip_port_bridge_join,
++	//.port_bridge_join	= gswip_port_bridge_join,
+ 	.port_bridge_leave	= gswip_port_bridge_leave,
+ 	.port_fast_age		= gswip_port_fast_age,
+ 	.port_vlan_filtering	= gswip_port_vlan_filtering,
+@@ -1849,7 +1849,7 @@ static const struct dsa_switch_ops gswip
+ 	.setup			= gswip_setup,
+ 	.port_enable		= gswip_port_enable,
+ 	.port_disable		= gswip_port_disable,
+-	.port_bridge_join	= gswip_port_bridge_join,
++	//.port_bridge_join	= gswip_port_bridge_join,
+ 	.port_bridge_leave	= gswip_port_bridge_leave,
+ 	.port_fast_age		= gswip_port_fast_age,
+ 	.port_vlan_filtering	= gswip_port_vlan_filtering,
+--- a/drivers/net/dsa/mv88e6xxx/chip.c
++++ b/drivers/net/dsa/mv88e6xxx/chip.c
+@@ -2950,7 +2950,7 @@ static int mv88e6xxx_map_virtual_bridge_
+ 	return mv88e6xxx_pvt_map(chip, dev, 0);
+ }
+ 
+-static int mv88e6xxx_port_bridge_join(struct dsa_switch *ds, int port,
++static inline int mv88e6xxx_port_bridge_join(struct dsa_switch *ds, int port,
+ 				      struct dsa_bridge bridge,
+ 				      bool *tx_fwd_offload,
+ 				      struct netlink_ext_ack *extack)
+@@ -7053,7 +7053,7 @@ static const struct dsa_switch_ops mv88e
+ 	.get_rxnfc		= mv88e6xxx_get_rxnfc,
+ 	.set_rxnfc		= mv88e6xxx_set_rxnfc,
+ 	.set_ageing_time	= mv88e6xxx_set_ageing_time,
+-	.port_bridge_join	= mv88e6xxx_port_bridge_join,
++	//.port_bridge_join	= mv88e6xxx_port_bridge_join,
+ 	.port_bridge_leave	= mv88e6xxx_port_bridge_leave,
+ 	.port_pre_bridge_flags	= mv88e6xxx_port_pre_bridge_flags,
+ 	.port_bridge_flags	= mv88e6xxx_port_bridge_flags,
+--- a/drivers/net/dsa/qca/qca8k-8xxx.c
++++ b/drivers/net/dsa/qca/qca8k-8xxx.c
+@@ -2118,7 +2118,7 @@ static const struct dsa_switch_ops qca8k
+ 	.port_stp_state_set	= qca8k_port_stp_state_set,
+ 	.port_pre_bridge_flags	= qca8k_port_pre_bridge_flags,
+ 	.port_bridge_flags	= qca8k_port_bridge_flags,
+-	.port_bridge_join	= qca8k_port_bridge_join,
++	//.port_bridge_join	= qca8k_port_bridge_join,
+ 	.port_bridge_leave	= qca8k_port_bridge_leave,
+ 	.port_fast_age		= qca8k_port_fast_age,
+ 	.port_fdb_add		= qca8k_port_fdb_add,
+--- a/drivers/net/dsa/realtek/rtl8366rb.c
++++ b/drivers/net/dsa/realtek/rtl8366rb.c
+@@ -1392,7 +1392,7 @@ rtl8366rb_port_disable(struct dsa_switch
+ 		return;
+ }
+ 
+-static int
++static inline int
+ rtl8366rb_port_bridge_join(struct dsa_switch *ds, int port,
+ 			   struct dsa_bridge bridge,
+ 			   bool *tx_fwd_offload,
+@@ -1998,7 +1998,7 @@ static const struct dsa_switch_ops rtl83
+ 	.get_strings = rtl8366_get_strings,
+ 	.get_ethtool_stats = rtl8366_get_ethtool_stats,
+ 	.get_sset_count = rtl8366_get_sset_count,
+-	.port_bridge_join = rtl8366rb_port_bridge_join,
++	//.port_bridge_join = rtl8366rb_port_bridge_join,
+ 	.port_bridge_leave = rtl8366rb_port_bridge_leave,
+ 	.port_vlan_filtering = rtl8366rb_vlan_filtering,
+ 	.port_vlan_add = rtl8366_vlan_add,
+--- a/drivers/net/dsa/xrs700x/xrs700x.c
++++ b/drivers/net/dsa/xrs700x/xrs700x.c
+@@ -534,7 +534,7 @@ static int xrs700x_bridge_common(struct
+ 	return 0;
+ }
+ 
+-static int xrs700x_bridge_join(struct dsa_switch *ds, int port,
++static inline int xrs700x_bridge_join(struct dsa_switch *ds, int port,
+ 			       struct dsa_bridge bridge, bool *tx_fwd_offload,
+ 			       struct netlink_ext_ack *extack)
+ {
+@@ -704,7 +704,7 @@ static const struct dsa_switch_ops xrs70
+ 	.get_sset_count		= xrs700x_get_sset_count,
+ 	.get_ethtool_stats	= xrs700x_get_ethtool_stats,
+ 	.get_stats64		= xrs700x_get_stats64,
+-	.port_bridge_join	= xrs700x_bridge_join,
++	//.port_bridge_join	= xrs700x_bridge_join,
+ 	.port_bridge_leave	= xrs700x_bridge_leave,
+ 	.port_hsr_join		= xrs700x_hsr_join,
+ 	.port_hsr_leave		= xrs700x_hsr_leave,
