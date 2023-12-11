@@ -1,0 +1,31 @@
+From 9a3b68979c21abb284b2a22a69d11cabd8125947 Mon Sep 17 00:00:00 2001
+From: Chen Minqiang <ptpt52@gmail.com>
+Date: Mon, 11 Dec 2023 10:39:37 +0800
+Subject: [PATCH] dsa: mt7530: disable bridge offload
+
+Disabling bridge offload is good for vlan mangle, using hwnat
+offload is enough
+---
+ drivers/net/dsa/mt7530.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+--- a/drivers/net/dsa/mt7530.c
++++ b/drivers/net/dsa/mt7530.c
+@@ -1346,7 +1346,7 @@ mt7530_port_bridge_flags(struct dsa_swit
+ 	return 0;
+ }
+ 
+-static int
++static inline int
+ mt7530_port_bridge_join(struct dsa_switch *ds, int port,
+ 			struct dsa_bridge bridge, bool *tx_fwd_offload,
+ 			struct netlink_ext_ack *extack)
+@@ -3155,7 +3155,7 @@ const struct dsa_switch_ops mt7530_switc
+ 	.port_stp_state_set	= mt7530_stp_state_set,
+ 	.port_pre_bridge_flags	= mt7530_port_pre_bridge_flags,
+ 	.port_bridge_flags	= mt7530_port_bridge_flags,
+-	.port_bridge_join	= mt7530_port_bridge_join,
++	//.port_bridge_join	= mt7530_port_bridge_join,
+ 	.port_bridge_leave	= mt7530_port_bridge_leave,
+ 	.port_fdb_add		= mt7530_port_fdb_add,
+ 	.port_fdb_del		= mt7530_port_fdb_del,
