@@ -17,6 +17,9 @@ case "$FIRMWARE" in
 	tplink,fr365-v1)
 		ln -sf /tmp/wlan/radio /lib/firmware/$FIRMWARE
 		;;
+	cmcc,rax3000m-emmc-ubootlayout)
+		caldata_extract_mmc "factory" 0x0 0x1000
+		;;
 	esac
 	;;
 "mediatek/mt7986_eeprom_mt7975_dual.bin")
