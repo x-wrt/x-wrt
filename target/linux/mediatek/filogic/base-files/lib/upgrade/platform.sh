@@ -155,6 +155,32 @@ mtk_dual_boot_flash_both_slots() {
 	nand_do_flash_file "$1" || nand_do_upgrade_failed
 }
 
+cmcc_rax3000m_emmc_check_image()
+{
+	local tar_file="$1"
+	local gz= members board_dir member size
+
+	[ "$(identify_magic_long "$(get_magic_long "$tar_file" cat)")" = "gzip" ] && gz=z
+	members=$(tar t${gz}f "$tar_file" 2>/dev/null) || return 1
+	board_dir=$(printf '%s\n' "$members" | grep -m 1 '^sysupgrade-.*/$')
+	case "$board_dir" in
+	sysupgrade-cmcc_rax3000m-emmc-ubootlayout/|sysupgrade-cmcc,rax3000m-emmc-ubootlayout/|\
+	sysupgrade-cmcc_rax3000m-emmc-ubootmod/|sysupgrade-cmcc,rax3000m-emmc-ubootmod/)
+		;;
+	*)
+		return 1
+		;;
+	esac
+
+	for member in CONTROL kernel root; do
+		[ "$(printf '%s\n' "$members" | grep -Fxc "$board_dir$member")" -eq 1 ] || return 1
+		size=$(set -o pipefail; tar x${gz}Of "$tar_file" "$board_dir$member" 2>/dev/null | wc -c) || return 1
+		[ "$size" -gt 0 ] || return 1
+	done
+
+	return 0
+}
+
 tenbay_mmc_check_image()
 {
 	local tar_file="$1"
@@ -251,6 +277,19 @@ platform_do_upgrade() {
 	local board=$(board_name)
 
 	case "$board" in
+	cmcc,rax3000m-emmc-ubootlayout)
+		cmcc_rax3000m_emmc_check_image "$1" || exit 1
+		CI_KERNPART="kernel"
+		CI_ROOTPART="rootfs"
+		[ -n "$EMMC_KERN_DEV" ] || EMMC_KERN_DEV="$(find_mmc_part "$CI_KERNPART" "$CI_ROOTDEV")"
+		[ -n "$EMMC_ROOT_DEV" ] || EMMC_ROOT_DEV="$(find_mmc_part "$CI_ROOTPART" "$CI_ROOTDEV")"
+		[ -b "$EMMC_KERN_DEV" ] && [ -b "$EMMC_ROOT_DEV" ] || {
+			echo "Missing kernel or rootfs block device"
+			exit 1
+		}
+		export EMMC_KERN_DEV EMMC_ROOT_DEV
+		emmc_upgrade_tar "$1" || exit 1
+		;;
 	abt,asr3000|\
 	acer,predator-w6x-ubootmod|\
 	asus,zenwifi-bt8-ubootmod|\
@@ -508,6 +547,10 @@ platform_check_image() {
 	[ "$#" -gt 1 ] && return 1
 
 	case "$board" in
+	cmcc,rax3000m-emmc-ubootlayout)
+		cmcc_rax3000m_emmc_check_image "$1"
+		return $?
+		;;
 	abt,asr3000|\
 	acer,predator-w6x-ubootmod|\
 	asus,zenwifi-bt8-ubootmod|\
@@ -576,6 +619,9 @@ platform_check_image() {
 		}
 		return 0
 		;;
+	tenda,ax12l-pro)
+		return 0
+		;;
 	creatlentem,clt-r30b1|\
 	creatlentem,clt-r30b1-112m|\
 	hiveton,h5000m|\
@@ -588,11 +634,6 @@ platform_check_image() {
 			return 1
 		}
 
-		return 0
-		;;
-	tenbay,ms3000k|\
-	tenbay,wr3000k-gsw-emmc-nor|\
-	tenda,ax12l-pro)
 		return 0
 		;;
 	*)
@@ -629,6 +670,7 @@ platform_copy_config() {
 	acer,vero-w6m|\
 	airpi,ap3000m|\
 	arcadyan,mozart|\
+	cmcc,rax3000m-emmc-ubootlayout|\
 	glinet,gl-mt2500|\
 	glinet,gl-mt2500-airoha|\
 	glinet,gl-mt6000|\
