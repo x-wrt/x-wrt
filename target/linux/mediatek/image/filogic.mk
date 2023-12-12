@@ -868,6 +868,43 @@ define Device/cmcc_rax3000m
 endef
 TARGET_DEVICES += cmcc_rax3000m
 
+define Device/cmcc_rax3000m-emmc-ubootlayout
+  DEVICE_VENDOR := CMCC
+  DEVICE_MODEL := RAX3000M eMMC (uboot layout)
+  DEVICE_DTS := mt7981b-cmcc-rax3000m-emmc-ubootlayout
+  DEVICE_DTS_DIR := ../dts
+  SUPPORTED_DEVICES += cmcc,rax3000m-emmc-ubootmod
+  DEVICE_PACKAGES := kmod-mt7915e kmod-mt7981-firmware mt7981-wo-firmware kmod-usb3 e2fsprogs f2fsck mkf2fs \
+	kmod-fs-ext4 tune2fs ethtool blockd blkid fdisk gdisk partx-utils
+  KERNEL := kernel-bin | lzma | fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
+  KERNEL_INITRAMFS := kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 64k
+  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+endef
+TARGET_DEVICES += cmcc_rax3000m-emmc-ubootlayout
+
+define Device/cmcc_rax3000m-nand-ubootlayout
+  DEVICE_VENDOR := CMCC
+  DEVICE_MODEL := RAX3000M NAND (uboot layout)
+  DEVICE_DTS := mt7981b-cmcc-rax3000m-nand-ubootlayout
+  DEVICE_DTS_DIR := ../dts
+  SUPPORTED_DEVICES += cmcc,rax3000m-nand-ubootmod
+  DEVICE_PACKAGES := kmod-mt7915e kmod-mt7981-firmware mt7981-wo-firmware kmod-usb3
+  UBINIZE_OPTS := -E 5
+  BLOCKSIZE := 128k
+  PAGESIZE := 2048
+  IMAGE_SIZE := 116736k
+  KERNEL_IN_UBI := 1
+  IMAGES += factory.bin
+  IMAGE/factory.bin := append-ubi | check-size $$$$(IMAGE_SIZE)
+  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+  KERNEL = kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
+  KERNEL_INITRAMFS = kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd
+endef
+TARGET_DEVICES += cmcc_rax3000m-nand-ubootlayout
+
 define Device/comfast_cf-e393ax
   DEVICE_VENDOR := COMFAST
   DEVICE_MODEL := CF-E393AX
