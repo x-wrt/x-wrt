@@ -97,6 +97,9 @@ tenbay,ac-2210e|\
 tplink,re6000xd)
 	ubootenv_add_mtd "u-boot-env" "0x0" "0x20000" "0x20000" "1"
 	;;
+cmcc,rax3000m-emmc-ubootlayout)
+        ubootenv_add_uci_config "/dev/mmcblk0p1" "0x0" "0x80000" "0x80000"
+        ;;
 comfast,cf-e393ax|\
 iptime,ax3000m)
 	ubootenv_add_uci_config "/dev/mtd1" "0x0" "0x20000" "0x80000"
@@ -105,6 +108,7 @@ asiarf,ap7986-003|\
 cetron,ct3003|\
 comfast,cf-wr632ax|\
 cetron,ct3003-ubootlayout|\
+cmcc,rax3000m-nand-ubootlayout|\
 edgecore,eap111|\
 netgear,wax220|\
 zbtlink,zbt-z8102ax|\
