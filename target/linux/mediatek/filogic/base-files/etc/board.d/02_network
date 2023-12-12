@@ -10,6 +10,8 @@ mediatek_setup_interfaces()
 	case $board in
 	abt,asr3000|\
 	cmcc,rax3000m|\
+	cmcc,rax3000m-emmc-ubootlayout|\
+	cmcc,rax3000m-nand-ubootlayout|\
 	konka,komi-a31|\
 	konka,komi-a31-nmbm|\
 	h3c,magic-nx30-pro-nmbm|\
@@ -210,6 +212,11 @@ mediatek_setup_macs()
 	bananapi,bpi-r3-mini|\
 	bananapi,bpi-r4)
 		wan_mac=$(macaddr_add $(cat /sys/class/net/eth0/address) 1)
+		;;
+	cmcc,rax3000m-emmc-ubootlayout)
+		wan_mac=$(mmc_get_mac_binary factory 0x2a)
+		lan_mac=$(mmc_get_mac_binary factory 0x24)
+		label_mac=$lan_mac
 		;;
 	h3c,magic-nx30-pro-nmbm|\
 	h3c,magic-nx30-pro)
