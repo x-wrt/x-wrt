@@ -38,6 +38,12 @@ preinit_set_mac_address() {
 		ip link set dev eth0 address "$addr"
 		ip link set dev eth1 address "$addr"
 		;;
+	cmcc,rax3000m-emmc-ubootlayout)
+		addr=$(mmc_get_mac_binary factory 0x24)
+		ip link set dev eth0 address "$addr"
+		addr=$(mmc_get_mac_binary factory 0x2a)
+		ip link set dev eth1 address "$addr"
+		;;
 	mercusys,mr90x-v1|\
 	tplink,archer-ax80-v1|\
 	tplink,archer-ax80-v1-eu|\
