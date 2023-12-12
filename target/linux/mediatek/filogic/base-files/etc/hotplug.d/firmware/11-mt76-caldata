@@ -16,6 +16,7 @@ case "$FIRMWARE" in
 	tplink,fr365-v1)
 		ln -sf /tmp/wlan/radio /lib/firmware/$FIRMWARE
 		;;
+	cmcc,rax3000m-emmc-ubootlayout|\
 	ubnt,unifi-6-plus)
 		caldata_extract_mmc "factory" 0x0 0x1000
 		;;
