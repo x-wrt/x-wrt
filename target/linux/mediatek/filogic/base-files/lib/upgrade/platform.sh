@@ -255,6 +255,7 @@ platform_do_upgrade() {
 	acer,vero-w6m|\
 	airpi,ap3000m|\
 	arcadyan,mozart|\
+	cmcc,rax3000m-emmc-ubootlayout|\
 	glinet,gl-mt2500|\
 	glinet,gl-mt2500-airoha|\
 	glinet,gl-mt6000|\
@@ -493,6 +494,12 @@ platform_check_image() {
 		fit_check_image "$1"
 		return $?
 		;;
+	cmcc,rax3000m-emmc-ubootlayout|\
+	tenbay,ms3000k|\
+	tenbay,wr3000k-gsw-emmc-nor|\
+	tenda,ax12l-pro)
+		return 0
+		;;
 	creatlentem,clt-r30b1|\
 	creatlentem,clt-r30b1-112m|\
 	hiveton,h5000m|\
@@ -505,11 +512,6 @@ platform_check_image() {
 			return 1
 		}
 
-		return 0
-		;;
-	tenbay,ms3000k|\
-	tenbay,wr3000k-gsw-emmc-nor|\
-	tenda,ax12l-pro)
 		return 0
 		;;
 	*)
@@ -541,6 +543,7 @@ platform_copy_config() {
 	acer,vero-w6m|\
 	airpi,ap3000m|\
 	arcadyan,mozart|\
+	cmcc,rax3000m-emmc-ubootlayout|\
 	glinet,gl-mt2500|\
 	glinet,gl-mt2500-airoha|\
 	glinet,gl-mt6000|\
