@@ -10,6 +10,7 @@ mediatek_setup_interfaces()
 	case $board in
 	abt,asr3000|\
 	buffalo,wsr-6000ax8|\
+	abt,asr3000-ubootlayout|\
 	h3c,magic-nx30-pro-nmbm|\
 	h3c,magic-nx30-pro|\
 	imou,hx21|\
