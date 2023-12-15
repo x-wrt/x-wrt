@@ -15,6 +15,7 @@ mediatek_setup_interfaces()
 	cmcc,rax3000m-nand-ubootlayout|\
 	konka,komi-a31|\
 	konka,komi-a31-nmbm|\
+	imou,lc-hx3001-ubootlayout|\
 	h3c,magic-nx30-pro-nmbm|\
 	h3c,magic-nx30-pro|\
 	netis,nx31|\
@@ -219,6 +220,12 @@ mediatek_setup_macs()
 		wan_mac=$(mmc_get_mac_binary factory 0x2a)
 		lan_mac=$(mmc_get_mac_binary factory 0x24)
 		label_mac=$lan_mac
+		;;
+	imou,lc-hx3001-ubootlayout)
+		lan_mac=$(mtd_get_mac_ascii u-boot-env mac)
+		[ -n "$lan_mac" ] || lan_mac=$(macaddr_add $(mtd_get_mac_binary Factory 0x4) -1)
+		wan_mac=$(macaddr_add $lan_mac 2)
+		label_mac="$lan_mac"
 		;;
 	h3c,magic-nx30-pro-nmbm|\
 	h3c,magic-nx30-pro)
