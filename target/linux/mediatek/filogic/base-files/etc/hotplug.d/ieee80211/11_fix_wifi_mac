@@ -85,6 +85,7 @@ case "$board" in
 	cmcc,rax3000m-emmc-ubootlayout)
 		[ "$PHYNBR" = "1" ] && mmc_get_mac_binary factory 0xa > /sys${DEVPATH}/macaddress
 		;;
+	cmcc,a10-ubootlayout|\
 	cmcc,rax3000m-nand-ubootlayout)
 		[ "$PHYNBR" = "1" ] && mtd_get_mac_binary Factory 0xa > /sys${DEVPATH}/macaddress
 		;;
