@@ -11,6 +11,7 @@ mediatek_setup_interfaces()
 	abt,asr3000|\
 	buffalo,wsr-6000ax8|\
 	abt,asr3000-ubootlayout|\
+	imou,lc-hx3001-ubootlayout|\
 	h3c,magic-nx30-pro-nmbm|\
 	h3c,magic-nx30-pro|\
 	imou,hx21|\
@@ -322,6 +323,16 @@ mediatek_setup_macs()
 		wan_mac=$(mmc_get_mac_binary factory 0x2a)
 		lan_mac=$(mmc_get_mac_binary factory 0x24)
 		label_mac=$lan_mac
+		;;
+	imou,lc-hx3001-ubootlayout)
+		lan_mac=$(mtd_get_mac_ascii u-boot-env mac)
+		if [ -z "$lan_mac" ]; then
+			lan_mac=$(mtd_get_mac_binary Factory 0x4)
+			[ -n "$lan_mac" ] || return 0
+			lan_mac=$(macaddr_add "$lan_mac" -1)
+		fi
+		wan_mac=$(macaddr_add "$lan_mac" 2)
+		label_mac="$lan_mac"
 		;;
 	h3c,magic-nx30-pro-nmbm|\
 	h3c,magic-nx30-pro)
