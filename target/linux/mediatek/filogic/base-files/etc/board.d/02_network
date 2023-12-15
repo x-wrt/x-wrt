@@ -12,6 +12,7 @@ mediatek_setup_interfaces()
 		ucidef_set_interface_lan "eth0" "dhcp"
 		;;
 	abt,asr3000|\
+	abt,asr3000-ubootlayout|\
 	cmcc,rax3000m|\
 	cmcc,rax3000m-emmc-ubootlayout|\
 	cmcc,rax3000m-nand-ubootlayout|\
