@@ -19,6 +19,7 @@
 #include <linux/platform_device.h>
 #include <linux/of_irq.h>
 #include <linux/of_platform.h>
+#include <linux/workqueue.h>
 
 #include <ralink_regs.h>
 
@@ -41,10 +42,24 @@ static irqreturn_t gsw_interrupt_mt7620(int irq, void *_priv)
 {
 	struct fe_priv *priv = (struct fe_priv *)_priv;
 	struct mt7620_gsw *gsw = (struct mt7620_gsw *)priv->soc->swpriv;
+
+	disable_irq_nosync(gsw->irq);
+
+	schedule_work(&priv->irq_worker);
+
+	return IRQ_HANDLED;
+}
+
+static void gsw_irq_worker(struct work_struct *work)
+{
+	struct fe_priv *priv = container_of(work, struct fe_priv, irq_worker);
+	struct mt7620_gsw *gsw = (struct mt7620_gsw *)priv->soc->swpriv;
 	u32 status;
 	int i, max = (gsw->port4_ephy) ? (4) : (3);
 
 	status = mtk_switch_r32(gsw, GSW_REG_ISR);
+	mtk_switch_w32(gsw, status, GSW_REG_ISR);
+
 	if (status & PORT_IRQ_ST_CHG)
 		for (i = 0; i <= max; i++) {
 			u32 status = mtk_switch_r32(gsw, GSW_REG_PORT_STATUS(i));
@@ -58,9 +73,23 @@ static irqreturn_t gsw_interrupt_mt7620(int irq, void *_priv)
 			priv->link[i] = link;
 		}
 	mt7620_handle_carrier(priv);
-	mtk_switch_w32(gsw, status, GSW_REG_ISR);
 
-	return IRQ_HANDLED;
+	enable_irq(gsw->irq);
+}
+
+void mtk_gsw_irq_cleanup(void *data)
+{
+	struct fe_priv *priv = data;
+	struct mt7620_gsw *gsw = priv->soc->swpriv;
+
+	if (!priv->gsw_irq_requested)
+		return;
+
+	mtk_switch_w32(gsw, ~0, GSW_REG_IMR);
+	disable_irq(gsw->irq);
+	cancel_work_sync(&priv->irq_worker);
+	/* The managed IRQ is released after this cleanup action. */
+	priv->gsw_irq_requested = false;
 }
 
 #if IS_ENABLED(CONFIG_NET_DSA_MT7620)
@@ -90,8 +119,9 @@ static void gsw_reset_ephy(struct mt7620_gsw *gsw)
 	usleep_range(10, 20);
 }
 
-static void mt7620_ephy_init(struct mt7620_gsw *gsw)
+static int mt7620_ephy_init(struct mt7620_gsw *gsw)
 {
+	int ret;
 	u32 i;
 	u32 val;
 	u32 is_BGA = (rt_sysc_r32(SYSC_REG_CHIP_REV_ID) >> 16) & 1;
@@ -103,7 +133,7 @@ static void mt7620_ephy_init(struct mt7620_gsw *gsw)
 
 		pr_info("gsw: internal ephy disabled\n");
 
-		return;
+		return 0;
 	} else if (gsw->ephy_base) {
 		mtk_switch_w32(gsw, mtk_switch_r32(gsw, GSW_REG_GPC1) |
 			(gsw->ephy_base << 16),
@@ -114,72 +144,160 @@ static void mt7620_ephy_init(struct mt7620_gsw *gsw)
 	}
 
 	/* global page 4 */
-	_mt7620_mii_write(gsw, gsw->ephy_base + 1, 31, 0x4000);
+	ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 31, 0x4000);
+	if (ret)
+		return ret;
 
-	_mt7620_mii_write(gsw, gsw->ephy_base + 1, 17, 0x7444);
-	if (is_BGA)
-		_mt7620_mii_write(gsw, gsw->ephy_base + 1, 19, 0x0114);
-	else
-		_mt7620_mii_write(gsw, gsw->ephy_base + 1, 19, 0x0117);
+	ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 17, 0x7444);
+	if (ret)
+		return ret;
+	if (is_BGA) {
+		ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 19, 0x0114);
+		if (ret)
+			return ret;
+	} else {
+		ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 19, 0x0117);
+		if (ret)
+			return ret;
+	}
 
-	_mt7620_mii_write(gsw, gsw->ephy_base + 1, 22, 0x10cf);
-	_mt7620_mii_write(gsw, gsw->ephy_base + 1, 25, 0x6212);
-	_mt7620_mii_write(gsw, gsw->ephy_base + 1, 26, 0x0777);
-	_mt7620_mii_write(gsw, gsw->ephy_base + 1, 29, 0x4000);
-	_mt7620_mii_write(gsw, gsw->ephy_base + 1, 28, 0xc077);
-	_mt7620_mii_write(gsw, gsw->ephy_base + 1, 24, 0x0000);
+	ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 22, 0x10cf);
+	if (ret)
+		return ret;
+	ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 25, 0x6212);
+	if (ret)
+		return ret;
+	ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 26, 0x0777);
+	if (ret)
+		return ret;
+	ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 29, 0x4000);
+	if (ret)
+		return ret;
+	ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 28, 0xc077);
+	if (ret)
+		return ret;
+	ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 24, 0x0000);
+	if (ret)
+		return ret;
 
 	/* global page 3 */
-	_mt7620_mii_write(gsw, gsw->ephy_base + 1, 31, 0x3000);
-	_mt7620_mii_write(gsw, gsw->ephy_base + 1, 17, 0x4838);
+	ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 31, 0x3000);
+	if (ret)
+		return ret;
+	ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 17, 0x4838);
+	if (ret)
+		return ret;
 
 	/* global page 2 */
-	_mt7620_mii_write(gsw, gsw->ephy_base + 1, 31, 0x2000);
+	ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 31, 0x2000);
+	if (ret)
+		return ret;
 	if (is_BGA) {
-		_mt7620_mii_write(gsw, gsw->ephy_base + 1, 21, 0x0515);
-		_mt7620_mii_write(gsw, gsw->ephy_base + 1, 22, 0x0053);
-		_mt7620_mii_write(gsw, gsw->ephy_base + 1, 23, 0x00bf);
-		_mt7620_mii_write(gsw, gsw->ephy_base + 1, 24, 0x0aaf);
-		_mt7620_mii_write(gsw, gsw->ephy_base + 1, 25, 0x0fad);
-		_mt7620_mii_write(gsw, gsw->ephy_base + 1, 26, 0x0fc1);
+		ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 21, 0x0515);
+		if (ret)
+			return ret;
+		ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 22, 0x0053);
+		if (ret)
+			return ret;
+		ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 23, 0x00bf);
+		if (ret)
+			return ret;
+		ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 24, 0x0aaf);
+		if (ret)
+			return ret;
+		ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 25, 0x0fad);
+		if (ret)
+			return ret;
+		ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 26, 0x0fc1);
+		if (ret)
+			return ret;
 	} else {
-		_mt7620_mii_write(gsw, gsw->ephy_base + 1, 21, 0x0517);
-		_mt7620_mii_write(gsw, gsw->ephy_base + 1, 22, 0x0fd2);
-		_mt7620_mii_write(gsw, gsw->ephy_base + 1, 23, 0x00bf);
-		_mt7620_mii_write(gsw, gsw->ephy_base + 1, 24, 0x0aab);
-		_mt7620_mii_write(gsw, gsw->ephy_base + 1, 25, 0x00ae);
-		_mt7620_mii_write(gsw, gsw->ephy_base + 1, 26, 0x0fff);
+		ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 21, 0x0517);
+		if (ret)
+			return ret;
+		ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 22, 0x0fd2);
+		if (ret)
+			return ret;
+		ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 23, 0x00bf);
+		if (ret)
+			return ret;
+		ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 24, 0x0aab);
+		if (ret)
+			return ret;
+		ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 25, 0x00ae);
+		if (ret)
+			return ret;
+		ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 26, 0x0fff);
+		if (ret)
+			return ret;
 	}
 	/* global page 1 */
-	_mt7620_mii_write(gsw, gsw->ephy_base + 1, 31, 0x1000);
-	_mt7620_mii_write(gsw, gsw->ephy_base + 1, 17, 0xe7f8);
+	ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 31, 0x1000);
+	if (ret)
+		return ret;
+	ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 17, 0xe7f8);
+	if (ret)
+		return ret;
 
 	/* turn on all PHYs */
 	for (i = 0; i <= 4; i++) {
-		val = _mt7620_mii_read(gsw, gsw->ephy_base + i, MII_BMCR);
+		ret = _mt7620_mii_read(gsw, gsw->ephy_base + i, MII_BMCR);
+		if (ret < 0)
+			return ret;
+		val = ret;
 		val &= ~BMCR_PDOWN;
 		val |= BMCR_ANRESTART | BMCR_ANENABLE | BMCR_SPEED100;
-		_mt7620_mii_write(gsw, gsw->ephy_base + i, MII_BMCR, val);
+		ret = _mt7620_mii_write(gsw, gsw->ephy_base + i, MII_BMCR, val);
+		if (ret)
+			return ret;
 	}
 
 	/* global page 0 */
-	_mt7620_mii_write(gsw, gsw->ephy_base + 1, 31, 0x8000);
-	_mt7620_mii_write(gsw, gsw->ephy_base + 0, 30, 0xa000);
-	_mt7620_mii_write(gsw, gsw->ephy_base + 1, 30, 0xa000);
-	_mt7620_mii_write(gsw, gsw->ephy_base + 2, 30, 0xa000);
-	_mt7620_mii_write(gsw, gsw->ephy_base + 3, 30, 0xa000);
+	ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 31, 0x8000);
+	if (ret)
+		return ret;
+	ret = _mt7620_mii_write(gsw, gsw->ephy_base + 0, 30, 0xa000);
+	if (ret)
+		return ret;
+	ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 30, 0xa000);
+	if (ret)
+		return ret;
+	ret = _mt7620_mii_write(gsw, gsw->ephy_base + 2, 30, 0xa000);
+	if (ret)
+		return ret;
+	ret = _mt7620_mii_write(gsw, gsw->ephy_base + 3, 30, 0xa000);
+	if (ret)
+		return ret;
 
-	_mt7620_mii_write(gsw, gsw->ephy_base + 0, 4, 0x05e1);
-	_mt7620_mii_write(gsw, gsw->ephy_base + 1, 4, 0x05e1);
-	_mt7620_mii_write(gsw, gsw->ephy_base + 2, 4, 0x05e1);
-	_mt7620_mii_write(gsw, gsw->ephy_base + 3, 4, 0x05e1);
+	ret = _mt7620_mii_write(gsw, gsw->ephy_base + 0, 4, 0x05e1);
+	if (ret)
+		return ret;
+	ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 4, 0x05e1);
+	if (ret)
+		return ret;
+	ret = _mt7620_mii_write(gsw, gsw->ephy_base + 2, 4, 0x05e1);
+	if (ret)
+		return ret;
+	ret = _mt7620_mii_write(gsw, gsw->ephy_base + 3, 4, 0x05e1);
+	if (ret)
+		return ret;
 
 	/* global page 2 */
-	_mt7620_mii_write(gsw, gsw->ephy_base + 1, 31, 0xa000);
-	_mt7620_mii_write(gsw, gsw->ephy_base + 0, 16, 0x1111);
-	_mt7620_mii_write(gsw, gsw->ephy_base + 1, 16, 0x1010);
-	_mt7620_mii_write(gsw, gsw->ephy_base + 2, 16, 0x1515);
-	_mt7620_mii_write(gsw, gsw->ephy_base + 3, 16, 0x0f0f);
+	ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 31, 0xa000);
+	if (ret)
+		return ret;
+	ret = _mt7620_mii_write(gsw, gsw->ephy_base + 0, 16, 0x1111);
+	if (ret)
+		return ret;
+	ret = _mt7620_mii_write(gsw, gsw->ephy_base + 1, 16, 0x1010);
+	if (ret)
+		return ret;
+	ret = _mt7620_mii_write(gsw, gsw->ephy_base + 2, 16, 0x1515);
+	if (ret)
+		return ret;
+	ret = _mt7620_mii_write(gsw, gsw->ephy_base + 3, 16, 0x0f0f);
+	if (ret)
+		return ret;
 
 	/* setup port 4 */
 	if (gsw->port4_ephy) {
@@ -187,11 +305,19 @@ static void mt7620_ephy_init(struct mt7620_gsw *gsw)
 
 		val |= 3 << 14;
 		rt_sysc_w32(val, SYSC_REG_CFG1);
-		_mt7620_mii_write(gsw, gsw->ephy_base + 4, 30, 0xa000);
-		_mt7620_mii_write(gsw, gsw->ephy_base + 4, 4, 0x05e1);
-		_mt7620_mii_write(gsw, gsw->ephy_base + 4, 16, 0x1313);
+		ret = _mt7620_mii_write(gsw, gsw->ephy_base + 4, 30, 0xa000);
+		if (ret)
+			return ret;
+		ret = _mt7620_mii_write(gsw, gsw->ephy_base + 4, 4, 0x05e1);
+		if (ret)
+			return ret;
+		ret = _mt7620_mii_write(gsw, gsw->ephy_base + 4, 16, 0x1313);
+		if (ret)
+			return ret;
 		pr_info("gsw: setting port4 to ephy mode\n");
 	}
+
+	return 0;
 }
 
 static void mt7620_mac_init(struct mt7620_gsw *gsw)
@@ -233,6 +359,7 @@ int mtk_gsw_init(struct fe_priv *priv)
 	struct device_node *mdiobus_node;
 	struct device_node *np = priv->switch_np;
 	struct platform_device *pdev;
+	struct device_link *link;
 	struct mt7620_gsw *gsw;
 	const __be32 *id;
 	bool dsa_switch;
@@ -244,9 +371,25 @@ int mtk_gsw_init(struct fe_priv *priv)
 
 	pdev = of_find_device_by_node(np);
 	if (!pdev)
+		return -EPROBE_DEFER;
+
+	/* Keep the switch driver bound while the Ethernet device uses it. */
+	link = device_link_add(priv->dev, &pdev->dev,
+			       DL_FLAG_AUTOREMOVE_CONSUMER);
+	if (!link) {
+		put_device(&pdev->dev);
 		return -ENODEV;
+	}
+	if (READ_ONCE(link->status) != DL_STATE_CONSUMER_PROBE) {
+		put_device(&pdev->dev);
+		return -EPROBE_DEFER;
+	}
 
 	gsw = platform_get_drvdata(pdev);
+	if (!gsw) {
+		put_device(&pdev->dev);
+		return -EPROBE_DEFER;
+	}
 	priv->soc->swpriv = gsw;
 
 	gsw->ephy_disable = of_property_read_bool(np, "mediatek,ephy-disable");
@@ -309,7 +452,13 @@ int mtk_gsw_init(struct fe_priv *priv)
 #endif
 	}
 
-	mt7620_ephy_init(gsw);
+	ret = mt7620_ephy_init(gsw);
+	if (ret) {
+		put_device(&pdev->dev);
+		return ret;
+	}
+
+	INIT_WORK(&priv->irq_worker, gsw_irq_worker);
 
 	/*
 	 * DSA phylink manages the user PHYs. Do not install the legacy switch
@@ -318,7 +467,7 @@ int mtk_gsw_init(struct fe_priv *priv)
 	 * argument after the Ethernet probe is rolled back.
 	 */
 	if (gsw->irq && !dsa_switch) {
-		ret = devm_request_irq(&pdev->dev, gsw->irq, gsw_interrupt_mt7620, 0,
+		ret = devm_request_irq(priv->dev, gsw->irq, gsw_interrupt_mt7620, 0,
 				  "gsw", priv);
 		if (ret) {
 			dev_err(&pdev->dev,
@@ -326,6 +475,13 @@ int mtk_gsw_init(struct fe_priv *priv)
 			put_device(&pdev->dev);
 			return ret;
 		}
+		priv->gsw_irq_requested = true;
+		ret = devm_add_action_or_reset(priv->dev, mtk_gsw_irq_cleanup, priv);
+		if (ret) {
+			put_device(&pdev->dev);
+			return ret;
+		}
+
 		mtk_switch_w32(gsw, ~PORT_IRQ_ST_CHG, GSW_REG_IMR);
 	}
 
@@ -403,6 +559,8 @@ static int mt7620_gsw_probe(struct platform_device *pdev)
 	mutex_init(&gsw->reg_mutex);
 
 	gsw->irq = platform_get_irq(pdev, 0);
+	if (gsw->irq < 0)
+		return gsw->irq;
 
 	gsw->rst_ephy = devm_reset_control_get_exclusive(&pdev->dev, "ephy");
 	if (IS_ERR(gsw->rst_ephy)) {

@@ -80,30 +80,51 @@ static int mt7620_gsw_config(struct fe_priv *priv)
 {
 	struct mt7620_gsw *gsw = (struct mt7620_gsw *) priv->soc->swpriv;
 	u32 val;
+	int ret;
 
 	if (priv->dsa_switch)
 		return mt7620_gsw_dsa_device_register(gsw, priv->dev);
 
 	/* is the mt7530 internal or external */
 	if (priv->mii_bus && mdiobus_get_phy(priv->mii_bus, 0x1f)) {
-		mt7530_probe(priv->dev, gsw->base, NULL, 0);
-		mt7530_probe(priv->dev, NULL, priv->mii_bus, 1);
+		ret = mt7530_probe(priv->dev, gsw->base, NULL, 0, &priv->switch_devs);
+		if (ret)
+			return ret;
+		ret = mt7530_probe(priv->dev, NULL, priv->mii_bus, 1,
+				   &priv->switch_devs);
+		if (ret)
+			return ret;
 
+		mutex_lock(&priv->mii_bus->mdio_lock);
 		/* magic values from original SDK */
-		val = mt7530_mdio_r32(gsw, 0x7830);
+		ret = mt7530_mdio_r32(gsw, 0x7830, &val);
+		if (ret)
+			goto out_mdio;
 		val &= ~BIT(0);
 		val |= BIT(1);
-		mt7530_mdio_w32(gsw, 0x7830, val);
+		ret = mt7530_mdio_w32(gsw, 0x7830, val);
+		if (ret)
+			goto out_mdio;
 
-		val = mt7530_mdio_r32(gsw, 0x7a40);
+		ret = mt7530_mdio_r32(gsw, 0x7a40, &val);
+		if (ret)
+			goto out_mdio;
 		val &= ~BIT(30);
-		mt7530_mdio_w32(gsw, 0x7a40, val);
+		ret = mt7530_mdio_w32(gsw, 0x7a40, val);
+		if (ret)
+			goto out_mdio;
 
-		mt7530_mdio_w32(gsw, 0x7a78, 0x855);
+		ret = mt7530_mdio_w32(gsw, 0x7a78, 0x855);
+out_mdio:
+		mutex_unlock(&priv->mii_bus->mdio_lock);
+		if (ret)
+			return ret;
 
 		pr_info("mt7530: mdio central align\n");
 	} else {
-		mt7530_probe(priv->dev, gsw->base, NULL, 1);
+		ret = mt7530_probe(priv->dev, gsw->base, NULL, 1, &priv->switch_devs);
+		if (ret)
+			return ret;
 	}
 
 	return 0;
@@ -112,6 +133,9 @@ static int mt7620_gsw_config(struct fe_priv *priv)
 static void mt7620_gsw_cleanup(struct fe_priv *priv)
 {
 	struct mt7620_gsw *gsw = (struct mt7620_gsw *)priv->soc->swpriv;
+
+	mtk_gsw_irq_cleanup(priv);
+	mt7530_cleanup(&priv->switch_devs);
 
 	if (gsw)
 		mt7620_gsw_dsa_device_unregister(gsw);
