@@ -1549,12 +1549,17 @@ static int fe_init(struct net_device *dev)
 		goto err_phy_disconnect;
 
 	if ((priv->flags & FE_FLAG_HAS_SWITCH) && priv->soc->switch_config &&
-	    !priv->dsa_switch)
-		priv->soc->switch_config(priv);
+	    !priv->dsa_switch) {
+		err = priv->soc->switch_config(priv);
+		if (err)
+			goto err_phy_disconnect;
+	}
 
 	return 0;
 
 err_phy_disconnect:
+	if (!priv->dsa_switch && priv->soc->switch_cleanup)
+		priv->soc->switch_cleanup(priv);
 	if (priv->phy && !priv->dsa_switch)
 		priv->phy->disconnect(priv);
 	fe_mdio_cleanup(priv);
@@ -1565,6 +1570,9 @@ err_phy_disconnect:
 static void fe_uninit(struct net_device *dev)
 {
 	struct fe_priv *priv = netdev_priv(dev);
+
+	if (!priv->dsa_switch && priv->soc->switch_cleanup)
+		priv->soc->switch_cleanup(priv);
 
 	if (priv->phy && !priv->dsa_switch)
 		priv->phy->disconnect(priv);
@@ -1818,6 +1826,7 @@ static int fe_probe(struct platform_device *pdev)
 	priv->tx_ring.tx_ring_size = NUM_DMA_DESC;
 	priv->rx_ring.rx_ring_size = NUM_DMA_DESC;
 	INIT_WORK(&priv->pending_work, fe_pending_work);
+	INIT_LIST_HEAD(&priv->switch_devs);
 
 	if (priv->dsa_switch) {
 #if IS_ENABLED(CONFIG_NET_DSA)
