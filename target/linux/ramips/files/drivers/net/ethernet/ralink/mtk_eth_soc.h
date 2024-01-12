@@ -21,6 +21,8 @@
 #include <linux/dma-mapping.h>
 #include <linux/phy.h>
 #include <linux/ethtool.h>
+#include <linux/version.h>
+#include <linux/workqueue.h>
 
 enum fe_reg {
 	FE_REG_PDMA_GLO_CFG = 0,
@@ -465,6 +467,7 @@ struct fe_priv {
 	/* make sure that register operations are atomic */
 	spinlock_t			page_lock;
 
+	struct work_struct irq_worker;
 	struct fe_soc_data		*soc;
 	struct net_device		*netdev;
 	struct device_node		*switch_np;
