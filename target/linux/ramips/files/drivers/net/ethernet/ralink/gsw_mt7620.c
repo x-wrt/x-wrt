@@ -20,6 +20,7 @@
 #include <linux/of_device.h>
 #include <linux/of_irq.h>
 #include <linux/of_platform.h>
+#include <linux/workqueue.h>
 
 #include <ralink_regs.h>
 
@@ -40,10 +41,24 @@ static irqreturn_t gsw_interrupt_mt7620(int irq, void *_priv)
 {
 	struct fe_priv *priv = (struct fe_priv *)_priv;
 	struct mt7620_gsw *gsw = (struct mt7620_gsw *)priv->soc->swpriv;
+
+	disable_irq_nosync(gsw->irq);
+
+	schedule_work(&priv->irq_worker);
+
+	return IRQ_HANDLED;
+}
+
+static void gsw_irq_worker(struct work_struct *work)
+{
+	struct fe_priv *priv = container_of(work, struct fe_priv, irq_worker);
+	struct mt7620_gsw *gsw = (struct mt7620_gsw *)priv->soc->swpriv;
 	u32 status;
 	int i, max = (gsw->port4_ephy) ? (4) : (3);
 
 	status = mtk_switch_r32(gsw, GSW_REG_ISR);
+	mtk_switch_w32(gsw, status, GSW_REG_ISR);
+
 	if (status & PORT_IRQ_ST_CHG)
 		for (i = 0; i <= max; i++) {
 			u32 status = mtk_switch_r32(gsw, GSW_REG_PORT_STATUS(i));
@@ -57,9 +72,8 @@ static irqreturn_t gsw_interrupt_mt7620(int irq, void *_priv)
 			priv->link[i] = link;
 		}
 	mt7620_handle_carrier(priv);
-	mtk_switch_w32(gsw, status, GSW_REG_ISR);
 
-	return IRQ_HANDLED;
+	enable_irq(gsw->irq);
 }
 
 static void gsw_reset_ephy(struct mt7620_gsw *gsw)
@@ -245,6 +259,8 @@ int mtk_gsw_init(struct fe_priv *priv)
 	mt7620_mac_init(gsw);
 
 	mt7620_ephy_init(gsw);
+
+	INIT_WORK(&priv->irq_worker, gsw_irq_worker);
 
 	if (gsw->irq) {
 		ret = devm_request_irq(&pdev->dev, gsw->irq, gsw_interrupt_mt7620, 0,
