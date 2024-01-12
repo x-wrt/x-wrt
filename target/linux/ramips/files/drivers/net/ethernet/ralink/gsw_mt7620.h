@@ -148,6 +148,7 @@ struct mt7620_gsw {
 void mtk_switch_w32(struct mt7620_gsw *gsw, u32 val, unsigned reg);
 u32 mtk_switch_r32(struct mt7620_gsw *gsw, unsigned reg);
 int mtk_gsw_init(struct fe_priv *priv);
+void mtk_gsw_irq_cleanup(void *data);
 #if IS_ENABLED(CONFIG_NET_DSA_MT7620)
 int mt7620_gsw_dsa_device_register(struct mt7620_gsw *gsw,
 				   struct device *parent);
@@ -173,12 +174,12 @@ int mt7620_has_carrier(struct fe_priv *priv);
 void mt7620_print_link_state(struct fe_priv *priv, int port, int link,
 			     int speed, int duplex);
 
-void mt7530_mdio_w32(struct mt7620_gsw *gsw, u32 reg, u32 val);
-u32 mt7530_mdio_r32(struct mt7620_gsw *gsw, u32 reg);
+int mt7530_mdio_w32(struct mt7620_gsw *gsw, u32 reg, u32 val);
+int mt7530_mdio_r32(struct mt7620_gsw *gsw, u32 reg, u32 *val);
 
-u32 _mt7620_mii_write(struct mt7620_gsw *gsw, u32 phy_addr,
+int _mt7620_mii_write(struct mt7620_gsw *gsw, u32 phy_addr,
 			     u32 phy_register, u32 write_data);
-u32 _mt7620_mii_read(struct mt7620_gsw *gsw, int phy_addr, int phy_reg);
+int _mt7620_mii_read(struct mt7620_gsw *gsw, int phy_addr, int phy_reg);
 void mt7620_handle_carrier(struct fe_priv *priv);
 
 #endif
