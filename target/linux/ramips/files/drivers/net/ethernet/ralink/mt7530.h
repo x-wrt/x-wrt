@@ -137,6 +137,10 @@
 /* Rx Event Packet Counter of Port n */
 #define MT7620_MIB_STATS_PORT_REPC2N	0x30
 
-int mt7530_probe(struct device *dev, void __iomem *base, struct mii_bus *bus, int vlan);
+struct list_head;
+
+int mt7530_probe(struct device *dev, void __iomem *base, struct mii_bus *bus,
+		 int vlan, struct list_head *switches);
+void mt7530_cleanup(struct list_head *switches);
 
 #endif
