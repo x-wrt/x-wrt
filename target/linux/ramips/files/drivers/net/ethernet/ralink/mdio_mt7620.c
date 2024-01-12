@@ -36,11 +36,14 @@ static int mt7620_mii_busy_wait(struct mt7620_gsw *gsw)
 	return ret;
 }
 
-u32 _mt7620_mii_write(struct mt7620_gsw *gsw, u32 phy_addr,
+static int mt7620_mii_write(struct mt7620_gsw *gsw, u32 phy_addr,
 			     u32 phy_register, u32 write_data)
 {
-	if (mt7620_mii_busy_wait(gsw))
-		return -1;
+	int ret;
+
+	ret = mt7620_mii_busy_wait(gsw);
+	if (ret)
+		return ret;
 
 	write_data &= 0xffff;
 
@@ -49,30 +52,41 @@ u32 _mt7620_mii_write(struct mt7620_gsw *gsw, u32 phy_addr,
 		(phy_addr << GSW_MDIO_ADDR_SHIFT) | write_data,
 		MT7620A_GSW_REG_PIAC);
 
-	if (mt7620_mii_busy_wait(gsw))
-		return -1;
-
-	return 0;
+	return mt7620_mii_busy_wait(gsw);
 }
 
-u32 _mt7620_mii_read(struct mt7620_gsw *gsw, int phy_addr, int phy_reg)
+static int mt7620_mii_read(struct mt7620_gsw *gsw, int phy_addr, int phy_reg)
 {
 	u32 d;
+	int ret;
 
-	if (mt7620_mii_busy_wait(gsw))
-		return 0xffff;
+	ret = mt7620_mii_busy_wait(gsw);
+	if (ret)
+		return ret;
 
 	mtk_switch_w32(gsw, GSW_MDIO_ACCESS | GSW_MDIO_START | GSW_MDIO_READ |
 		(phy_reg << GSW_MDIO_REG_SHIFT) |
 		(phy_addr << GSW_MDIO_ADDR_SHIFT),
 		MT7620A_GSW_REG_PIAC);
 
-	if (mt7620_mii_busy_wait(gsw))
-		return 0xffff;
+	ret = mt7620_mii_busy_wait(gsw);
+	if (ret)
+		return ret;
 
 	d = mtk_switch_r32(gsw, MT7620A_GSW_REG_PIAC) & 0xffff;
 
 	return d;
+}
+
+int _mt7620_mii_write(struct mt7620_gsw *gsw, u32 phy_addr,
+			     u32 phy_register, u32 write_data)
+{
+	return mt7620_mii_write(gsw, phy_addr, phy_register, write_data);
+}
+
+int _mt7620_mii_read(struct mt7620_gsw *gsw, int phy_addr, int phy_reg)
+{
+	return mt7620_mii_read(gsw, phy_addr, phy_reg);
 }
 
 int mt7620_mdio_write(struct mii_bus *bus, int phy_addr, int phy_reg, u16 val)
@@ -80,7 +94,7 @@ int mt7620_mdio_write(struct mii_bus *bus, int phy_addr, int phy_reg, u16 val)
 	struct fe_priv *priv = bus->priv;
 	struct mt7620_gsw *gsw = (struct mt7620_gsw *)priv->soc->swpriv;
 
-	return _mt7620_mii_write(gsw, phy_addr, phy_reg, val);
+	return mt7620_mii_write(gsw, phy_addr, phy_reg, val);
 }
 
 int mt7620_mdio_read(struct mii_bus *bus, int phy_addr, int phy_reg)
@@ -88,25 +102,39 @@ int mt7620_mdio_read(struct mii_bus *bus, int phy_addr, int phy_reg)
 	struct fe_priv *priv = bus->priv;
 	struct mt7620_gsw *gsw = (struct mt7620_gsw *)priv->soc->swpriv;
 
-	return _mt7620_mii_read(gsw, phy_addr, phy_reg);
+	return mt7620_mii_read(gsw, phy_addr, phy_reg);
 }
 
-void mt7530_mdio_w32(struct mt7620_gsw *gsw, u32 reg, u32 val)
+int mt7530_mdio_w32(struct mt7620_gsw *gsw, u32 reg, u32 val)
 {
-	_mt7620_mii_write(gsw, 0x1f, 0x1f, (reg >> 6) & 0x3ff);
-	_mt7620_mii_write(gsw, 0x1f, (reg >> 2) & 0xf,  val & 0xffff);
-	_mt7620_mii_write(gsw, 0x1f, 0x10, val >> 16);
+	int ret;
+
+	ret = mt7620_mii_write(gsw, 0x1f, 0x1f, (reg >> 6) & 0x3ff);
+	if (ret)
+		return ret;
+	ret = mt7620_mii_write(gsw, 0x1f, (reg >> 2) & 0xf, val & 0xffff);
+	if (ret)
+		return ret;
+
+	return mt7620_mii_write(gsw, 0x1f, 0x10, val >> 16);
 }
 
-u32 mt7530_mdio_r32(struct mt7620_gsw *gsw, u32 reg)
+int mt7530_mdio_r32(struct mt7620_gsw *gsw, u32 reg, u32 *val)
 {
-	u16 high, low;
+	int ret, high, low;
 
-	_mt7620_mii_write(gsw, 0x1f, 0x1f, (reg >> 6) & 0x3ff);
-	low = _mt7620_mii_read(gsw, 0x1f, (reg >> 2) & 0xf);
-	high = _mt7620_mii_read(gsw, 0x1f, 0x10);
+	ret = mt7620_mii_write(gsw, 0x1f, 0x1f, (reg >> 6) & 0x3ff);
+	if (ret)
+		return ret;
+	low = mt7620_mii_read(gsw, 0x1f, (reg >> 2) & 0xf);
+	if (low < 0)
+		return low;
+	high = mt7620_mii_read(gsw, 0x1f, 0x10);
+	if (high < 0)
+		return high;
 
-	return (high << 16) | (low & 0xffff);
+	*val = ((u32)high << 16) | (u32)low;
+	return 0;
 }
 
 static unsigned char *fe_speed_str(int speed)
