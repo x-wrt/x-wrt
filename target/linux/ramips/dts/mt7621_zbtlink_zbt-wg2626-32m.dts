@@ -1,0 +1,10 @@
+#include "mt7621_zbtlink_zbt-wg2626.dtsi"
+
+/ {
+	compatible = "zbtlink,zbt-wg2626-32m", "zbtlink,zbt-wg2626", "mediatek,mt7621-soc";
+	model = "Zbtlink ZBT-WG2626 (32M)";
+};
+
+&firmware {
+	reg = <0x50000 0x1fb0000>;
+};

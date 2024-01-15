@@ -3500,17 +3500,31 @@ define Device/zbtlink_zbt-wg1608-32m
 endef
 TARGET_DEVICES += zbtlink_zbt-wg1608-32m
 
-define Device/zbtlink_zbt-wg2626
+define Device/zbtlink_zbt-wg2626-16m
   $(Device/dsa-migration)
   $(Device/uimage-lzma-loader)
   IMAGE_SIZE := 16064k
   DEVICE_VENDOR := Zbtlink
   DEVICE_MODEL := ZBT-WG2626
+  DEVICE_VARIANT := 16M
   DEVICE_PACKAGES := kmod-ata-ahci kmod-sdhci-mt7620 kmod-mt76x2 kmod-usb3 \
 	kmod-usb-ledtrig-usbport -uboot-envtools
-  SUPPORTED_DEVICES += zbt-wg2626
+  SUPPORTED_DEVICES += zbt-wg2626-16m
 endef
-TARGET_DEVICES += zbtlink_zbt-wg2626
+TARGET_DEVICES += zbtlink_zbt-wg2626-16m
+
+define Device/zbtlink_zbt-wg2626-32m
+  $(Device/dsa-migration)
+  $(Device/uimage-lzma-loader)
+  IMAGE_SIZE := 32448k
+  DEVICE_VENDOR := Zbtlink
+  DEVICE_MODEL := ZBT-WG2626
+  DEVICE_VARIANT := 32M
+  DEVICE_PACKAGES := kmod-ata-ahci kmod-sdhci-mt7620 kmod-mt76x2 kmod-usb3 \
+	kmod-usb-ledtrig-usbport -uboot-envtools
+  SUPPORTED_DEVICES += zbt-wg2626-32m
+endef
+TARGET_DEVICES += zbtlink_zbt-wg2626-32m
 
 define Device/zbtlink_zbt-wg3526-16m
   $(Device/dsa-migration)
