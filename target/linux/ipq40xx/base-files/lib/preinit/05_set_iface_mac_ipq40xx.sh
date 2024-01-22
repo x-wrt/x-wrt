@@ -24,6 +24,17 @@ preinit_set_mac_address() {
 	extreme-networks,ws-ap391x)
 		ip link set dev eth0 address $(mtd_get_mac_ascii CFG1 ethaddr)
 		;;
+	p2w,r619ac-64m|\
+	p2w,r619ac-128m)
+		lan_mac=$(mtd_get_mac_binary ART 0x0)
+		wan_mac=$(mtd_get_mac_binary ART 0x6)
+		ip link set dev eth0 address $lan_mac
+		ip link set dev lan1 address $lan_mac
+		ip link set dev lan2 address $lan_mac
+		ip link set dev lan3 address $lan_mac
+		ip link set dev lan4 address $lan_mac
+		ip link set dev wan address $wan_mac
+		;;
 	linksys,ea8300|\
 	linksys,mr8300)
 		base_mac=$(mtd_get_mac_ascii devinfo hw_mac_addr)
