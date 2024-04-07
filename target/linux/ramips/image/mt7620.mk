@@ -823,6 +823,8 @@ define Device/mercusys_ac12g-v1-8m
   TPLINK_HWID := 0x04da857c
   TPLINK_HWREV := 0x0c000600
   TPLINK_HWREVADD := 0x04000000
+  KERNEL := kernel-bin | append-dtb | lzma -d22
+  KERNEL_INITRAMFS := kernel-bin | append-dtb | lzma -d22 | tplink-v2-header -e
   IMAGES += tftp-recovery.bin
   IMAGE/tftp-recovery.bin := pad-extra 128k | $$(IMAGE/factory.bin)
   DEVICE_VENDOR := Mercusys
