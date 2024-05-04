@@ -1,14 +1,18 @@
 --- a/src/adpt/adpt.c
 +++ b/src/adpt/adpt.c
-@@ -394,11 +394,6 @@ sw_error_t adpt_init(a_uint32_t dev_id,
+@@ -392,13 +392,13 @@ sw_error_t adpt_init(a_uint32_t dev_id,
+ 			rv = adpt_appe_module_func_register(dev_id, FAL_MODULE_ATHTAG);
+ 			SW_RTN_ON_ERROR(rv);
  #endif
- #endif
- #if defined(HPPE)
--#if defined(FALLTHROUGH)
--			fallthrough;
--#else
--			/* fall through */
 -#endif
+-#if defined(HPPE)
+ #if defined(FALLTHROUGH)
+ 			fallthrough;
+ #else
+ 			/* fall through */
+ #endif
++#endif
++#if defined(HPPE)
  		case CHIP_HPPE:
  			if (g_adpt_api[dev_id] == NULL) {
  				g_adpt_api[dev_id] = aos_mem_alloc(sizeof(adpt_api_t));
