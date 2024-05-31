@@ -1,0 +1,21 @@
+From 37757d0cec7abfbc4a1664fda317ad93f7080dad Mon Sep 17 00:00:00 2001
+From: Chen Minqiang <ptpt52@gmail.com>
+Date: Fri, 31 May 2024 10:57:38 +0800
+Subject: [PATCH] net: checksum: fix missing include bitops.h
+
+---
+ include/net/checksum.h | 3 +++
+ 1 file changed, 3 insertions(+)
+
+--- a/include/net/checksum.h
++++ b/include/net/checksum.h
+@@ -22,6 +22,9 @@
+ #if !defined(_HAVE_ARCH_COPY_AND_CSUM_FROM_USER) || !defined(HAVE_CSUM_COPY_USER)
+ #include <linux/uaccess.h>
+ #endif
++#ifndef HAVE_ARCH_CSUM_SHIFT
++#include <linux/bitops.h>
++#endif
+ 
+ #ifndef _HAVE_ARCH_COPY_AND_CSUM_FROM_USER
+ static __always_inline
