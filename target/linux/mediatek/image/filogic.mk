@@ -895,7 +895,7 @@ define Device/cmcc_rax3000m
   DEVICE_DTC_FLAGS := --pad 4096
   DEVICE_DTS_LOADADDR := 0x43f00000
   DEVICE_PACKAGES := kmod-mt7915e kmod-mt7981-firmware mt7981-wo-firmware kmod-usb3 \
-	e2fsprogs f2fsck mkf2fs
+	e2fsprogs f2fsck mkf2fs kmod-fs-ext4 tune2fs ethtool blockd blkid fdisk gdisk partx-utils
   KERNEL_LOADADDR := 0x44000000
   KERNEL := kernel-bin | gzip
   KERNEL_INITRAMFS := kernel-bin | lzma | \
