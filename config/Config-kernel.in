@@ -1104,7 +1104,7 @@ config KERNEL_POSIX_MQUEUE
 
 config KERNEL_SECCOMP_FILTER
 	bool
-	default y if !SMALL_FLASH
+	default n
 
 config KERNEL_SECCOMP
 	bool "Enable seccomp support"
