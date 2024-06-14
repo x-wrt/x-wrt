@@ -469,7 +469,7 @@ menu "Global build settings"
 		select KERNEL_SECCOMP
 		depends on (aarch64 || arm || armeb || mips || mipsel || mips64 || mips64el || i386 || loongarch64 || powerpc || x86_64)
 		depends on !TARGET_uml
-		default y
+		default n
 		help
 		  This option enables seccomp kernel features to safely
 		  execute untrusted bytecode and selects the seccomp-variants
