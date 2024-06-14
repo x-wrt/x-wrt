@@ -106,16 +106,6 @@ else
 DEFAULT_PACKAGES+=busybox procd
 endif
 
-# include ujail on systems with enough storage
-ifeq ($(CONFIG_SMALL_FLASH),)
-DEFAULT_PACKAGES+=procd-ujail
-endif
-
-# include seccomp ld-preload hooks if kernel supports it
-ifneq ($(CONFIG_SECCOMP),)
-DEFAULT_PACKAGES+=procd-seccomp
-endif
-
 # Add device specific packages (here below to allow device type set from subtarget)
 DEFAULT_PACKAGES += $(DEFAULT_PACKAGES.$(DEVICE_TYPE))
 
