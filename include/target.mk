@@ -88,11 +88,6 @@ else
   endif
 endif
 
-# include ujail on systems with enough storage
-ifeq ($(filter small_flash,$(FEATURES)),)
-  DEFAULT_PACKAGES+=procd-ujail
-endif
-
 # legacy-sdcard upgrades need partx after writing the full image
 ifneq ($(filter legacy-sdcard,$(FEATURES)),)
   DEFAULT_PACKAGES+=partx-utils
