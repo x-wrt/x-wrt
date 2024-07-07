@@ -1,0 +1,321 @@
+http:
+  pprof:
+    port: 6060
+    enabled: false
+  address: 192.168.1.1:3001
+  session_ttl: 720h
+users:
+  - name: doanduy
+    password: $2a$10$5EacakbpgRMza/hITelJiuW4AtKhHeGO3b1OrmOC.PGy6qEPzn4Ja
+auth_attempts: 5
+block_auth_min: 0
+http_proxy: ""
+language: ""
+theme: auto
+dns:
+  bind_hosts:
+    - 0.0.0.0
+  port: 5354
+  anonymize_client_ip: false
+  ratelimit: 0
+  ratelimit_subnet_len_ipv4: 24
+  ratelimit_subnet_len_ipv6: 56
+  ratelimit_whitelist: []
+  refuse_any: true
+  upstream_dns:
+    - '#vnpt'
+    - '#203.162.4.191'
+    - '#203.162.4.190'
+    - '#OpenDNS Home'
+    - '#208.67.222.222'
+    - '#208.67.220.220'
+    - '# AdGuard'
+    - '#94.140.14.14'
+    - '#94.140.15.15'
+    - '# Google'
+    - 8.8.8.8
+    - 8.8.4.4
+    - https://dns.google/dns-query
+    - tls://dns.google
+    - '# Cisco OpenDNS'
+    - '#208.67.222.222'
+    - '#208.67.220.220'
+    - '#https://doh.opendns.com/dns-query'
+    - '# Cloudflare DNS'
+    - 1.1.1.1
+    - 1.0.0.1
+    - https://dns.cloudflare.com/dns-query
+    - tls://1.1.1.1
+    - 103.113.83.29
+    - 103.113.83.30
+    - 125.253.125.252
+    - 103.249.103.248
+  upstream_dns_file: ""
+  bootstrap_dns:
+    - 9.9.9.10
+    - 149.112.112.10
+    - 2620:fe::10
+    - 2620:fe::fe:10
+  fallback_dns: []
+  upstream_mode: parallel
+  fastest_timeout: 1s
+  allowed_clients: []
+  disallowed_clients: []
+  blocked_hosts:
+    - version.bind
+    - id.server
+    - hostname.bind
+  trusted_proxies:
+    - 127.0.0.0/8
+    - ::1/128
+  cache_size: 4194304
+  cache_ttl_min: 0
+  cache_ttl_max: 0
+  cache_optimistic: false
+  bogus_nxdomain: []
+  aaaa_disabled: false
+  enable_dnssec: false
+  edns_client_subnet:
+    custom_ip: ""
+    enabled: false
+    use_custom: false
+  max_goroutines: 300
+  handle_ddr: true
+  ipset: []
+  ipset_file: ""
+  bootstrap_prefer_ipv6: false
+  upstream_timeout: 10s
+  private_networks: []
+  use_private_ptr_resolvers: false
+  local_ptr_upstreams: []
+  use_dns64: false
+  dns64_prefixes: []
+  serve_http3: false
+  use_http3_upstreams: false
+  serve_plain_dns: true
+  hostsfile_enabled: true
+tls:
+  enabled: false
+  server_name: ""
+  force_https: false
+  port_https: 443
+  port_dns_over_tls: 853
+  port_dns_over_quic: 853
+  port_dnscrypt: 0
+  dnscrypt_config_file: ""
+  allow_unencrypted_doh: false
+  certificate_chain: ""
+  private_key: ""
+  certificate_path: ""
+  private_key_path: ""
+  strict_sni_check: false
+querylog:
+  dir_path: ""
+  ignored: []
+  interval: 2160h
+  size_memory: 1000
+  enabled: true
+  file_enabled: true
+statistics:
+  dir_path: ""
+  ignored: []
+  interval: 24h
+  enabled: true
+filters:
+  - enabled: true
+    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt
+    name: AdGuard DNS filter
+    id: 1
+  - enabled: true
+    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_2.txt
+    name: AdAway Default Blocklist
+    id: 2
+  - enabled: true
+    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_38.txt
+    name: 1Hosts (mini)
+    id: 1713194188
+  - enabled: true
+    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_48.txt
+    name: HaGeZi's Pro Blocklist
+    id: 1713194189
+  - enabled: true
+    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_47.txt
+    name: HaGeZi's Gambling Blocklist
+    id: 1713194190
+  - enabled: true
+    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_23.txt
+    name: WindowsSpyBlocker - Hosts spy rules
+    id: 1713194191
+  - enabled: true
+    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_29.txt
+    name: 'CHN: AdRules DNS List'
+    id: 1713194192
+  - enabled: true
+    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_21.txt
+    name: 'CHN: anti-AD'
+    id: 1713194193
+  - enabled: true
+    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_16.txt
+    name: 'VNM: ABPVN List'
+    id: 1713194194
+  - enabled: true
+    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_30.txt
+    name: Phishing URL Blocklist (PhishTank and OpenPhish)
+    id: 1713194195
+  - enabled: true
+    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_42.txt
+    name: ShadowWhisperer's Malware List
+    id: 1713194196
+  - enabled: true
+    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_8.txt
+    name: NoCoin Filter List
+    id: 1713194197
+  - enabled: true
+    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_12.txt
+    name: Dandelion Sprout's Anti-Malware List
+    id: 1713194198
+  - enabled: true
+    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_18.txt
+    name: Phishing Army
+    id: 1713194199
+  - enabled: true
+    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_9.txt
+    name: The Big List of Hacked Malware Web Sites
+    id: 1713194200
+  - enabled: true
+    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_10.txt
+    name: Scam Blocklist by DurableNapkin
+    id: 1713194201
+  - enabled: true
+    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_50.txt
+    name: uBlock₀ filters – Badware risks
+    id: 1713194202
+  - enabled: true
+    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_11.txt
+    name: Malicious URL Blocklist (URLHaus)
+    id: 1713194203
+  - enabled: true
+    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_33.txt
+    name: Steven Black's List
+    id: 1713194204
+  - enabled: true
+    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_46.txt
+    name: HaGeZi's Anti-Piracy Blocklist
+    id: 1713368044
+  - enabled: true
+    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_24.txt
+    name: 1Hosts (Lite)
+    id: 1713368045
+whitelist_filters: []
+user_rules:
+  - '@@||icloud.com^'
+  - '@@||apple.com^'
+  - '#@@||firebaseremoteconfig.googleapis.com^$important'
+  - '#@@||rt.applovin.com^$important'
+  - '#@@||rt.applvn.com^$important'
+  - '#@@||inapps.appsflyer.com^$important'
+  - '#@@||api16-access-sg.pangle.io^$important'
+  - '#@@||launches.appsflyer.com^$important'
+  - '#@@||googleads.g.doubleclick.net^$important'
+  - '#@@||ssdk-sg.pangle.io^$important'
+  - '#@@||tnc16-useast1a.byteoversea.com^$important'
+  - '#@@||tnc16-alisg.isnssdk.com^$important'
+  - '#@@||pagead2.googleadservices.com^$important'
+  - '#@@||a.applovin.com^$important'
+  - '#@@||a4.applovin.com^$important'
+  - '#@@||configure-tcp-android.mtgglobals.com^$important'
+  - '#@@||analytics-tcp.mintegral.net^$important'
+  - '#@@||ssl.google-analytics.com^$important'
+  - '#@@||app-measurement.com^$important'
+  - '#@@||mtg-h5.mtgglobals.com^$important'
+  - '||avwhipazsdco.com^$important'
+  - '||vlstorage.com^$important'
+  - '||choidebet.me^$important'
+  - '||candycrush-live.ext.p.midasplayer.cloud^$important'
+  - '||viettelhomewifi.com^$important'
+  - '||viettelacs.vn^$important'
+  - '||htucmyqwij.com^$important'
+  - /googleads.$~script,domain=~googleads.github.io
+  - /pagead/lvz?
+  - '||google.com/pagead/'
+  - '||static.doubleclick.net^$domain=youtube.com'
+  - '||youtube.com/get_midroll_'
+  - '||safebrowsing.googleapis-cn.com'
+  - '||youtube.com/get_video_info**$domain=youtube.com'
+  - '||prod-lt-playstoregatewayadapter-pa.googleapis.com^$important'
+  - '||suggestqueries.google.com^$important'
+  - '||static.ladipage.net^$important'
+  - '||s.ladicdn.com^$important'
+  - '||w.ladicdn.com^$important'
+  - '||okxaplomkpca.com^$important'
+  - '||cdn.vlcontent.com^$client=''192.168.10.1'''
+  - '||qph.cf2.quoracdn.net^$important'
+  - '||googlecloud.no1ssplay.xyz^$important'
+dhcp:
+  enabled: false
+  interface_name: ""
+  local_domain_name: lan
+  dhcpv4:
+    gateway_ip: ""
+    subnet_mask: ""
+    range_start: ""
+    range_end: ""
+    lease_duration: 86400
+    icmp_timeout_msec: 1000
+    options: []
+  dhcpv6:
+    range_start: ""
+    lease_duration: 86400
+    ra_slaac_only: false
+    ra_allow_slaac: false
+filtering:
+  blocking_ipv4: ""
+  blocking_ipv6: ""
+  blocked_services:
+    schedule:
+      time_zone: UTC
+    ids: []
+  protection_disabled_until: null
+  safe_search:
+    enabled: false
+    bing: true
+    duckduckgo: true
+    google: true
+    pixabay: true
+    yandex: true
+    youtube: true
+  blocking_mode: refused
+  parental_block_host: family-block.dns.adguard.com
+  safebrowsing_block_host: standard-block.dns.adguard.com
+  rewrites: []
+  safebrowsing_cache_size: 1048576
+  safesearch_cache_size: 1048576
+  parental_cache_size: 1048576
+  cache_time: 30
+  filters_update_interval: 1
+  blocked_response_ttl: 0
+  filtering_enabled: true
+  parental_enabled: false
+  safebrowsing_enabled: false
+  protection_enabled: true
+clients:
+  runtime_sources:
+    whois: true
+    arp: true
+    rdns: false
+    dhcp: true
+    hosts: true
+  persistent: []
+log:
+  file: ""
+  max_backups: 0
+  max_size: 100
+  max_age: 3
+  compress: false
+  local_time: false
+  verbose: false
+os:
+  group: ""
+  user: ""
+  rlimit_nofile: 0
+schema_version: 28
