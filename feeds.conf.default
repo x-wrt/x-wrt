@@ -8,5 +8,5 @@ src-git-full x https://github.com/x-wrt/com.x-wrt.git
 #src-git-full oldpackages http://git.openwrt.org/packages.git
 src-git passwall2 https://github.com/xiaorouji/openwrt-passwall2.git;main
 src-git modemfeed https://github.com/koshev-msk/modemfeed.git
-src-git kenzo https://github.com/kenzok8/openwrt-packages
-src-git small https://github.com/kenzok8/small
+#src-git kenzo https://github.com/kenzok8/openwrt-packages
+#src-git small https://github.com/kenzok8/small
