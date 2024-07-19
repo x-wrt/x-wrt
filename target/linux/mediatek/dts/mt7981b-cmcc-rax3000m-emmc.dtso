@@ -16,7 +16,7 @@
 	fragment@1 {
 		target = <&gmac0>;
 		__overlay__ {
-			nvmem-cells = <&macaddr_factory_2a 0>;
+			nvmem-cells = <&macaddr_factory_24 0>;
 			nvmem-cell-names = "mac-address";
 		};
 	};
@@ -24,7 +24,7 @@
 	fragment@2 {
 		target = <&gmac1>;
 		__overlay__ {
-			nvmem-cells = <&macaddr_factory_24 0>;
+			nvmem-cells = <&macaddr_factory_2a 0>;
 			nvmem-cell-names = "mac-address";
 		};
 	};
