@@ -1,0 +1,30 @@
+From f025cd630c69861771b976d425c4096a69fd5491 Mon Sep 17 00:00:00 2001
+From: Chen Minqiang <ptpt52@gmail.com>
+Date: Tue, 6 Aug 2024 21:40:04 +0800
+Subject: [PATCH] mediatek: fix the network device TX queue reset flow
+
+---
+ drivers/net/ethernet/mediatek/mtk_eth_soc.c | 12 ++++++++++--
+ 1 file changed, 10 insertions(+), 2 deletions(-)
+
+--- a/drivers/net/ethernet/mediatek/mtk_eth_soc.c
++++ b/drivers/net/ethernet/mediatek/mtk_eth_soc.c
+@@ -3353,8 +3353,16 @@ static void mtk_dma_free(struct mtk_eth
+ 	int i;
+ 
+ 	for (i = 0; i < MTK_MAX_DEVS; i++)
+-		if (eth->netdev[i])
+-			netdev_reset_queue(eth->netdev[i]);
++		if (eth->netdev[i]) {
++			if (MTK_HAS_CAPS(eth->soc->caps, MTK_QDMA)) {
++				int j;
++				for (j = 0; j < MTK_QDMA_NUM_QUEUES; j++) {
++					netdev_tx_reset_queue(netdev_get_tx_queue(eth->netdev[i], j));
++				}
++			} else {
++				netdev_reset_queue(eth->netdev[i]);
++			}
++		}
+ 	if (!MTK_HAS_CAPS(soc->caps, MTK_SRAM) && eth->scratch_ring) {
+ 		dma_free_coherent(eth->dma_dev,
+ 				  MTK_QDMA_RING_SIZE * soc->tx.desc_size,
