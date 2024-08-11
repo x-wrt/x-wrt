@@ -196,6 +196,25 @@ export_bootdevice() {
 			done
 		;;
 		/dev/*)
+			if [ "$rootpart" = "/dev/fit0" ]; then
+				. /lib/upgrade/fit.sh
+				export_fitblk_bootdev
+				case "$CI_METHOD" in
+					"default")
+						rootpart="$PART_NAME"
+						;;
+					"ubi")
+						. /lib/upgrade/nand.sh
+						local ubidev="$(nand_find_ubi $CI_UBIPART)"
+						if [ -n "$CI_KERNPART" ]; then
+							rootpart="/dev/$(nand_find_volume "$ubidev" "$CI_KERNPART")"
+						fi
+						;;
+					"emmc")
+						rootpart="$EMMC_KERN_DEV"
+						;;
+				esac
+			fi
 			uevent="/sys/class/block/${rootpart##*/}/../uevent"
 		;;
 		0x[a-f0-9][a-f0-9][a-f0-9] | 0x[a-f0-9][a-f0-9][a-f0-9][a-f0-9] | \
