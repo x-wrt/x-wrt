@@ -48,6 +48,9 @@ ifdef IB
 define Build/append-image-stage
 	dd if=$(STAGING_DIR_IMAGE)/$(BOARD)-$(SUBTARGET)-$(DEVICE_NAME)-$(1) >> $@
 endef
+define Build/append-image-stage-with-size
+	dd if=$(STAGING_DIR_IMAGE)/$(BOARD)-$(SUBTARGET)-$(DEVICE_NAME)-$(wordlist 1,1,$(1)) bs=$(wordlist 2,2,$(1)) count=1 >> $@
+endef
 else
 define Build/append-image-stage
 	cp "$(BIN_DIR)/$(DEVICE_IMG_PREFIX)-$(1)" "$@.stripmeta"
@@ -56,6 +59,15 @@ define Build/append-image-stage
 	mkdir -p "$(STAGING_DIR_IMAGE)"
 	dd if="$@.stripmeta" of="$(STAGING_DIR_IMAGE)/$(BOARD)-$(SUBTARGET)-$(DEVICE_NAME)-$(1)"
 	dd if="$@.stripmeta" >> "$@"
+	rm "$@.stripmeta"
+endef
+define Build/append-image-stage-with-size
+	cp "$(BIN_DIR)/$(DEVICE_IMG_PREFIX)-$(wordlist 1,1,$(1))" "$@.stripmeta"
+	fwtool -s /dev/null -t "$@.stripmeta" || :
+	fwtool -i /dev/null -t "$@.stripmeta" || :
+	mkdir -p "$(STAGING_DIR_IMAGE)"
+	dd if="$@.stripmeta" of="$(STAGING_DIR_IMAGE)/$(BOARD)-$(SUBTARGET)-$(DEVICE_NAME)-$(wordlist 1,1,$(1))"
+	dd if="$@.stripmeta" bs=$(wordlist 2,2,$(1)) count=1 >> "$@"
 	rm "$@.stripmeta"
 endef
 endif
