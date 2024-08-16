@@ -19,6 +19,11 @@ asus,rt-ax89x|\
 qnap,301w)
 	ubootenv_add_mtd "0:appsblenv" "0x0" "0x20000" "0x20000"
 	;;
+arcadyan,aw1000)
+	idx="$(find_mtd_index 0:appsblenv)"
+	[ -n "$idx" ] && \
+		ubootenv_add_uci_config "/dev/mtdblock$idx" "0x0" "0x40000" "0x20000"
+	;;
 dynalink,dl-wrx36|\
 netgear,rax120v2|\
 netgear,sxr80|\
