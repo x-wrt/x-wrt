@@ -10,6 +10,11 @@ set_netdev_labels() {
 		[ "$netdev" = "$label" ] && continue
 		ip link set "$netdev" name "$label"
 	done
+
+	for dir in /sys/class/net/rename_*; do
+		netdev="${dir##*/}"
+		test -e "$dir" && ip link set "$netdev" name "${netdev##rename_}"
+	done
 }
 
 boot_hook_add preinit_main set_netdev_labels
