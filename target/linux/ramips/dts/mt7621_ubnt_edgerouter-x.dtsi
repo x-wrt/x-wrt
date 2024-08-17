@@ -29,12 +29,12 @@
 	ports {
 		port@0 {
 			status = "okay";
-			label = "eth0";
+			label = "rename_eth0";
 		};
 
 		port@1 {
 			status = "okay";
-			label = "eth1";
+			label = "rename_eth1";
 			nvmem-cells = <&macaddr_factory_22 1>;
 			nvmem-cell-names = "mac-address";
 		};
