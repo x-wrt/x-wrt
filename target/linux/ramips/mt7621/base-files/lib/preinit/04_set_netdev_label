@@ -11,6 +11,11 @@ set_netdev_labels() {
 		ip link set "$netdev" name "$label"
 	done
 
+	for dir in /sys/class/net/rename_*; do
+		netdev="${dir##*/}"
+		test -e "$dir" && ip link set "$netdev" name "${netdev##rename_}"
+	done
+
 	for dir in /sys/class/net/*; do
 		[ -r "$dir/of_node/openwrt,netdev-name" ] || continue
 		read -r label < "$dir/of_node/openwrt,netdev-name"
