@@ -77,9 +77,12 @@ jobs:
           chmod +x $DIY_P1_SH && sed -i -e 's/\r$//' $GITHUB_WORKSPACE/$DIY_P1_SH
           cd openwrt
           $GITHUB_WORKSPACE/$DIY_P1_SH
-           #git fetch origin --tags
-           #git describe --tags $(git rev-list --tags --max-count=1) > xwrt_version
-           #git checkout -f $(git describe --tags $(git rev-list --tags --max-count=1))
+           git fetch origin --tags
+           git describe --tags $(git rev-list --tags --max-count=1) > xwrt_version
+           git checkout -f $(git describe --tags $(git rev-list --tags --max-count=1))
+           echo "src-git modem https://github.com/kiddin9/openwrt-packages.git" >> "feeds.conf.default"
+           rm -rf feeds/packages/lang/golang
+           git clone https://github.com/kenzok8/golang feeds/packages/lang/golang       
 
       - name: Update feeds
         run: cd openwrt && ./scripts/feeds update -a
