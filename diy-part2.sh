@@ -15,4 +15,11 @@ sed -i 's/192.168.1.1/192.168.1.1/g' package/base-files/files/bin/config_generat
 sed -i '/CONFIG_PACKAGE_glib2=y/d' .config
 #echo 'CONFIG_FEED_atinout=y' >>.config
 #echo 'CONFIG_PACKAGE_luci-app-atinout-mod=y' >>.config
+cd feeds/luci/applications/
+git clone https://github.com/4IceG/luci-app-3ginfo-lite.git
+git clone https://github.com/4IceG/luci-app-atcommands.git
+git clone https://github.com/4IceG/luci-app-modemband.git
+git clone https://github.com/4IceG/luci-app-sms-tool.git
+cd ../../..
+./scripts/feeds update -a; ./scripts/feeds install -a
 
