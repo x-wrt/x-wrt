@@ -458,7 +458,7 @@ CONFIG_TARGET_INIT_CMD="/sbin/init"
 CONFIG_TARGET_INIT_SUPPRESS_STDERR=y
 CONFIG_VERSIONOPT=y
 CONFIG_VERSION_DIST="DOANDUY"
-CONFIG_VERSION_NUMBER="24.04_b202408251108"
+CONFIG_VERSION_NUMBER="24.04_b202408271653"
 CONFIG_VERSION_CODE="Noble"
 CONFIG_VERSION_REPO="http://downloads.openwrt.org/snapshots"
 CONFIG_VERSION_HOME_URL="https://x-wrt.com/"
@@ -2766,7 +2766,7 @@ CONFIG_PACKAGE_nginx-util=y
 # CONFIG_PACKAGE_openvpn-dns-hotplug is not set
 # CONFIG_PACKAGE_rrm-nr-distributor is not set
 # CONFIG_PACKAGE_tang is not set
-# CONFIG_PACKAGE_telegrambot is not set
+CONFIG_PACKAGE_telegrambot=y
 CONFIG_PACKAGE_xmm-modem=y
 # end of Extra packages
 
@@ -3525,7 +3525,7 @@ CONFIG_PACKAGE_kmod-e1000=y
 CONFIG_PACKAGE_kmod-e1000e=y
 # CONFIG_PACKAGE_kmod-et131x is not set
 # CONFIG_PACKAGE_kmod-ethoc is not set
-CONFIG_PACKAGE_kmod-fixed-phy=y
+# CONFIG_PACKAGE_kmod-fixed-phy is not set
 CONFIG_PACKAGE_kmod-forcedeth=y
 # CONFIG_PACKAGE_kmod-hfcmulti is not set
 # CONFIG_PACKAGE_kmod-hfcpci is not set
@@ -3570,7 +3570,7 @@ CONFIG_PACKAGE_kmod-phy-ax88796b=y
 # CONFIG_PACKAGE_kmod-phy-broadcom is not set
 # CONFIG_PACKAGE_kmod-phy-marvell is not set
 # CONFIG_PACKAGE_kmod-phy-marvell-10g is not set
-CONFIG_PACKAGE_kmod-phy-microchip=y
+# CONFIG_PACKAGE_kmod-phy-microchip is not set
 CONFIG_PACKAGE_kmod-phy-realtek=y
 CONFIG_PACKAGE_kmod-phy-smsc=y
 CONFIG_PACKAGE_kmod-phylink=y
@@ -3854,8 +3854,8 @@ CONFIG_PACKAGE_kmod-usb-net-huawei-cdc-ncm=y
 CONFIG_PACKAGE_kmod-usb-net-ipheth=y
 CONFIG_PACKAGE_kmod-usb-net-kalmia=y
 CONFIG_PACKAGE_kmod-usb-net-kaweth=y
-CONFIG_PACKAGE_kmod-usb-net-lan78xx=y
-# CONFIG_PACKAGE_kmod-usb-net-mcs7830 is not set
+# CONFIG_PACKAGE_kmod-usb-net-lan78xx is not set
+CONFIG_PACKAGE_kmod-usb-net-mcs7830=y
 CONFIG_PACKAGE_kmod-usb-net-pegasus=y
 CONFIG_PACKAGE_kmod-usb-net-pl=y
 CONFIG_PACKAGE_kmod-usb-net-qmi-wwan=y
@@ -3882,8 +3882,8 @@ CONFIG_PACKAGE_kmod-usb-serial-dmx_usb_module=y
 CONFIG_PACKAGE_kmod-usb-serial-edgeport=y
 CONFIG_PACKAGE_kmod-usb-serial-ftdi=y
 CONFIG_PACKAGE_kmod-usb-serial-garmin=y
-CONFIG_PACKAGE_kmod-usb-serial-ipw=y
-# CONFIG_PACKAGE_kmod-usb-serial-keyspan is not set
+# CONFIG_PACKAGE_kmod-usb-serial-ipw is not set
+CONFIG_PACKAGE_kmod-usb-serial-keyspan=y
 CONFIG_PACKAGE_kmod-usb-serial-mct=y
 CONFIG_PACKAGE_kmod-usb-serial-mos7720=y
 CONFIG_PACKAGE_kmod-usb-serial-mos7840=y
@@ -3896,7 +3896,7 @@ CONFIG_PACKAGE_kmod-usb-serial-simple=y
 CONFIG_PACKAGE_kmod-usb-serial-ti-usb=y
 CONFIG_PACKAGE_kmod-usb-serial-visor=y
 CONFIG_PACKAGE_kmod-usb-serial-wwan=y
-# CONFIG_PACKAGE_kmod-usb-serial-xr_usb_serial_common is not set
+CONFIG_PACKAGE_kmod-usb-serial-xr_usb_serial_common=y
 CONFIG_PACKAGE_kmod-usb-storage=y
 CONFIG_PACKAGE_kmod-usb-storage-extras=y
 CONFIG_PACKAGE_kmod-usb-storage-uas=y
@@ -6101,8 +6101,8 @@ CONFIG_LUCI_CSSTIDY=y
 # CONFIG_LUCI_LANG_tr is not set
 # CONFIG_LUCI_LANG_uk is not set
 # CONFIG_LUCI_LANG_ur is not set
-# CONFIG_LUCI_LANG_vi is not set
-CONFIG_LUCI_LANG_zh_Hans=y
+CONFIG_LUCI_LANG_vi=y
+# CONFIG_LUCI_LANG_zh_Hans is not set
 # CONFIG_LUCI_LANG_zh_Hant is not set
 # end of Translations
 
@@ -6136,9 +6136,10 @@ CONFIG_PACKAGE_luci-app-adguardhome_INCLUDE_binary=y
 # CONFIG_PACKAGE_luci-app-alist is not set
 # CONFIG_PACKAGE_luci-app-aliyundrive-webdav is not set
 # CONFIG_PACKAGE_luci-app-apinger is not set
-CONFIG_PACKAGE_luci-app-argon-config=y
+# CONFIG_PACKAGE_luci-app-argon-config is not set
 # CONFIG_PACKAGE_luci-app-argone-config is not set
 # CONFIG_PACKAGE_luci-app-aria2 is not set
+CONFIG_PACKAGE_luci-app-atcommands=y
 # CONFIG_PACKAGE_luci-app-atinout is not set
 # CONFIG_PACKAGE_luci-app-attendedsysupgrade is not set
 # CONFIG_PACKAGE_luci-app-babeld is not set
@@ -6250,7 +6251,7 @@ CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Haproxy=y
 # CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Server is not set
 # CONFIG_PACKAGE_luci-app-passwall_INCLUDE_ShadowsocksR_Libev_Client is not set
 # CONFIG_PACKAGE_luci-app-passwall_INCLUDE_ShadowsocksR_Libev_Server is not set
-CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Simple_Obfs=y
+# CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Simple_Obfs is not set
 CONFIG_PACKAGE_luci-app-passwall_INCLUDE_SingBox=y
 CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Trojan_Plus=y
 # CONFIG_PACKAGE_luci-app-passwall_INCLUDE_tuic_client is not set
@@ -6392,21 +6393,21 @@ CONFIG_PACKAGE_luci-proto-fm350=y
 CONFIG_PACKAGE_luci-proto-ipv6=y
 CONFIG_PACKAGE_luci-proto-mbim=y
 CONFIG_PACKAGE_luci-proto-modemmanager=y
-# CONFIG_PACKAGE_luci-proto-ncm is not set
+CONFIG_PACKAGE_luci-proto-ncm=y
 # CONFIG_PACKAGE_luci-proto-nebula is not set
 # CONFIG_PACKAGE_luci-proto-openconnect is not set
 # CONFIG_PACKAGE_luci-proto-openfortivpn is not set
 CONFIG_PACKAGE_luci-proto-ppp=y
 # CONFIG_PACKAGE_luci-proto-pppossh is not set
 # CONFIG_PACKAGE_luci-proto-qmap is not set
-# CONFIG_PACKAGE_luci-proto-qmi is not set
+CONFIG_PACKAGE_luci-proto-qmi=y
 # CONFIG_PACKAGE_luci-proto-relay is not set
 # CONFIG_PACKAGE_luci-proto-sstp is not set
 # CONFIG_PACKAGE_luci-proto-unet is not set
 # CONFIG_PACKAGE_luci-proto-vpnc is not set
 # CONFIG_PACKAGE_luci-proto-vti is not set
 # CONFIG_PACKAGE_luci-proto-vxlan is not set
-CONFIG_PACKAGE_luci-proto-wireguard=y
+# CONFIG_PACKAGE_luci-proto-wireguard is not set
 # CONFIG_PACKAGE_luci-proto-xfrm is not set
 CONFIG_PACKAGE_luci-proto-xmm=y
 # CONFIG_PACKAGE_luci-proto-yggdrasil is not set
@@ -6440,10 +6441,9 @@ CONFIG_PACKAGE_luci-lib-uqr=y
 # CONFIG_PACKAGE_luci-i18n-3ginfo-lite-de is not set
 # CONFIG_PACKAGE_luci-i18n-3ginfo-lite-it is not set
 # CONFIG_PACKAGE_luci-i18n-3ginfo-lite-pl is not set
-CONFIG_PACKAGE_luci-i18n-adguardhome-zh-cn=y
-# CONFIG_PACKAGE_luci-i18n-argon-config-es is not set
-CONFIG_PACKAGE_luci-i18n-argon-config-zh-cn=y
-# CONFIG_PACKAGE_luci-i18n-argon-config-zh-tw is not set
+# CONFIG_PACKAGE_luci-i18n-adguardhome-zh-cn is not set
+# CONFIG_PACKAGE_luci-i18n-atcommands-it is not set
+# CONFIG_PACKAGE_luci-i18n-atcommands-pl is not set
 # CONFIG_PACKAGE_luci-i18n-base-ar is not set
 # CONFIG_PACKAGE_luci-i18n-base-bg is not set
 # CONFIG_PACKAGE_luci-i18n-base-bn is not set
@@ -6476,8 +6476,8 @@ CONFIG_PACKAGE_luci-i18n-argon-config-zh-cn=y
 # CONFIG_PACKAGE_luci-i18n-base-tr is not set
 # CONFIG_PACKAGE_luci-i18n-base-uk is not set
 # CONFIG_PACKAGE_luci-i18n-base-ur is not set
-# CONFIG_PACKAGE_luci-i18n-base-vi is not set
-CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
+CONFIG_PACKAGE_luci-i18n-base-vi=y
+# CONFIG_PACKAGE_luci-i18n-base-zh-cn is not set
 # CONFIG_PACKAGE_luci-i18n-base-zh-tw is not set
 # CONFIG_PACKAGE_luci-i18n-dashboard-ar is not set
 # CONFIG_PACKAGE_luci-i18n-dashboard-bg is not set
@@ -6510,8 +6510,8 @@ CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
 # CONFIG_PACKAGE_luci-i18n-dashboard-sv is not set
 # CONFIG_PACKAGE_luci-i18n-dashboard-tr is not set
 # CONFIG_PACKAGE_luci-i18n-dashboard-uk is not set
-# CONFIG_PACKAGE_luci-i18n-dashboard-vi is not set
-CONFIG_PACKAGE_luci-i18n-dashboard-zh-cn=y
+CONFIG_PACKAGE_luci-i18n-dashboard-vi=y
+# CONFIG_PACKAGE_luci-i18n-dashboard-zh-cn is not set
 # CONFIG_PACKAGE_luci-i18n-dashboard-zh-tw is not set
 # CONFIG_PACKAGE_luci-i18n-firewall-ar is not set
 # CONFIG_PACKAGE_luci-i18n-firewall-bg is not set
@@ -6545,11 +6545,11 @@ CONFIG_PACKAGE_luci-i18n-dashboard-zh-cn=y
 # CONFIG_PACKAGE_luci-i18n-firewall-tr is not set
 # CONFIG_PACKAGE_luci-i18n-firewall-uk is not set
 # CONFIG_PACKAGE_luci-i18n-firewall-ur is not set
-# CONFIG_PACKAGE_luci-i18n-firewall-vi is not set
-CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y
+CONFIG_PACKAGE_luci-i18n-firewall-vi=y
+# CONFIG_PACKAGE_luci-i18n-firewall-zh-cn is not set
 # CONFIG_PACKAGE_luci-i18n-firewall-zh-tw is not set
 # CONFIG_PACKAGE_luci-i18n-modeminfo-ru is not set
-CONFIG_PACKAGE_luci-i18n-modeminfo-zh-cn=y
+# CONFIG_PACKAGE_luci-i18n-modeminfo-zh-cn is not set
 # CONFIG_PACKAGE_luci-i18n-mwan3-ar is not set
 # CONFIG_PACKAGE_luci-i18n-mwan3-bg is not set
 # CONFIG_PACKAGE_luci-i18n-mwan3-bn is not set
@@ -6581,8 +6581,8 @@ CONFIG_PACKAGE_luci-i18n-modeminfo-zh-cn=y
 # CONFIG_PACKAGE_luci-i18n-mwan3-sv is not set
 # CONFIG_PACKAGE_luci-i18n-mwan3-tr is not set
 # CONFIG_PACKAGE_luci-i18n-mwan3-uk is not set
-# CONFIG_PACKAGE_luci-i18n-mwan3-vi is not set
-CONFIG_PACKAGE_luci-i18n-mwan3-zh-cn=y
+CONFIG_PACKAGE_luci-i18n-mwan3-vi=y
+# CONFIG_PACKAGE_luci-i18n-mwan3-zh-cn is not set
 # CONFIG_PACKAGE_luci-i18n-mwan3-zh-tw is not set
 # CONFIG_PACKAGE_luci-i18n-opkg-ar is not set
 # CONFIG_PACKAGE_luci-i18n-opkg-bg is not set
@@ -6616,16 +6616,16 @@ CONFIG_PACKAGE_luci-i18n-mwan3-zh-cn=y
 # CONFIG_PACKAGE_luci-i18n-opkg-tr is not set
 # CONFIG_PACKAGE_luci-i18n-opkg-uk is not set
 # CONFIG_PACKAGE_luci-i18n-opkg-ur is not set
-# CONFIG_PACKAGE_luci-i18n-opkg-vi is not set
-CONFIG_PACKAGE_luci-i18n-opkg-zh-cn=y
+CONFIG_PACKAGE_luci-i18n-opkg-vi=y
+# CONFIG_PACKAGE_luci-i18n-opkg-zh-cn is not set
 # CONFIG_PACKAGE_luci-i18n-opkg-zh-tw is not set
-CONFIG_PACKAGE_luci-i18n-passwall-zh-cn=y
-CONFIG_PACKAGE_luci-i18n-passwall2-zh-cn=y
+# CONFIG_PACKAGE_luci-i18n-passwall-zh-cn is not set
+# CONFIG_PACKAGE_luci-i18n-passwall2-zh-cn is not set
 # CONFIG_PACKAGE_luci-i18n-sms-tool-pl is not set
 # CONFIG_PACKAGE_luci-i18n-sms-tool-ru is not set
 # CONFIG_PACKAGE_luci-i18n-smstools3-ru is not set
-CONFIG_PACKAGE_luci-i18n-smstools3-zh-cn=y
-CONFIG_PACKAGE_luci-i18n-ssr-plus-zh-cn=y
+# CONFIG_PACKAGE_luci-i18n-smstools3-zh-cn is not set
+# CONFIG_PACKAGE_luci-i18n-ssr-plus-zh-cn is not set
 # CONFIG_PACKAGE_luci-i18n-watchcat-ar is not set
 # CONFIG_PACKAGE_luci-i18n-watchcat-bg is not set
 # CONFIG_PACKAGE_luci-i18n-watchcat-bn is not set
@@ -6657,8 +6657,8 @@ CONFIG_PACKAGE_luci-i18n-ssr-plus-zh-cn=y
 # CONFIG_PACKAGE_luci-i18n-watchcat-sv is not set
 # CONFIG_PACKAGE_luci-i18n-watchcat-tr is not set
 # CONFIG_PACKAGE_luci-i18n-watchcat-uk is not set
-# CONFIG_PACKAGE_luci-i18n-watchcat-vi is not set
-CONFIG_PACKAGE_luci-i18n-watchcat-zh-cn=y
+CONFIG_PACKAGE_luci-i18n-watchcat-vi=y
+# CONFIG_PACKAGE_luci-i18n-watchcat-zh-cn is not set
 # CONFIG_PACKAGE_luci-i18n-watchcat-zh-tw is not set
 # end of LuCI
 
@@ -7350,33 +7350,33 @@ CONFIG_PACKAGE_openssh-sftp-server=y
 # Telephony
 #
 # CONFIG_PACKAGE_asterisk is not set
-# CONFIG_PACKAGE_atinout is not set
+CONFIG_PACKAGE_atinout=y
 # CONFIG_PACKAGE_baresip is not set
 # CONFIG_PACKAGE_coturn is not set
 # CONFIG_PACKAGE_hl-atcmd is not set
 # CONFIG_PACKAGE_kamailio is not set
 # CONFIG_PACKAGE_miax is not set
 CONFIG_PACKAGE_modeminfo=y
-# CONFIG_PACKAGE_modeminfo-qmi is not set
-# CONFIG_PACKAGE_modeminfo-serial-dell is not set
+CONFIG_PACKAGE_modeminfo-qmi=y
+CONFIG_PACKAGE_modeminfo-serial-dell=y
 # CONFIG_PACKAGE_modeminfo-serial-fibocom is not set
-# CONFIG_PACKAGE_modeminfo-serial-fm350 is not set
-# CONFIG_PACKAGE_modeminfo-serial-gosun is not set
-# CONFIG_PACKAGE_modeminfo-serial-huawei is not set
-# CONFIG_PACKAGE_modeminfo-serial-meig is not set
-# CONFIG_PACKAGE_modeminfo-serial-mikrotik is not set
-# CONFIG_PACKAGE_modeminfo-serial-quectel is not set
-# CONFIG_PACKAGE_modeminfo-serial-sierra is not set
-# CONFIG_PACKAGE_modeminfo-serial-simcom is not set
-# CONFIG_PACKAGE_modeminfo-serial-simcom-a7xxx is not set
-# CONFIG_PACKAGE_modeminfo-serial-styx is not set
-# CONFIG_PACKAGE_modeminfo-serial-telit is not set
-# CONFIG_PACKAGE_modeminfo-serial-thales is not set
-# CONFIG_PACKAGE_modeminfo-serial-tw is not set
-# CONFIG_PACKAGE_modeminfo-serial-xmm is not set
-# CONFIG_PACKAGE_modeminfo-serial-yuge is not set
-# CONFIG_PACKAGE_modeminfo-serial-zte is not set
-# CONFIG_PACKAGE_modeminfo-telegram is not set
+CONFIG_PACKAGE_modeminfo-serial-fm350=y
+CONFIG_PACKAGE_modeminfo-serial-gosun=y
+CONFIG_PACKAGE_modeminfo-serial-huawei=y
+CONFIG_PACKAGE_modeminfo-serial-meig=y
+CONFIG_PACKAGE_modeminfo-serial-mikrotik=y
+CONFIG_PACKAGE_modeminfo-serial-quectel=y
+CONFIG_PACKAGE_modeminfo-serial-sierra=y
+CONFIG_PACKAGE_modeminfo-serial-simcom=y
+CONFIG_PACKAGE_modeminfo-serial-simcom-a7xxx=y
+CONFIG_PACKAGE_modeminfo-serial-styx=y
+CONFIG_PACKAGE_modeminfo-serial-telit=y
+CONFIG_PACKAGE_modeminfo-serial-thales=y
+CONFIG_PACKAGE_modeminfo-serial-tw=y
+CONFIG_PACKAGE_modeminfo-serial-xmm=y
+CONFIG_PACKAGE_modeminfo-serial-yuge=y
+CONFIG_PACKAGE_modeminfo-serial-zte=y
+CONFIG_PACKAGE_modeminfo-telegram=y
 # CONFIG_PACKAGE_pcapsipdump is not set
 # CONFIG_PACKAGE_rtpengine is not set
 # CONFIG_PACKAGE_rtpengine-no-transcode is not set
@@ -7842,7 +7842,7 @@ CONFIG_PACKAGE_modemmanager=y
 CONFIG_MODEMMANAGER_WITH_MBIM=y
 CONFIG_MODEMMANAGER_WITH_QMI=y
 CONFIG_MODEMMANAGER_WITH_QRTR=y
-CONFIG_MODEMMANAGER_WITH_AT_COMMAND_VIA_DBUS=y
+# CONFIG_MODEMMANAGER_WITH_AT_COMMAND_VIA_DBUS is not set
 # end of Configuration
 
 # CONFIG_PACKAGE_modemmanager-rpcd is not set
@@ -8812,8 +8812,7 @@ CONFIG_PACKAGE_pciutils=y
 # CONFIG_PACKAGE_pservice is not set
 # CONFIG_PACKAGE_psmisc is not set
 # CONFIG_PACKAGE_pv is not set
-# CONFIG_PACKAGE_qfirehose is not set
-# CONFIG_PACKAGE_qmi-utils is not set
+CONFIG_PACKAGE_qmi-utils=y
 CONFIG_PACKAGE_qrencode=y
 # CONFIG_PACKAGE_quectel-timesync is not set
 # CONFIG_PACKAGE_quota is not set
@@ -9101,7 +9100,7 @@ CONFIG_PACKAGE_hmac-sha1-util=y
 # end of mbed tools
 
 # CONFIG_PACKAGE_hev-socks5-tunnel is not set
-CONFIG_PACKAGE_initramfs-upgrade-fw=y
+# CONFIG_PACKAGE_initramfs-upgrade-fw is not set
 # CONFIG_PACKAGE_kmod-qmi-wwan-q is not set
 # CONFIG_PACKAGE_kmod-rtw8852cu is not set
 # CONFIG_PACKAGE_quectel-cm is not set
