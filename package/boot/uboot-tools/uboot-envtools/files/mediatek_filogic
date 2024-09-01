@@ -13,6 +13,7 @@ board=$(board_name)
 
 ubootenv_add_mmc_default() {
 	local envdev="$(find_mmc_part "ubootenv" "${1:-mmcblk0}")"
+	envdev=${envdev:-$(blkid /dev/${1:-mmcblk0}* | grep "PARTLABEL=\"ubootenv\"" -m1 | cut -d: -f1)}
 	ubootenv_add_uci_config "$envdev" "0x0" "0x40000" "0x40000" "1"
 	ubootenv_add_uci_config "$envdev" "0x40000" "0x40000" "0x40000" "1"
 }
