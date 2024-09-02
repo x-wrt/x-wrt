@@ -68,6 +68,7 @@ mediatek_setup_interfaces()
 	netcore,n60|\
 	netcore,n60-pro|\
 	nradio,c8-668gl|\
+	ruijie,rg-x60-pro-ubootlayout|\
 	ruijie,rg-x60-pro|\
 	tenbay,ac-2205ex|\
 	unielec,u7981-01*|\
@@ -251,6 +252,7 @@ mediatek_setup_macs()
 		wan_mac=$(macaddr_add "$lan_mac" 1)
 		label_mac=$wan_mac
 		;;
+	ruijie,rg-x60-pro-ubootlayout|\
 	ruijie,rg-x60-pro)
 		label_mac=$(mtd_get_mac_ascii product_info ethaddr)
 		wan_mac=$label_mac
