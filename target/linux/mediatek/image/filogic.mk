@@ -2842,6 +2842,16 @@ define Device/teltonika_rutc50
 endef
 TARGET_DEVICES += teltonika_rutc50
 
+define Device/ruijie_rg-x60-pro-ubootlayout
+  DEVICE_VENDOR := Ruijie
+  DEVICE_MODEL := RG-X60 Pro (uboot layout)
+  DEVICE_DTS := mt7986a-ruijie-rg-x60-pro-ubootlayout
+  DEVICE_DTS_DIR := ../dts
+  DEVICE_PACKAGES := kmod-mt7915e kmod-mt7986-firmware mt7986-wo-firmware
+  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+endef
+TARGET_DEVICES += ruijie_rg-x60-pro-ubootlayout
+
 define Device/tenbay_wr3000k
   DEVICE_VENDOR := Tenbay
   DEVICE_MODEL := WR3000K
