@@ -1383,6 +1383,16 @@ define Device/ruijie_rg-x60-pro
 endef
 TARGET_DEVICES += ruijie_rg-x60-pro
 
+define Device/ruijie_rg-x60-pro-ubootlayout
+  DEVICE_VENDOR := Ruijie
+  DEVICE_MODEL := RG-X60 Pro (uboot layout)
+  DEVICE_DTS := mt7986a-ruijie-rg-x60-pro-ubootlayout
+  DEVICE_DTS_DIR := ../dts
+  DEVICE_PACKAGES := kmod-mt7915e kmod-mt7986-firmware mt7986-wo-firmware
+  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+endef
+TARGET_DEVICES += ruijie_rg-x60-pro-ubootlayout
+
 define Device/tplink_re6000xd
   DEVICE_VENDOR := TP-Link
   DEVICE_MODEL := RE6000XD
