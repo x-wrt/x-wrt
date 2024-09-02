@@ -214,7 +214,7 @@
 				read-only;
 			};
 
-			partition@680000 {
+			ubi_part: partition@680000 {
 				label = "ubi";
 				reg = <0x680000 0x3f00000>;
 			};
