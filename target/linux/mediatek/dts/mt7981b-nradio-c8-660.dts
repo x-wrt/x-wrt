@@ -1,26 +1,21 @@
-// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
-
 /dts-v1/;
 
 #include "mt7981b.dtsi"
 
 / {
-	model = "NRadio C8-668GL";
-	compatible = "nradio,c8-668gl", "mediatek,mt7981";
+	model = "NRadio C8-660";
+	compatible = "nradio,c8-660", "mediatek,mt7981";
 
 	aliases {
-		ethernet0 = &gmac0;
-		led-boot = &led_power;
-		led-failsafe = &led_power;
-		led-running = &led_power;
-		led-upgrade = &led_power;
+		led-boot = &status_blue;
+		led-failsafe = &status_blue;
+		led-running = &status_blue;
+		led-upgrade = &status_blue;
 		serial0 = &uart0;
 	};
 
 	chosen {
-		stdout-path = "serial0:115200n1";
-		/* If official system version < 1.9.2.n6.c3, use root=PARTLABEL=rootfs */
-		bootargs = "console=ttyS0,115200n1 root=PARTLABEL=rootfs_2nd rootwait";
+		stdout-path = "serial0:115200n8";
 	};
 
 	gpio-keys {
@@ -45,42 +40,36 @@
 		cpepower {
 			gpio-export,name = "cpe-pwr";
 			gpio-export,output = <0>;
-			gpios = <&pio 31 GPIO_ACTIVE_LOW>;
+			gpios = <&pio 25 GPIO_ACTIVE_LOW>;
 		};
 
 		cpesel0 {
 			gpio-export,name = "cpe-sel0";
 			gpio-export,output = <1>;
-			gpios = <&pio 30 GPIO_ACTIVE_HIGH>;
+			gpios = <&pio 24 GPIO_ACTIVE_HIGH>;
 		};
 	};
 
-	leds {
+	gpio-leds {
 		compatible = "gpio-leds";
 
-		led_power: power {
-			color = <LED_COLOR_ID_BLUE>;
-			function = LED_FUNCTION_POWER;
+		status_blue: status {
+			label = "blue:status";
 			gpios = <&pio 10 GPIO_ACTIVE_LOW>;
 		};
 
-		led-cellular-5g {
-			color = <LED_COLOR_ID_BLUE>;
-			function = LED_FUNCTION_INDICATOR;
-			function-enumerator = <0>;
+		cmode5 {
+			label = "blue:cmode5";
 			gpios = <&pio 11 GPIO_ACTIVE_LOW>;
 		};
 
-		led-cellular-4g {
-			color = <LED_COLOR_ID_BLUE>;
-			function = LED_FUNCTION_INDICATOR;
-			function-enumerator = <1>;
+		cmode4 {
+			label = "blue:cmode4";
 			gpios = <&pio 12 GPIO_ACTIVE_LOW>;
 		};
 
-		led-wifi {
-			color = <LED_COLOR_ID_BLUE>;
-			function = LED_FUNCTION_WLAN;
+		wifi {
+			label = "blue:wifi";
 			gpios = <&pio 13 GPIO_ACTIVE_LOW>;
 		};
 	};
@@ -186,64 +175,98 @@
 	};
 };
 
-&mmc0 {
-	#address-cells = <1>;
-	#size-cells = <0>;
-	pinctrl-names = "default", "state_uhs";
-	pinctrl-0 = <&mmc0_pins_default>;
-	pinctrl-1 = <&mmc0_pins_uhs>;
-	bus-width = <8>;
-	max-frequency = <52000000>;
-	cap-mmc-highspeed;
-	vmmc-supply = <&reg_3p3v>;
-	non-removable;
+&spi0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&spi0_flash_pins>;
 	status = "okay";
 
-	card@0 {
-		compatible = "mmc-card";
+	spi_nand: flash@0 {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		compatible = "spi-nand";
 		reg = <0>;
+		spi-max-frequency = <52000000>;
 
-		block {
-			compatible = "block-device";
-			partitions {
-				block-partition-env {
-					partname = "u-boot-env";
+		spi-cal-enable;
+		spi-cal-mode = "read-data";
+		spi-cal-datalen = <7>;
+		spi-cal-data = /bits/ 8 <0x53 0x50 0x49 0x4E 0x41 0x4E 0x44>;
+		spi-cal-addrlen = <5>;
+		spi-cal-addr = /bits/ 32 <0x0 0x0 0x0 0x0 0x0>;
 
-					nvmem-layout {
-						compatible = "u-boot,env";
+		spi-tx-bus-width = <4>;
+		spi-rx-bus-width = <4>;
+		mediatek,nmbm;
+		mediatek,bmt-max-ratio = <1>;
+		mediatek,bmt-max-reserved-blocks = <64>;
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			partition@0 {
+				label = "BL2";
+				reg = <0x00000 0x0100000>;
+				read-only;
+			};
+
+			partition@100000 {
+				label = "u-boot-env";
+				reg = <0x0100000 0x0080000>;
+			};
+
+			factory: partition@180000 {
+				label = "Factory";
+				reg = <0x180000 0x0180000>;
+				read-only;
+
+				nvmem-layout {
+					compatible = "fixed-layout";
+					#address-cells = <1>;
+					#size-cells = <1>;
+
+					eeprom_factory_0: eeprom@0 {
+						reg = <0x0 0x1000>;
 					};
 				};
+			};
 
-				block-partition-factory {
-					partname = "factory";
+			partition@300000 {
+				label = "bdinfo";
+				reg = <0x300000 0x0080000>;
+			};
 
-					nvmem-layout {
-						compatible = "fixed-layout";
-						#address-cells = <1>;
-						#size-cells = <1>;
+			partition@380000 {
+				label = "FIP";
+				reg = <0x380000 0x0200000>;
+				read-only;
+			};
 
-						eeprom_factory_0: eeprom@0 {
-							reg = <0x0 0x1000>;
-						};
-					};
-				};
+			partition@580000 {
+				label = "ubi_oem";
+				reg = <0x580000 0x4000000>;
+			};
+
+			partition@4580000 {
+				label = "app_data";
+				reg = <0x4580000 0x1000000>;
+			};
+
+			partition@5580000 {
+				label = "ubi";
+				reg = <0x5580000 0x18a80000>;
+				compatible = "linux,ubi";
 			};
 		};
 	};
 };
 
 &pio {
-	mmc0_pins_default: mmc0-pins-default {
+	spi0_flash_pins: spi0-pins {
 		mux {
-			function = "flash";
-			groups = "emmc_45";
-		};
-	};
-
-	mmc0_pins_uhs: mmc0-pins-uhs {
-		mux {
-			function = "flash";
-			groups = "emmc_45";
+			function = "spi";
+			groups = "spi0", "spi0_wp_hold";
 		};
 	};
 };
