@@ -214,6 +214,12 @@ platform_do_upgrade() {
 			;;
 		esac
 		;;
+	nradio,c8-668gl)
+		CI_DATAPART="rootfs_data"
+		CI_KERNPART="kernel_2nd"
+		CI_ROOTPART="rootfs_2nd"
+		emmc_do_upgrade "$1"
+		;;
 	xiaomi,mi-router-ax3000t|\
 	xiaomi,mi-router-wr30u-stock|\
 	xiaomi,redmi-router-ax6000-stock)
@@ -253,6 +259,7 @@ platform_check_image() {
 		}
 		return 0
 		;;
+	nradio,c8-668gl|\
 	cmcc,rax3000m-emmc-ubootlayout|\
 	tenbay,ms3000k|\
 	tenbay,wr3000k-gsw-emmc-nor)
@@ -282,6 +289,7 @@ platform_copy_config() {
 	acer,predator-w6d|\
 	acer,vero-w6m|\
 	arcadyan,mozart|\
+	nradio,c8-668gl|\
 	cmcc,rax3000m-emmc-ubootlayout|\
 	glinet,gl-mt2500|\
 	glinet,gl-mt6000|\
