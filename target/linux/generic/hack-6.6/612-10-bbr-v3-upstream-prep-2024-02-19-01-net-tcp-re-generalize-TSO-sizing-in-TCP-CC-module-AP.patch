@@ -50,7 +50,7 @@ Change-Id: Ic8ccfdbe4010ee8d4bf6a6334c48a2fceb2171ea
 +				u32 gso_max_size)
 +{
 +	u32 segs;
-+	u64 bytes;
++	unsigned long bytes;
 +
 +	/* Budget a TSO/GSO burst size allowance based on bw (pacing_rate). */
 +	bytes = sk->sk_pacing_rate >> sk->sk_pacing_shift;
