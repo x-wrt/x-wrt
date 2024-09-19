@@ -690,7 +690,7 @@ Change-Id: I125cf26ba2a7a686f2fa5e87f4c2afceb65f7a05
 -	u32 segs;
 +	struct bbr *bbr = inet_csk_ca(sk);
 +	u32 segs, r;
- 	u64 bytes;
+ 	unsigned long bytes;
  
  	/* Budget a TSO/GSO burst size allowance based on bw (pacing_rate). */
  	bytes = sk->sk_pacing_rate >> sk->sk_pacing_shift;
