@@ -1,0 +1,37 @@
+From 38006ae383f131b9d1b6e039f8a3d1d2343c0289 Mon Sep 17 00:00:00 2001
+From: Chen Minqiang <ptpt52@gmail.com>
+Date: Fri, 24 Apr 2026 17:39:49 +0800
+Subject: [PATCH] net: Prefer free ifindexes in range 1-63
+
+
+Use the existing XArray reservations so registration, namespace moves and
+unregistration agree on which indexes are free. Fall back to the normal
+allocator when indexes 1-63 are all occupied.
+
+---
+ net/core/dev.c | 13 +++++++++----
+ 1 file changed, 9 insertions(+), 4 deletions(-)
+
+--- a/net/core/dev.c
++++ b/net/core/dev.c
+@@ -10720,11 +10720,16 @@ static int dev_index_reserve(struct net
+ 		return -EINVAL;
+ 	}
+ 
+-	if (!ifindex)
+-		err = xa_alloc_cyclic(&net->dev_by_index, &ifindex, NULL,
+-				      xa_limit_31b, &net->ifindex, GFP_KERNEL);
+-	else
++	if (!ifindex) {
++		/* Prefer low indexes and share reservations with namespace moves. */
++		err = xa_alloc(&net->dev_by_index, &ifindex, NULL,
++			       XA_LIMIT(1, 63), GFP_KERNEL);
++		if (err == -EBUSY)
++			err = xa_alloc_cyclic(&net->dev_by_index, &ifindex, NULL,
++					      xa_limit_31b, &net->ifindex, GFP_KERNEL);
++	} else {
+ 		err = xa_insert(&net->dev_by_index, ifindex, NULL, GFP_KERNEL);
++	}
+ 	if (err < 0)
+ 		return err;
+ 
