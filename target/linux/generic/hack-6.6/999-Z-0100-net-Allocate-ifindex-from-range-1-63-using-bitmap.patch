@@ -1,0 +1,91 @@
+From ebbe85b3b24233439b2063d722272046d64d4d21 Mon Sep 17 00:00:00 2001
+From: Chen Minqiang <ptpt52@gmail.com>
+Date: Fri, 11 Oct 2024 14:07:00 +0800
+Subject: [PATCH] net: Allocate ifindex from range 1-63 using bitmap
+
+---
+ include/net/net_namespace.h |  1 +
+ net/core/dev.c              | 36 ++++++++++++++++++++++++++++++++++++
+ 2 files changed, 37 insertions(+)
+
+--- a/include/net/net_namespace.h
++++ b/include/net/net_namespace.h
+@@ -191,6 +191,7 @@ struct net {
+ #if IS_ENABLED(CONFIG_SMC)
+ 	struct netns_smc	smc;
+ #endif
++	unsigned int net_device_ifindex_bits[2];
+ } __randomize_layout;
+ 
+ #include <linux/seq_file_net.h>
+--- a/net/core/dev.c
++++ b/net/core/dev.c
+@@ -10210,6 +10210,15 @@ static void netdev_do_free_pcpu_stats(st
+ 	}
+ }
+ 
++static void release_ifindex(struct net *net, int ifindex)
++{
++	if (ifindex < 32) {
++		net->net_device_ifindex_bits[0] &= ~(1 << ifindex);
++	} else if (ifindex < 64) {
++		net->net_device_ifindex_bits[1] &= ~(1 << (ifindex - 32));
++	}
++}
++
+ /**
+  * register_netdevice() - register a network device
+  * @dev: device to register
+@@ -10274,11 +10283,36 @@ int register_netdevice(struct net_device
+ 	if (ret)
+ 		goto err_uninit;
+ 
++	do {
++		if (dev->ifindex > 0)
++			break;
++		for (ret = 1; ret < 32; ret++) {
++			if (!(net->net_device_ifindex_bits[0] & (1 << ret))) {
++				dev->ifindex = ret;
++				break;
++			}
++		}
++		if (dev->ifindex > 0)
++			break;
++		for (ret = 0; ret < 32; ret++) {
++			if (!(net->net_device_ifindex_bits[1] & (1 << ret))) {
++				dev->ifindex = ret + 32;
++				break;
++			}
++		}
++	} while (0);
++
+ 	ret = dev_index_reserve(net, dev->ifindex);
+ 	if (ret < 0)
+ 		goto err_free_pcpu;
+ 	dev->ifindex = ret;
+ 
++	if (dev->ifindex < 32) {
++		net->net_device_ifindex_bits[0] |= 1 << dev->ifindex;
++	} else if (dev->ifindex < 64) {
++		net->net_device_ifindex_bits[1] |= 1 << (dev->ifindex - 32);
++	}
++
+ 	/* Transfer changeable features to wanted_features and enable
+ 	 * software offloads (GSO and GRO).
+ 	 */
+@@ -10381,6 +10415,7 @@ out:
+ err_uninit_notify:
+ 	call_netdevice_notifiers(NETDEV_PRE_UNINIT, dev);
+ err_ifindex_release:
++	release_ifindex(net, dev->ifindex);
+ 	dev_index_release(net, dev->ifindex);
+ err_free_pcpu:
+ 	netdev_do_free_pcpu_stats(dev);
+@@ -11088,6 +11123,7 @@ void unregister_netdevice_queue(struct n
+ 	if (head) {
+ 		list_move_tail(&dev->unreg_list, head);
+ 	} else {
++		release_ifindex(dev_net(dev), dev->ifindex);
+ 		LIST_HEAD(single);
+ 
+ 		list_add(&dev->unreg_list, &single);
