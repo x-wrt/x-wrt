@@ -1008,6 +1008,34 @@ define Device/cmcc_a10-ubootlayout
 endef
 TARGET_DEVICES += cmcc_a10-ubootlayout
 
+define Device/cmcc_mr3000d-ciq-256m
+  DEVICE_VENDOR := CMCC
+  DEVICE_MODEL := MR3000D-CIq (256M)
+  DEVICE_DTS := mt7981b-cmcc-mr3000d-ciq-256m
+  DEVICE_DTS_DIR := ../dts
+  DEVICE_PACKAGES := kmod-mt7915e kmod-mt7981-firmware mt7981-wo-firmware uboot-envtools
+  SUPPORTED_DEVICES := cmcc,mr3000d-ciq-256m mt7981-spim-nand-gsw-wr3000k
+  UBINIZE_OPTS := -E 5
+  BLOCKSIZE := 128k
+  PAGESIZE := 2048
+  IMAGE_SIZE := 65536k
+  KERNEL_IN_UBI := 1
+  IMAGES += factory.bin
+  IMAGE/factory.bin := append-ubi | check-size $$$$(IMAGE_SIZE)
+  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+  KERNEL = kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
+  KERNEL_INITRAMFS = kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd
+ifneq ($(CONFIG_TARGET_ROOTFS_INITRAMFS),)
+ifeq ($(CONFIG_TARGET_ROOTFS_INITRAMFS_SEPARATE),)
+  ARTIFACTS := initramfs-MR3000D-CIq-factory.bin
+  ARTIFACT/initramfs-MR3000D-CIq-factory.bin := append-image-stage initramfs-kernel.bin | sysupgrade-initramfs-tar | append-metadata | tenbay-factory MR3000D-CIq
+endif
+endif
+endef
+TARGET_DEVICES += cmcc_mr3000d-ciq-256m
+
 define Device/cmcc_rax3000m
   DEVICE_VENDOR := CMCC
   DEVICE_MODEL := RAX3000M
