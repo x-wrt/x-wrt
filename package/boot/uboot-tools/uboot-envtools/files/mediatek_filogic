@@ -86,6 +86,7 @@ jdcloud,re-cp-03)
 	esac
 	;;
 buffalo,wsr-6000ax8|\
+cmcc,mr3000d-ciq-256m|\
 mercusys,mr80x-v3|\
 mercusys,mr90x-v1|\
 routerich,ax3000|\
