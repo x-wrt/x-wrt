@@ -10,6 +10,7 @@ mediatek_setup_interfaces()
 	case $board in
 	abt,asr3000|\
 	abt,asr3000-ubootlayout|\
+	cmcc,mr3000d-ciq-256m|\
 	cmcc,rax3000m|\
 	cmcc,rax3000m-emmc-ubootlayout|\
 	cmcc,rax3000m-nand-ubootlayout|\
