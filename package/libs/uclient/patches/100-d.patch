@@ -1,0 +1,13 @@
+diff --git a/uclient-http.c b/uclient-http.c
+index 861aefb..111f43c 100644
+--- a/uclient-http.c
++++ b/uclient-http.c
+@@ -154,7 +154,7 @@ static void uclient_http_disconnect(struct uclient_http *uh)
+ 	else
+ 		ustream_free(&uh->ufd.stream);
+ 	if(uh->fd >= 0)
+-		close(uh->fd >= 0);
++		close(uh->fd);
+ 	uh->us = NULL;
+ }
+ 
