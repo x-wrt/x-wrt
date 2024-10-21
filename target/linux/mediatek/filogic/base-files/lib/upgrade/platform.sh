@@ -454,6 +454,7 @@ platform_pre_upgrade() {
 	xiaomi,redmi-router-ax6000-stock)
 		xiaomi_initial_setup
 		;;
+	cmcc,mr3000d-ciq-256m|\
 	tenbay,ac-2210e|\
 	tenbay,ac-2205ex|\
 	tenbay,wr3000k)
