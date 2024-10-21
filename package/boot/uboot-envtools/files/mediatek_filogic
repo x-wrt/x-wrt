@@ -118,6 +118,7 @@ routerich,ax3000|\
 tenbay,wr3000k|\
 tenbay,ac-2205ex|\
 tenbay,ac-2210e|\
+cmcc,mr3000d-ciq-256m|\
 tplink,re6000xd)
 	local envdev=/dev/mtd$(find_mtd_index "u-boot-env")
 	ubootenv_add_uci_config "$envdev" "0x0" "0x20000" "0x20000" "1"
