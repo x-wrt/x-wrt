@@ -734,7 +734,6 @@ config KERNEL_SLUB_DEBUG_ON
 
 config KERNEL_SLABINFO
 	select KERNEL_SLUB_DEBUG
-	select KERNEL_SLUB_DEBUG_ON
 	bool "Enable /proc slab debug info"
 
 config KERNEL_PROC_PAGE_MONITOR
