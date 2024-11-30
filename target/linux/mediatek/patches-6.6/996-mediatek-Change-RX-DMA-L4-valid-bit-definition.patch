@@ -1,0 +1,29 @@
+From 01b7dd008bf0b37e77caab79d49f7b4bfd5c2df3 Mon Sep 17 00:00:00 2001
+From: Chen Minqiang <ptpt52@gmail.com>
+Date: Sun, 1 Dec 2024 06:49:42 +0800
+Subject: [PATCH] mediatek: Change RX DMA L4 valid bit definition
+
+---
+ drivers/net/ethernet/mediatek/mtk_eth_soc.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+--- a/drivers/net/ethernet/mediatek/mtk_eth_soc.c
++++ b/drivers/net/ethernet/mediatek/mtk_eth_soc.c
+@@ -5736,7 +5736,7 @@ static const struct mtk_soc_data mt7981_
+ 	.rx = {
+ 		.desc_size = sizeof(struct mtk_rx_dma),
+ 		.irq_done_mask = MTK_RX_DONE_INT,
+-		.dma_l4_valid = RX_DMA_L4_VALID_V2,
++		.dma_l4_valid = RX_DMA_L4_VALID,
+ 		.dma_max_len = MTK_TX_DMA_BUF_LEN,
+ 		.dma_len_offset = 16,
+ 		.dma_size = MTK_DMA_SIZE(1K),
+@@ -5766,7 +5766,7 @@ static const struct mtk_soc_data mt7986_
+ 	.rx = {
+ 		.desc_size = sizeof(struct mtk_rx_dma),
+ 		.irq_done_mask = MTK_RX_DONE_INT,
+-		.dma_l4_valid = RX_DMA_L4_VALID_V2,
++		.dma_l4_valid = RX_DMA_L4_VALID,
+ 		.dma_max_len = MTK_TX_DMA_BUF_LEN,
+ 		.dma_len_offset = 16,
+ 		.dma_size = MTK_DMA_SIZE(1K),
