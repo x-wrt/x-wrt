@@ -42,6 +42,7 @@ mediatek_setup_interfaces()
 	cmcc,a10-ubootlayout|\
 	confiabits,mt7981|\
 	cudy,wr3000-v1|\
+	xwrt,wr3000k-emmc-nor|\
 	jcg,q30-pro|\
 	keenetic,kn-3811|\
 	jcg,q30-pro-nmbm|\
