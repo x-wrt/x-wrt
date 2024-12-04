@@ -3326,6 +3326,26 @@ define Device/tenbay_ms3000k
 endef
 TARGET_DEVICES += tenbay_ms3000k
 
+define Device/xwrt_wr3000k-emmc-nor
+  DEVICE_VENDOR := XWRT
+  DEVICE_MODEL := WR3000K (emmc nor)
+  DEVICE_DTS := mt7981b-xwrt-wr3000k-emmc-nor
+  SUPPORTED_DEVICES := xwrt,wr3000k-emmc-nor mt7981-tenbay_wr3000k-gsw-emmc-nor
+  DEVICE_DTS_DIR := ../dts
+  DEVICE_PACKAGES := kmod-mt7915e kmod-mt7981-firmware mt7981-wo-firmware \
+		     mkf2fs e2fsprogs blkid blockdev losetup kmod-fs-ext4 \
+		     kmod-mmc kmod-fs-f2fs kmod-fs-vfat kmod-nls-cp437 \
+		     kmod-nls-iso8859-1 mmc-utils fdisk gdisk partx-utils tune2fs uboot-envtools
+  IMAGES := sysupgrade.bin
+  IMAGE_SIZE := 30464k
+  KERNEL := kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
+  KERNEL_INITRAMFS := kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 64k
+  IMAGE/sysupgrade.bin := append-kernel | pad-to 128k | append-rootfs | pad-rootfs | check-size | append-metadata
+endef
+TARGET_DEVICES += xwrt_wr3000k-emmc-nor
+
 define Device/tenbay_ac-2205ex
   DEVICE_VENDOR := Tenbay
   DEVICE_MODEL := AC-2205EX
