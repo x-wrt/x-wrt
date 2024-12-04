@@ -155,6 +155,9 @@ zyxel,ex5601-t0)
 zyxel,ex5700-telenor)
 	ubootenv_add_uci_config "/dev/ubootenv" "0x0" "0x4000" "0x4000" "1"
 	;;
+xwrt,wr3000k-emmc-nor)
+	ubootenv_add_uci_config "/dev/mtd1" "0x0" "0x80000" "0x80000" 1
+	;;
 tenbay,wr3000k-gsw-emmc-nor)
 	if cat /proc/device-tree/chosen/bootargs-append | grep -q env=emmc; then
 		blk_dev=$(blkid -t "PARTLABEL=ubootenv" -o device)
