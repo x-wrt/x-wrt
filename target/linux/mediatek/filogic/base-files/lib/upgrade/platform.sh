@@ -340,6 +340,7 @@ platform_do_upgrade() {
 	wavlink,wl-wn573hx3|\
 	wavlink,wl-wnt100x3|\
 	widelantech,wap430x|\
+	xwrt,wr3000k-emmc-nor|\
 	yuncore,ax835)
 		default_do_upgrade "$1"
 		;;
