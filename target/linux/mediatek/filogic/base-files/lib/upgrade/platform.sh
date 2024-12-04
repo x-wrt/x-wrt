@@ -228,6 +228,7 @@ platform_do_upgrade() {
 	totolink,x6000r|\
 	wavlink,wl-wn573hx3|\
 	widelantech,wap430x|\
+	xwrt,wr3000k-emmc-nor|\
 	yuncore,ax835)
 		default_do_upgrade "$1"
 		;;
