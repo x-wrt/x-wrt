@@ -279,6 +279,7 @@ platform_do_upgrade() {
 	tenbay,wr3000k-gsw-emmc-nor)
 		tenbay_mmc_do_upgrade_dual_boot "$1"
 		;;
+	xwrt,wr3000k-emmc-nor|\
 	tenbay,ms3000k)
 		default_do_upgrade "$1"
 		;;
