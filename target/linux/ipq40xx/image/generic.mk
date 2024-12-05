@@ -234,7 +234,7 @@ define Device/asus_rt-ac42u
 	UIMAGE_NAME:=$(shell echo -e '\03\01\01\01RT-AC82U')
 	KERNEL_INITRAMFS := $$(KERNEL) | uImage none
 	KERNEL_INITRAMFS_SUFFIX := -factory.trx
-	DEVICE_PACKAGES := ath10k-firmware-qca9984-ct kmod-usb-ledtrig-usbport
+	DEVICE_PACKAGES := ath10k-firmware-qca9984 kmod-usb-ledtrig-usbport -kmod-ath10k-ct kmod-ath10k -ath10k-firmware-qca4019-ct ath10k-firmware-qca4019
 	SUPPORTED_DEVICES += asus,rt-acrh17
 endef
 TARGET_DEVICES += asus_rt-ac42u
@@ -258,7 +258,7 @@ define Device/asus_rt-ac58u
 	UIMAGE_NAME:=$(shell echo -e '\03\01\01\01RT-AC58U')
 	KERNEL_INITRAMFS := $$(KERNEL) | uImage none
 	KERNEL_INITRAMFS_SUFFIX := -factory.trx
-	DEVICE_PACKAGES := -kmod-ath10k-ct kmod-ath10k-ct-smallbuffers \
+	DEVICE_PACKAGES := -kmod-ath10k-ct kmod-ath10k-smallbuffers -ath10k-firmware-qca4019-ct ath10k-firmware-qca4019 \
 		kmod-usb-ledtrig-usbport
 endef
 TARGET_DEVICES += asus_rt-ac58u
@@ -1102,7 +1102,7 @@ define Device/p2w_r619ac
 	DEVICE_DTS_CONFIG := config@10
 	BLOCKSIZE := 128k
 	PAGESIZE := 2048
-	DEVICE_PACKAGES := lte-modem-p2w-r619ac
+	DEVICE_PACKAGES := lte-modem-p2w-r619ac -kmod-ath10k-ct kmod-ath10k -ath10k-firmware-qca4019-ct ath10k-firmware-qca4019
 endef
 
 define Device/p2w_r619ac-64m
