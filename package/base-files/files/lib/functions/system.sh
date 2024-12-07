@@ -67,6 +67,7 @@ get_mac_ascii() {
 	local mac_dirty
 
 	mac_dirty=$(strings "$part" | tr -d ' \t' | sed -n 's/^'"$key"'=//p' | head -n 1)
+	test -n "$mac_dirty" || mac_dirty=$(grep -o "$key=.*" "$part" | sed -n 's/^'"$key"'=//p')
 
 	# "canonicalize" mac
 	[ -n "$mac_dirty" ] && macaddr_canonicalize "$mac_dirty"
