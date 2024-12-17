@@ -1177,6 +1177,10 @@ dnsmasq_start()
 		# EXTRACONFFILE allows new dnsmasq parameters before they are natively handled in this init file
 		config_get extraconftext "$cfg" extraconftext
 		[ -n "$extraconftext" ] && echo -e "$extraconftext" > "$dnsmasqconfdir"/"$EXTRACONFFILE"
+
+		for f in /tmp/dnsmasq.d/*.conf; do
+			test -e "$f" && ln -s $f $dnsmasqconfdir 2>/dev/null
+		done
 	}
 
 	config_get_bool enable_tftp "$cfg" enable_tftp 0
