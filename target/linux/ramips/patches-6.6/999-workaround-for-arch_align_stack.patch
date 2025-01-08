@@ -1,0 +1,11 @@
+--- a/arch/mips/kernel/process.c
++++ b/arch/mips/kernel/process.c
+@@ -713,7 +713,7 @@ unsigned long mips_stack_top(void)
+  */
+ unsigned long arch_align_stack(unsigned long sp)
+ {
+-	if (!(current->personality & ADDR_NO_RANDOMIZE) && randomize_va_space)
++	if (!(current->personality & ADDR_NO_RANDOMIZE) && randomize_va_space && 0)
+ 		sp -= get_random_u32_below(PAGE_SIZE);
+ 
+ 	return sp & ALMASK;
