@@ -66,6 +66,14 @@ preinit_set_mac_address() {
 		ip link set dev eth0 address "$lan_mac"
 		ip link set dev eth1 address "$wan_mac"
 		;;
+	ruijie,rg-x60-pro-ubootlayout|\
+	ruijie,rg-x60-pro)
+		addr=$(mtd_get_mac_ascii product_info ethaddr)
+		lan_mac=$(macaddr_add $addr 0)
+		wan_mac=$(macaddr_add $addr 1)
+		ip link set dev eth0 address "$lan_mac"
+		ip link set dev eth1 address "$wan_mac"
+		;;
 	*)
 		;;
 	esac
