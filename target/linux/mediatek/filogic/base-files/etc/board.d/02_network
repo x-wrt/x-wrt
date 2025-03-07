@@ -78,6 +78,7 @@ mediatek_setup_interfaces()
 	bananapi,bpi-r3)
 		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4 sfp2" "sfp1 wan"
 		;;
+	huasifei,wh3000-emmc|\
 	bananapi,bpi-r3-mini|\
 	edgecore,eap111)
 		ucidef_set_interfaces_lan_wan eth0 eth1
