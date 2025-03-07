@@ -63,6 +63,10 @@ cudy,wr3000h-v1)
 	ucidef_set_led_netdev "wan" "wan" "white:wan" "wan" "link tx rx"
 	ucidef_set_led_netdev "internet" "internet" "white:wan-online" "wan" "link"
 	;;
+huasifei,wh3000-emmc)
+	ucidef_set_led_netdev "wan" "WAN" "red:wan" "eth1"
+	ucidef_set_led_netdev "wlan" "WLAN" "white:wlan" "phy1-ap0"
+	;;
 glinet,gl-x3000|\
 glinet,gl-xe3000)
 	ucidef_set_led_default "power" "POWER" "green:power" "1"
