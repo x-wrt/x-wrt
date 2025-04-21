@@ -32,10 +32,6 @@
 		rootdisk-spim-nand = <&ubi_rootfs>;
 	};
 
-	memory {
-		reg = <0x00 0x40000000 0x00 0x10000000>;
-	};
-
 	/* SFP1 cage (WAN) */
 	sfp1: sfp1 {
 		compatible = "sff,sfp";
