@@ -1,0 +1,10 @@
+diff --git a/libuuid/uuid.pc.in b/libuuid/uuid.pc.in
+index 51929fe..b4c4f16 100644
+--- a/libuuid/uuid.pc.in
++++ b/libuuid/uuid.pc.in
+@@ -8,4 +8,4 @@ Description: Universally unique id library
+ Version: @LIBUUID_VERSION@
+ Cflags: -I${includedir}/uuid
+ Libs.private: @SOCKET_LIBS@ -lpthread
+-Libs: -L${libdir} -luuid
++Libs: -L${libdir} -luuid -lpthread
