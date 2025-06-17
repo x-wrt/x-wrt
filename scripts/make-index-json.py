@@ -58,7 +58,8 @@ def parse_opkg(text: str) -> dict:
     for chunk in chunks:
         package: dict = parser.parsestr(chunk, headersonly=True)
         package_name: str = package["Package"]
-        if package_abi := package.get("ABIVersion"):
+        package_abi = package.get("ABIVersion")
+        if package_abi:
             package_name = package_name.removesuffix(package_abi)
 
         packages[package_name] = package["Version"]
