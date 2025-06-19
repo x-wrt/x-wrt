@@ -17,6 +17,11 @@ timeout)
 released)
 	if [ "$SEEN" -lt 1 ]
 	then
+		if test -e /usr/sbin/fakemesh; then
+			echo "RESET push call fakemesh" > /dev/console
+			exec /usr/sbin/fakemesh setup &
+			return 0
+		fi
 		echo "REBOOT" > /dev/console
 		sync
 		reboot
