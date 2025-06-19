@@ -53,7 +53,7 @@ define Package/uboot-envtools
 	SECTION:=utils
 	CATEGORY:=Utilities
 	SUBMENU:=Boot Loaders
-	PKG_FLAGS+=nonshared
+	PKG_FLAGS:=nonshared
 	TITLE:=read/modify U-Boot bootloader environment
 	URL:=http://www.denx.de/wiki/U-Boot
 endef
