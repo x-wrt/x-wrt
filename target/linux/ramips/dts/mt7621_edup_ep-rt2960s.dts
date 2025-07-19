@@ -1,0 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
+
+#include "mt7621_edup_ep-rt2960s.dtsi"
+
+/ {
+	compatible = "edup,ep-rt2960s", "mediatek,mt7621-soc";
+	model = "EDUP EP-RT2960S";
+};
