@@ -219,6 +219,12 @@ ramips_setup_interfaces()
 		ucidef_add_switch "switch1" \
 			"0:lan" "1:lan" "2:lan" "3:lan" "4:wan" "6@eth0"
 		;;
+	mercusys,ac12g-v1-8m)
+		ucidef_add_switch "switch0"
+		ucidef_add_switch_attr "switch0" "enable" "0"
+		ucidef_add_switch "switch1" \
+			"0:lan:4" "1:lan:1" "2:lan:2" "3:lan:3" "4:wan" "7@eth0"
+		;;
 	netgear,pr2000|\
 	nexx,wt3020-4m|\
 	nexx,wt3020-8m)
@@ -440,7 +446,8 @@ ramips_setup_macs()
 	tplink,archer-c5-v4|\
 	tplink,archer-c50-v1|\
 	tplink,archer-mr200|\
-	tplink,ec220-g5-v2)
+	tplink,ec220-g5-v2|\
+	mercusys,ac12g-v1-8m)
 		wan_mac=$(macaddr_add "$(mtd_get_mac_binary rom 0xf100)" 1)
 		;;
 	wavlink,wl-wn531g3|\
