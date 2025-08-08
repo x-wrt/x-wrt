@@ -1,0 +1,31 @@
+From b00dccb89cd800b512e37110ae734bd6ba6788c6 Mon Sep 17 00:00:00 2001
+From: Chen Minqiang <ptpt52@gmail.com>
+Date: Fri, 8 Aug 2025 22:54:10 +0800
+Subject: [PATCH] br_netfilter: fix missing source MAC rewrite for DNAT+SNAT
+ local packets in bridge L3 hooks
+
+Scenario: When the original destination IP is local, DNAT translates
+it to a downstream host and SNAT is applied, with bridge L3 hooks
+enabled. Previously, DNAT and MAC rewrite happened at L2, so the
+packet was directly bridged and SNAT applied, but the source MAC was
+not rewritten, causing forwarding issues.
+
+Fix: Only rewrite the destination MAC when the destination IP was
+changed and the destination MAC is not the local device, ensuring
+local packets go through L3 processing and SNAT before forwarding,
+so the source MAC is correctly set.
+---
+ net/bridge/br_netfilter_hooks.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+--- a/net/bridge/br_netfilter_hooks.c
++++ b/net/bridge/br_netfilter_hooks.c
+@@ -389,7 +389,7 @@ static int br_nf_pre_routing_finish(stru
+ 		nf_bridge->pkt_otherhost = false;
+ 	}
+ 	nf_bridge->in_prerouting = 0;
+-	if (br_nf_ipv4_daddr_was_changed(skb, nf_bridge)) {
++	if (br_nf_ipv4_daddr_was_changed(skb, nf_bridge) && !ether_addr_equal_64bits(eth_hdr(skb)->h_dest, dev->dev_addr)) {
+ 		err = ip_route_input(skb, iph->daddr, iph->saddr,
+ 				     ip4h_dscp(iph), dev);
+ 		if (err) {
