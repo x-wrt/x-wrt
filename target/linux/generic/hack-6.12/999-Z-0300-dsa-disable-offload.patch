@@ -1,0 +1,122 @@
+From e058dd0f6c50be5377320d8928f633bede832896 Mon Sep 17 00:00:00 2001
+From: Chen Minqiang <ptpt52@gmail.com>
+Date: Fri, 15 May 2026 11:46:17 +0800
+Subject: [PATCH] dsa: disable offload
+
+Signed-off-by: Chen Minqiang <ptpt52@gmail.com>
+---
+ net/dsa/port.c   |  4 ++++
+ net/dsa/switch.c | 20 ++++++++++----------
+ net/dsa/tag.h    |  4 +---
+ 3 files changed, 15 insertions(+), 13 deletions(-)
+
+--- a/net/dsa/port.c
++++ b/net/dsa/port.c
+@@ -137,6 +137,8 @@ int dsa_port_set_state(struct dsa_port *
+ 	struct dsa_switch *ds = dp->ds;
+ 	int port = dp->index;
+ 
++	return -EOPNOTSUPP;
++
+ 	if (!ds->ops->port_stp_state_set)
+ 		return -EOPNOTSUPP;
+ 
+@@ -800,6 +802,8 @@ int dsa_port_vlan_filtering(struct dsa_p
+ 	bool apply;
+ 	int err;
+ 
++	return -EOPNOTSUPP;
++
+ 	if (!ds->ops->port_vlan_filtering)
+ 		return -EOPNOTSUPP;
+ 
+--- a/net/dsa/switch.c
++++ b/net/dsa/switch.c
+@@ -79,7 +79,7 @@ static int dsa_switch_mtu(struct dsa_swi
+ 	return 0;
+ }
+ 
+-static int dsa_switch_bridge_join(struct dsa_switch *ds,
++static inline int dsa_switch_bridge_join(struct dsa_switch *ds,
+ 				  struct dsa_notifier_bridge_info *info)
+ {
+ 	int err;
+@@ -788,7 +788,7 @@ out:
+ 	return err;
+ }
+ 
+-static int dsa_switch_vlan_add(struct dsa_switch *ds,
++static inline int dsa_switch_vlan_add(struct dsa_switch *ds,
+ 			       struct dsa_notifier_vlan_info *info)
+ {
+ 	struct dsa_port *dp;
+@@ -809,7 +809,7 @@ static int dsa_switch_vlan_add(struct ds
+ 	return 0;
+ }
+ 
+-static int dsa_switch_vlan_del(struct dsa_switch *ds,
++static inline int dsa_switch_vlan_del(struct dsa_switch *ds,
+ 			       struct dsa_notifier_vlan_info *info)
+ {
+ 	struct dsa_port *dp;
+@@ -829,7 +829,7 @@ static int dsa_switch_vlan_del(struct ds
+ 	return 0;
+ }
+ 
+-static int dsa_switch_host_vlan_add(struct dsa_switch *ds,
++static inline int dsa_switch_host_vlan_add(struct dsa_switch *ds,
+ 				    struct dsa_notifier_vlan_info *info)
+ {
+ 	struct dsa_port *dp;
+@@ -850,7 +850,7 @@ static int dsa_switch_host_vlan_add(stru
+ 	return 0;
+ }
+ 
+-static int dsa_switch_host_vlan_del(struct dsa_switch *ds,
++static inline int dsa_switch_host_vlan_del(struct dsa_switch *ds,
+ 				    struct dsa_notifier_vlan_info *info)
+ {
+ 	struct dsa_port *dp;
+@@ -982,7 +982,7 @@ static int dsa_switch_event(struct notif
+ 		err = dsa_switch_ageing_time(ds, info);
+ 		break;
+ 	case DSA_NOTIFIER_BRIDGE_JOIN:
+-		err = dsa_switch_bridge_join(ds, info);
++		err = -EOPNOTSUPP;
+ 		break;
+ 	case DSA_NOTIFIER_BRIDGE_LEAVE:
+ 		err = dsa_switch_bridge_leave(ds, info);
+@@ -1027,16 +1027,16 @@ static int dsa_switch_event(struct notif
+ 		err = dsa_switch_host_mdb_del(ds, info);
+ 		break;
+ 	case DSA_NOTIFIER_VLAN_ADD:
+-		err = dsa_switch_vlan_add(ds, info);
++		err = -EOPNOTSUPP;
+ 		break;
+ 	case DSA_NOTIFIER_VLAN_DEL:
+-		err = dsa_switch_vlan_del(ds, info);
++		err = -EOPNOTSUPP;
+ 		break;
+ 	case DSA_NOTIFIER_HOST_VLAN_ADD:
+-		err = dsa_switch_host_vlan_add(ds, info);
++		err = -EOPNOTSUPP;
+ 		break;
+ 	case DSA_NOTIFIER_HOST_VLAN_DEL:
+-		err = dsa_switch_host_vlan_del(ds, info);
++		err = -EOPNOTSUPP;
+ 		break;
+ 	case DSA_NOTIFIER_MTU:
+ 		err = dsa_switch_mtu(ds, info);
+--- a/net/dsa/tag.h
++++ b/net/dsa/tag.h
+@@ -236,9 +236,7 @@ dsa_find_designated_bridge_port_by_vid(s
+  */
+ static inline void dsa_default_offload_fwd_mark(struct sk_buff *skb)
+ {
+-	struct dsa_port *dp = dsa_user_to_port(skb->dev);
+-
+-	skb->offload_fwd_mark = !!(dp->bridge);
++	return;
+ }
+ 
+ /* Helper for removing DSA header tags from packets in the RX path.
