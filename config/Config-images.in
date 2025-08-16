@@ -332,6 +332,18 @@ menu "Target Images"
 		depends on TARGET_ROOTFS_EXT4FS || TARGET_x86 || TARGET_armsr || TARGET_malta || TARGET_loongarch64
 		default y
 
+	config TARGET_IMAGES_PIGZ
+		bool "Use pigz for parallel gzip compression"
+		depends on TARGET_IMAGES_GZIP
+		help
+		  Use pigz (parallel implementation of gzip, pronounced pig-zee) if it is found
+		  on the host for faster compression of images. This can significantly reduce compression
+		  times on multi-core systems. Even if this option is enabled, the build system will fall
+		  back to gzip if pigz is not detected on the host.
+
+		  Note that unless the build bots are also using pigz, images built with it will not be
+		  reproducible. See: https://openwrt.org/docs/guide-developer/security#reproducible_builds
+
 	comment "Image Options"
 
 	source "target/linux/*/image/Config.in"
