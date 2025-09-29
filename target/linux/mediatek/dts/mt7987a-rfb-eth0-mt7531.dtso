@@ -35,7 +35,7 @@
 			switch31: switch@31 {
 				compatible = "mediatek,mt7531";
 				reg = <31>;
-				reset-gpios = <&pio 42 0>;
+				reset-gpios = <&pio 42 1>;
 				status = "okay";
 
 				ports {
