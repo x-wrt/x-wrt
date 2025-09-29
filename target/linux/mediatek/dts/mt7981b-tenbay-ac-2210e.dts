@@ -160,7 +160,7 @@
 		compatible = "mediatek,mt7531";
 		reg = <31>;
 		dsa,member = <0 0>;
-		reset-gpios = <&pio 39 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&pio 39 GPIO_ACTIVE_LOW>;
 		interrupt-controller;
 		#interrupt-cells = <1>;
 		interrupt-parent = <&pio>;
@@ -226,7 +226,7 @@
 		compatible = "mediatek,mt7531";
 		reg = <31>;
 		dsa,member = <1 0>;
-		reset-gpios = <&pio 4 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&pio 4 GPIO_ACTIVE_LOW>;
 		reset-delay-us = <600>;
 		reset-post-delay-us = <20000>;
 		interrupt-controller;
