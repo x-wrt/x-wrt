@@ -70,7 +70,7 @@
 		#interrupt-cells = <1>;
 		interrupt-parent = <&pio>;
 		interrupts = <38 IRQ_TYPE_LEVEL_HIGH>;
-		reset-gpios = <&pio 39 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&pio 39 GPIO_ACTIVE_LOW>;
 	};
 };
 
