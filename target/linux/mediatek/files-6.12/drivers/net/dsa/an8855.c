@@ -2243,9 +2243,9 @@ static int an8855_switch_probe(struct platform_device *pdev)
 
 	if (priv->reset_gpio) {
 		usleep_range(100000, 150000);
-		gpiod_set_value_cansleep(priv->reset_gpio, 0);
-		usleep_range(100000, 150000);
 		gpiod_set_value_cansleep(priv->reset_gpio, 1);
+		usleep_range(100000, 150000);
+		gpiod_set_value_cansleep(priv->reset_gpio, 0);
 
 		/* Poll HWTRAP reg to wait for Switch to fully Init */
 		ret = regmap_read_poll_timeout(priv->regmap, AN8855_HWTRAP, val,
