@@ -414,9 +414,9 @@ static int mt753x_hw_reset(struct gsw_mt753x *gsw)
 		return ret;
 	}
 
-	gpio_direction_output(gsw->reset_pin, 0);
+	gpio_direction_output(gsw->reset_pin, 1);
 	msleep(30);
-	gpio_set_value(gsw->reset_pin, 1);
+	gpio_set_value(gsw->reset_pin, 0);
 	msleep(500);
 
 	return 0;
