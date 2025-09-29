@@ -264,7 +264,7 @@
 
 		ethernet-switch {
 			compatible = "airoha,an8855-switch";
-			reset-gpios = <&pio 42 GPIO_ACTIVE_HIGH>;
+			reset-gpios = <&pio 42 GPIO_ACTIVE_LOW>;
 			airoha,ext-surge;
 
 			ports {
