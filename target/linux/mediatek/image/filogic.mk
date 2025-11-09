@@ -651,7 +651,7 @@ define Device/bananapi_bpi-r4-lite
   DEVICE_DTS_LOADADDR := 0x4ff00000
   DEVICE_PACKAGES := mt7987-2p5g-phy-firmware kmod-eeprom-at24 \
 		     kmod-gpio-pca953x kmod-i2c-mux-pca954x kmod-rtc-pcf8563 \
-		     kmod-sfp e2fsprogs mkf2fs
+		     kmod-sfp e2fsprogs kmod-usb3 e2fsprogs mkf2fs
   BLOCKSIZE := 128k
   PAGESIZE := 2048
   KERNEL_IN_UBI := 1
