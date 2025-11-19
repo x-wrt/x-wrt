@@ -461,6 +461,27 @@ static int intel_set_port_power(struct switch_dev *dev,
 	return 0;
 }
 
+static int intel_get_ports_link_map(struct switch_dev *dev,
+                                    const struct switch_attr *attr,
+                                    struct switch_val *val)
+{
+	int port;
+	int map = 0;
+	struct intel_gsw *gsw = container_of(dev, struct intel_gsw, swdev);
+
+	mutex_lock(&gsw->reg_mutex);
+	for (port = 0; port < INTEL_SWITCH_PORT_NUM; port++) {
+		if (GSW_PortLink((void *)&gsw->pd, port) == GSW_PORT_LINK_UP) {
+			map |= (1 << port);
+		}
+	}
+	mutex_unlock(&gsw->reg_mutex);
+
+	val->value.i = map;
+
+	return 0;
+}
+
 static struct switch_attr intel_globals[] = {
 	{
 		.type = SWITCH_TYPE_INT,
@@ -470,6 +491,13 @@ static struct switch_attr intel_globals[] = {
 		.set = intel_set_vlan_enable,
 		.max = 1,
 		.ofs = 1
+	}, {
+		.type = SWITCH_TYPE_INT,
+		.name = "link_map",
+		.description = "Ports link map (0~255)",
+		.get = intel_get_ports_link_map,
+		.set = NULL,
+		.max = 255, /* 0xff */
 	}
 };
 

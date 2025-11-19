@@ -2896,6 +2896,20 @@ GSW_return_t GSW_PortLinkCfgGet(void *pdev,
 	return GSW_statusOk;
 }
 
+GSW_portLink_t GSW_PortLink(void *pdev, int port)
+{
+	ur r = 0;
+	u8 pi = (u8)port;
+	gsw_reg_rd(pdev,
+	           (MAC_PSTAT_LSTAT_OFFSET + (0xC * pi)),
+	           MAC_PSTAT_LSTAT_SHIFT,
+	           MAC_PSTAT_LSTAT_SIZE, &r);
+	if (r)
+		return GSW_PORT_LINK_UP;
+	else
+		return GSW_PORT_LINK_DOWN;
+}
+
 GSW_return_t GSW_PortRGMII_ClkCfgSet(void *pdev,
                                      GSW_portRGMII_ClkCfg_t *parm)
 {

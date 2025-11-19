@@ -2171,6 +2171,8 @@ GSW_return_t GSW_PortLinkCfgGet(void *cdev, GSW_portLinkCfg_t *parm);
 */
 GSW_return_t GSW_PortLinkCfgSet(void *cdev, GSW_portLinkCfg_t *parm);
 
+GSW_portLink_t GSW_PortLink(void *pdev, int port);
+
 /**
    This is the switch API low-level function for
    the \ref GSW_PORT_PHY_ADDR_GET command.
