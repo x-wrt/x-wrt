@@ -941,6 +941,31 @@ static int mt7530_get_port_stats(struct switch_dev *dev, int port,
 	return 0;
 }
 
+static int mt7530_get_ports_link_map(struct switch_dev *dev,
+                                     const struct switch_attr *attr,
+                                     struct switch_val *val)
+{
+	int port;
+	int map = 0;
+	u32 pmsr;
+	struct mt7530_priv *priv = container_of(dev, struct mt7530_priv, swdev);
+
+	mutex_lock(&priv->reg_mutex);
+
+	for (port = 0; port < MT7530_NUM_PORTS; port++) {
+		pmsr = mt7530_r32(priv, 0x3008 + (0x100 * port));
+		if ((pmsr & 1)) {
+			map |= (1 << port);
+		}
+	}
+
+	mutex_unlock(&priv->reg_mutex);
+
+	val->value.i = map;
+
+	return 0;
+}
+
 static const struct switch_attr mt7530_global[] = {
 	{
 		.type = SWITCH_TYPE_INT,
@@ -970,6 +995,13 @@ static const struct switch_attr mt7530_global[] = {
 		.description = "Get ARL table",
 		.set = NULL,
 		.get = mt7530_get_arl_table,
+	}, {
+		.type = SWITCH_TYPE_INT,
+		.name = "link_map",
+		.description = "Ports link map (0~255)",
+		.get = mt7530_get_ports_link_map,
+		.set = NULL,
+		.max = 255, /* 0xff */
 	},
 };
 
