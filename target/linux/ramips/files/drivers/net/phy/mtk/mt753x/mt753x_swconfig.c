@@ -759,6 +759,31 @@ static int mt753x_set_port_power(struct switch_dev *dev,
 	return 0;
 }
 
+static int mt753x_get_ports_link_map(struct switch_dev *dev,
+                                     const struct switch_attr *attr,
+                                     struct switch_val *val)
+{
+	int port;
+	int map = 0;
+	u32 pmsr;
+	struct gsw_mt753x *gsw = container_of(dev, struct gsw_mt753x, swdev);
+
+	mutex_lock(&gsw->reg_mutex);
+
+	for (port = 0; port < MT753X_NUM_PORTS; port++) {
+		pmsr = mt753x_reg_read(gsw, PMSR(port));
+		if ((pmsr & MAC_LNK_STS)) {
+			map |= (1 << port);
+		}
+	}
+
+	mutex_unlock(&gsw->reg_mutex);
+
+	val->value.i = map;
+
+	return 0;
+}
+
 static const struct switch_attr mt753x_global[] = {
 	{
 		.type = SWITCH_TYPE_INT,
@@ -787,6 +812,13 @@ static const struct switch_attr mt753x_global[] = {
 		.description = "Get ARL table",
 		.set = NULL,
 		.get = mt753x_get_arl_table,
+	}, {
+		.type = SWITCH_TYPE_INT,
+		.name = "link_map",
+		.description = "Ports link map (0~255)",
+		.get = mt753x_get_ports_link_map,
+		.set = NULL,
+		.max = 255, /* 0xff */
 	},
 };
 
