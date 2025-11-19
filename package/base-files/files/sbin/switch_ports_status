@@ -131,9 +131,15 @@ get_switch_device
 
 get_switch_linkmap()
 {
-	sw=$1
-	ports=$2
+	sw=$2
+	ports=$3
 	status=0
+	status="$(swconfig dev $sw get link_map 2>/dev/null)"
+	if test -n "$status"; then
+		echo $status
+		export -n "$1=$status"
+		return
+	fi
 	for i in $ports; do
 		link=$(swconfig dev $sw port $i get link 2>/dev/null)
 		link=${link/*link:up*/1}
@@ -141,7 +147,7 @@ get_switch_linkmap()
 		[ "$link" = "0" ] || [ "$link" = "1" ] || link=0
 		status=$(((link<<i) | status))
 	done
-	echo $status
+	export -n "$1=$status"
 }
 
 # only trigger on **matched** interface and status is up
@@ -220,7 +226,7 @@ for sw in $_switchs; do
 	ports="`echo $(echo "$_ports" | grep ${sw}= | cut -d= -f2)`"
 	cpus="$(echo "$_cpus" | grep ${sw}= | cut -d= -f2 | head -n1)"
 	#echo $cpus get_switch_linkmap "$sw" "$ports"
-	newlinkmap=$(get_switch_linkmap "$sw" "$ports")
+	get_switch_linkmap newlinkmap "$sw" "$ports"
 	#newlinkmap=0
 	_linkmaps="$sw=$newlinkmap
 $_linkmaps"
@@ -228,17 +234,17 @@ done
 
 get_br_linkmap()
 {
-	br=$1
+	br=$2
 	CA=$(for ca in $(ls /sys/class/net/$br/lower_*/carrier 2>/dev/null); do echo -n $ca:$(cat $ca); done)
 	#CA=`echo ${CA}`
-	echo "$CA"
+	export -n "$1=$CA"
 }
 
 _br_linkmaps=""
 #init bridge _br_linkmaps
 BR=$(for i in $(ls /sys/class/net/*/brif 2>/dev/null); do br=${i#/sys/class/net/}; echo "${br/\/brif}"; done)
 for br in $BR; do
-	newlinkmap=$(get_br_linkmap $br)
+	get_br_linkmap newlinkmap $br
 	_br_linkmaps="$br=$newlinkmap
 $_br_linkmaps"
 done
@@ -259,7 +265,7 @@ BR=$(for i in $(ls /sys/class/net/*/brif 2>/dev/null); do br=${i#/sys/class/net/
 for br in $BR; do
 	if echo "$_br_linkmaps" | grep -q "${br}="; then
 		oldlinkmap="$(echo "$_br_linkmaps" | grep ${br}= | cut -d= -f2)"
-		newlinkmap=$(get_br_linkmap $br)
+		get_br_linkmap newlinkmap $br
 		if ! [ "$oldlinkmap" = "$newlinkmap" ]; then
 			_br_linkmaps="$(echo "$_br_linkmaps" | sed "s,$br=.*,$br=$newlinkmap,")"
 			LOG "EVENT($EVENT): DEVICE=$br link changed"
@@ -267,7 +273,7 @@ for br in $BR; do
 			EVENT=$((EVENT+1))
 		fi
 	else
-		newlinkmap=$(get_br_linkmap $br)
+		get_br_linkmap newlinkmap $br
 		_br_linkmaps="$br=$newlinkmap
 $_br_linkmaps"
 	fi
@@ -278,7 +284,7 @@ for sw in $_switchs; do
 	cpus="$(echo "$_cpus" | grep ${sw}= | cut -d= -f2 | head -n1)"
 	oldlinkmap="$(echo "$_linkmaps" | grep ${sw}= | cut -d= -f2)"
 
-	newlinkmap=$(get_switch_linkmap "$sw" "$ports")
+	get_switch_linkmap newlinkmap "$sw" "$ports"
 
 	diffstatus=$((oldlinkmap^newlinkmap))
 
