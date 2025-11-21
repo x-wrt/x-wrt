@@ -181,6 +181,7 @@ mediatek_setup_interfaces()
 	tplink,re6000xd)
 		ucidef_set_interface_lan "lan1 lan2 eth1"
 		;;
+	glinet,gl-mt3600be|\
 	tenbay,ms3000k)
 		ucidef_set_interfaces_lan_wan "eth0" eth1
 		;;
