@@ -5,6 +5,10 @@ START=99
 
 boot() {
 	case $(board_name) in
+	glinet,gl-mt3600be)
+		ethtool --set-eee eth0 eee on
+		ethtool --set-eee eth0 eee off
+		;;
 	xiaomi,mi-router-ax3000t)
 		. /lib/upgrade/common.sh
 		[ "$(rootfs_type)" = "tmpfs" ] && \
