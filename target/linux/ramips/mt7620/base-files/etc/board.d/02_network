@@ -225,6 +225,9 @@ ramips_setup_interfaces()
 		ucidef_add_switch "switch1" \
 			"0:lan:4" "1:lan:1" "2:lan:2" "3:lan:3" "4:wan" "7@eth0"
 		;;
+	mercusys,ac12g-v1-8m-dsa)
+		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3" "wan"
+		;;
 	netgear,pr2000|\
 	nexx,wt3020-4m|\
 	nexx,wt3020-8m)
