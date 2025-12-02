@@ -35,6 +35,8 @@
 		#size-cells = <2>;
 		ranges;
 
+		/delete-node/ramoops@44ff0000;
+
 		bootdata@45000000 {
 			no-map;
 			reg = <0x0 0x45000000 0x0 0x00001000>;
