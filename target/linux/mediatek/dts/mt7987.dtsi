@@ -262,6 +262,22 @@
 			no-map;
 			reg = <0 0x50000000 0 0x00100000>;
 		};
+
+		/* 64 KiB reserved for ramoops/pstore */
+		ramoops@44ff0000 {
+			compatible = "ramoops";
+			no-map;
+			reg = <0 0x44ff0000 0 0x10000>;
+			record-size = <0x8000>;
+		};
+
+		ramoops@5ffb0000 {
+			status = "disabled";
+		};
+
+		ramoops@42ff0000 {
+			status = "disabled";
+		};
 	};
 
 	thermal-zones {
