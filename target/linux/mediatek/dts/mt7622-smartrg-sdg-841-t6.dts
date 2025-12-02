@@ -102,6 +102,7 @@
 		ranges;
 
 		/delete-node/ramoops@42ff0000;
+		/delete-node/ramoops@44ff0000;
 
 		bootdata@45000000 {
 			no-map;
