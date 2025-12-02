@@ -1,0 +1,92 @@
+From 9207d65315a2f73c55f6953c7ce2fb2dd083b519 Mon Sep 17 00:00:00 2001
+From: Chen Minqiang <ptpt52@gmail.com>
+Date: Wed, 3 Dec 2025 01:26:08 +0800
+Subject: [PATCH] mediatek: 64 KiB reserved for ramoops/pstore
+
+---
+ arch/arm64/boot/dts/mediatek/mt7622.dtsi  | 10 +++++++---
+ arch/arm64/boot/dts/mediatek/mt7981b.dtsi | 10 +++++++---
+ arch/arm64/boot/dts/mediatek/mt7986a.dtsi | 10 +++++++---
+ arch/arm64/boot/dts/mediatek/mt7988a.dtsi | 11 +++++++++++
+ 4 files changed, 32 insertions(+), 9 deletions(-)
+
+--- a/arch/arm64/boot/dts/mediatek/mt7622.dtsi
++++ b/arch/arm64/boot/dts/mediatek/mt7622.dtsi
+@@ -142,10 +142,14 @@
+ 		ranges;
+ 
+ 		/* 64 KiB reserved for ramoops/pstore */
+-		ramoops@42ff0000 {
++		ramoops@44ff0000 {
+ 			compatible = "ramoops";
+-			reg = <0 0x42ff0000 0 0x10000>;
+-			record-size = <0x1000>;
++			no-map;
++			reg = <0 0x44ff0000 0 0x10000>;
++			record-size = <0x8000>;
++		};
++		ramoops@42ff0000 {
++			status = "disabled";
+ 		};
+ 
+ 		/* 192 KiB reserved for ARM Trusted Firmware (BL31) */
+--- a/arch/arm64/boot/dts/mediatek/mt7981b.dtsi
++++ b/arch/arm64/boot/dts/mediatek/mt7981b.dtsi
+@@ -71,10 +71,14 @@
+ 		ranges;
+ 
+ 		/* 64 KiB reserved for ramoops/pstore */
+-		ramoops@42ff0000 {
++		ramoops@44ff0000 {
+ 			compatible = "ramoops";
+-			reg = <0 0x42ff0000 0 0x10000>;
+-			record-size = <0x1000>;
++			no-map;
++			reg = <0 0x44ff0000 0 0x10000>;
++			record-size = <0x8000>;
++		};
++		ramoops@42ff0000 {
++			status = "disabled";
+ 		};
+ 
+ 		/* 192 KiB reserved for ARM Trusted Firmware (BL31) */
+--- a/arch/arm64/boot/dts/mediatek/mt7986a.dtsi
++++ b/arch/arm64/boot/dts/mediatek/mt7986a.dtsi
+@@ -70,10 +70,14 @@
+ 		ranges;
+ 
+ 		/* 64 KiB reserved for ramoops/pstore */
+-		ramoops@42ff0000 {
++		ramoops@44ff0000 {
+ 			compatible = "ramoops";
+-			reg = <0 0x42ff0000 0 0x10000>;
+-			record-size = <0x1000>;
++			no-map;
++			reg = <0 0x44ff0000 0 0x10000>;
++			record-size = <0x8000>;
++		};
++		ramoops@42ff0000 {
++			status = "disabled";
+ 		};
+ 
+ 		/* 256 KiB reserved for ARM Trusted Firmware (BL31 + BL32) */
+--- a/arch/arm64/boot/dts/mediatek/mt7988a.dtsi
++++ b/arch/arm64/boot/dts/mediatek/mt7988a.dtsi
+@@ -148,6 +148,17 @@
+ 		#size-cells = <2>;
+ 		ranges;
+ 
++		/* 64 KiB reserved for ramoops/pstore */
++		ramoops@44ff0000 {
++			compatible = "ramoops";
++			no-map;
++			reg = <0 0x44ff0000 0 0x10000>;
++			record-size = <0x8000>;
++		};
++		ramoops@42ff0000 {
++			status = "disabled";
++		};
++
+ 		/* 320 KiB reserved for ARM Trusted Firmware (BL31 and BL32) */
+ 		secmon@43000000 {
+ 			reg = <0 0x43000000 0 0x50000>;
