@@ -2252,6 +2252,24 @@ endif
 endef
 TARGET_DEVICES += glinet_gl-mt3600be
 
+define Device/tenda_be12l-pro
+  DEVICE_VENDOR := Tenda
+  DEVICE_MODEL := BE12L Pro
+  DEVICE_DTS := mt7987a-tenda-be12l-pro
+  DEVICE_DTS_DIR := ../dts
+  DEVICE_DTC_FLAGS := --pad 4096
+  DEVICE_DTS_LOADADDR := 0x4ff00000
+  DEVICE_PACKAGES := mt7987-2p5g-phy-firmware airoha-en8811h-firmware kmod-phy-airoha-en8811h kmod-mt7992-firmware
+  UBINIZE_OPTS := -E 5
+  BLOCKSIZE := 128k
+  PAGESIZE := 2048
+  KERNEL_LOADADDR := 0x40000000
+  KERNEL_INITRAMFS := kernel-bin | lzma | \
+        fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 64k
+  IMAGE/sysupgrade.bin := append-kernel | tenda-mkdualimageheader | sysupgrade-tar kernel=$$$$@ | append-metadata
+endef
+TARGET_DEVICES += tenda_be12l-pro
+
 define Device/mediatek_mt7988a-rfb
   DEVICE_VENDOR := MediaTek
   DEVICE_MODEL := MT7988A rfb
