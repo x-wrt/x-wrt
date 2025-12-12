@@ -37,9 +37,10 @@
 
 		switch {
 			label = "switch";
-			linux,code = <KEY_SETUP>;
+			linux,code = <BTN_0>;
 			gpios = <&pio 3 GPIO_ACTIVE_HIGH>;
 			debounce-interval = <10>;
+			linux,input-type = <EV_SW>;
 		};
 	};
 

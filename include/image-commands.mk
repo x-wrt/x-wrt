@@ -900,3 +900,26 @@ define Build/zyxel-ras-image
 			$(if $(findstring separate-kernel,$(word 1,$(1))),-k $(IMAGE_KERNEL)) \
 		&& mv $@.new $@
 endef
+
+define Build/tenda-mkdualimageheader
+	mv "$@" "$@.tmp"
+	printf '%b' "\x47\x6f\x64\x31\x00\x00\x00\x00" >"$@"
+	hex=$$(crc32 "$@.tmp"); \
+	hex=$$(printf '%08x' "0x$$hex"); \
+	printf '%b' "\x$${hex:6:2}\x$${hex:4:2}\x$${hex:2:2}\x$${hex:0:2}" >>"$@"
+	hex=$$(stat -c %s "$@.tmp"); \
+	hex=$$(printf '%08x' "$$hex"); \
+	printf '%b' "\x$${hex:6:2}\x$${hex:4:2}\x$${hex:2:2}\x$${hex:0:2}" >>"$@"
+	cat "$@.tmp" >>"$@"
+	rm -f "$@.tmp"
+endef
+
+define Build/tenda-sysupgrade-tar
+	mv "$@" "$@.tmp"
+	sh $(TOPDIR)/scripts/sysupgrade-tar.sh \
+		--board $(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME)) \
+		--kernel "$@.tmp" \
+		--rootfs $(call param_get_default,rootfs,$(1),$(IMAGE_ROOTFS)) \
+		$@
+	rm -f "$@.tmp"
+endef

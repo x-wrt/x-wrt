@@ -51,6 +51,14 @@ preinit_set_mac_address() {
 		addr=$(get_mac_binary "/tmp/tp_data/default-mac" 0)
 		ip link set dev eth1 address "$(macaddr_add $addr 1)"
 		;;
+	tenda,be12l-pro)
+		addr=$(mtd_get_mac_ascii CFG "TENDA.lan_mac")
+		ip link set eth0 down
+		ip link set dev eth0 address "$addr"
+		ip link set eth0 up
+		ip link set dev eth1 address "$(macaddr_add $addr 1)"
+		ip link set dev eth2 address "$(macaddr_add $addr 2)"
+		;;
 	tplink,be450)
 		addr=$(get_mac_binary "/tmp/tp_data/default-mac" 0)
 		ip link set dev eth1 address "$(macaddr_add $addr 1)"
