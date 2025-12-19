@@ -318,6 +318,7 @@ platform_do_upgrade() {
 		tenbay_mmc_do_upgrade_dual_boot "$1"
 		;;
 	xwrt,wr3000k-emmc-nor|\
+	tenda,ax12l-pro|\
 	tenbay,ms3000k)
 		default_do_upgrade "$1"
 		;;
@@ -374,6 +375,7 @@ platform_check_image() {
 		return $?
 		;;
 	cmcc,rax3000m-emmc-ubootlayout|\
+	tenda,ax12l-pro|\
 	tenbay,ms3000k|\
 	tenbay,wr3000k-gsw-emmc-nor)
 		return 0

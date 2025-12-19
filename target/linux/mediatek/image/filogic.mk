@@ -2928,6 +2928,20 @@ endif
 endef
 TARGET_DEVICES += tenbay_wr3000k
 
+define Device/tenda_ax12l-pro
+  DEVICE_VENDOR := Tenda
+  DEVICE_MODEL := AX12L Pro
+  DEVICE_DTS := mt7981b-tenda-ax12l-pro
+  DEVICE_DTS_DIR := ../dts
+  DEVICE_PACKAGES := kmod-mt7915e kmod-mt7981-firmware mt7981-wo-firmware uboot-envtools
+  KERNEL_LOADADDR := 0x40000000
+  KERNEL_INITRAMFS := kernel-bin | lzma | \
+        fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 64k
+  IMAGE_SIZE := 14528k
+  IMAGE/sysupgrade.bin := append-kernel | pad-to 128k | append-rootfs | pad-rootfs | check-size | append-metadata
+endef
+TARGET_DEVICES += tenda_ax12l-pro
+
 define Device/totolink_x6000r
   DEVICE_VENDOR := TOTOLINK
   DEVICE_MODEL := X6000R
