@@ -1165,6 +1165,8 @@
 				     <GIC_SPI 217 IRQ_TYPE_LEVEL_HIGH>;
 			interrupt-names = "ring0", "ring1", "ring2", "ring3";
 			eth = <&eth>;
+
+			status = "disabled";
 		};
 	};
 };
