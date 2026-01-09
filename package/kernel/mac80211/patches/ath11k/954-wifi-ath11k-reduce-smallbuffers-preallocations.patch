@@ -1,0 +1,54 @@
+Subject: [PATCH] wifi: ath11k: reduce remaining smallbuffers preallocations
+
+Reduce the host link descriptor estimate from 64 to 32 clients, halve the
+smallbuffers RX refill ring, reduce its monitor descriptor ring, and shrink
+CE1/CE5 receive rings for the QCN9074 family used by IPQ5018 and QCN6122.
+Keep regular builds and firmware memory reservations unchanged.
+
+--- a/drivers/net/wireless/ath/ath11k/dp.h
++++ b/drivers/net/wireless/ath/ath11k/dp.h
+@@ -186,7 +186,7 @@
+ 	struct ath11k_mon_data mon_data;
+ };
+ 
+-#define DP_NUM_CLIENTS_MAX 64
++#define DP_NUM_CLIENTS_MAX (!IS_ENABLED(CONFIG_ATH11K_SMALLBUFFERS) ? 64 : 32)
+ #define DP_AVG_TIDS_PER_CLIENT 2
+ #define DP_NUM_TIDS_MAX (DP_NUM_CLIENTS_MAX * DP_AVG_TIDS_PER_CLIENT)
+ #define DP_AVG_MSDUS_PER_FLOW 128
+@@ -216,13 +216,13 @@
+ #define DP_REO_EXCEPTION_RING_SIZE	128
+ #define DP_REO_CMD_RING_SIZE		256
+ #define DP_REO_STATUS_RING_SIZE		2048
+-#define DP_RXDMA_BUF_RING_SIZE		(!IS_ENABLED(CONFIG_ATH11K_SMALLBUFFERS) ? 4096 : 1024)
++#define DP_RXDMA_BUF_RING_SIZE		(!IS_ENABLED(CONFIG_ATH11K_SMALLBUFFERS) ? 4096 : 512)
+ #define DP_RXDMA_REFILL_RING_SIZE	2048
+ #define DP_RXDMA_ERR_DST_RING_SIZE	1024
+ #define DP_RXDMA_MON_STATUS_RING_SIZE	(!IS_ENABLED(CONFIG_ATH11K_SMALLBUFFERS) ? 1024 : 512)
+ #define DP_RXDMA_MONITOR_BUF_RING_SIZE	(!IS_ENABLED(CONFIG_ATH11K_SMALLBUFFERS) ? 4096 : 128)
+ #define DP_RXDMA_MONITOR_DST_RING_SIZE	(!IS_ENABLED(CONFIG_ATH11K_SMALLBUFFERS) ? 2048 : 128)
+-#define DP_RXDMA_MONITOR_DESC_RING_SIZE	4096
++#define DP_RXDMA_MONITOR_DESC_RING_SIZE	(!IS_ENABLED(CONFIG_ATH11K_SMALLBUFFERS) ? 4096 : 1024)
+ 
+ #define DP_RX_RELEASE_RING_NUM	3
+ 
+--- a/drivers/net/wireless/ath/ath11k/ce.c
++++ b/drivers/net/wireless/ath/ath11k/ce.c
+@@ -209,7 +209,7 @@
+ 		.flags = CE_ATTR_FLAGS,
+ 		.src_nentries = 0,
+ 		.src_sz_max = 2048,
+-		.dest_nentries = 512,
++		.dest_nentries = !IS_ENABLED(CONFIG_ATH11K_SMALLBUFFERS) ? 512 : 128,
+ 		.recv_cb = ath11k_htc_rx_completion_handler,
+ 	},
+ 
+@@ -244,7 +244,7 @@
+ 		.flags = CE_ATTR_FLAGS,
+ 		.src_nentries = 0,
+ 		.src_sz_max = 2048,
+-		.dest_nentries = 512,
++		.dest_nentries = !IS_ENABLED(CONFIG_ATH11K_SMALLBUFFERS) ? 512 : 128,
+ 		.recv_cb = ath11k_dp_htt_htc_t2h_msg_handler,
+ 	},
+ };
