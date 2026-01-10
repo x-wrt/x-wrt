@@ -151,14 +151,15 @@ endif
 
 # $1: image suffix
 # $2: Per Device Rootfs ID
+# $3: Custom LINUX_DIR (optional)
 define Kernel/CopyImage
-	cmp -s $(LINUX_DIR)$(2)/vmlinux $(KERNEL_BUILD_DIR)/vmlinux$(1).debug$(2) || { \
-		$(KERNEL_CROSS)objcopy -O binary $(OBJCOPY_STRIP) -S $(LINUX_DIR)$(2)/vmlinux $(LINUX_KERNEL)$(1)$(2); \
-		$(KERNEL_CROSS)objcopy $(OBJCOPY_STRIP) -S $(LINUX_DIR)$(2)/vmlinux $(KERNEL_BUILD_DIR)/vmlinux$(1).elf$(2); \
-		$(CP) $(LINUX_DIR)$(2)/vmlinux $(KERNEL_BUILD_DIR)/vmlinux$(1).debug$(2); \
+	cmp -s $(if $(3),$(3),$(LINUX_DIR)$(2))/vmlinux $(KERNEL_BUILD_DIR)/vmlinux$(1).debug$(2) || { \
+		$(KERNEL_CROSS)objcopy -O binary $(OBJCOPY_STRIP) -S $(if $(3),$(3),$(LINUX_DIR)$(2))/vmlinux $(LINUX_KERNEL)$(1)$(2); \
+		$(KERNEL_CROSS)objcopy $(OBJCOPY_STRIP) -S $(if $(3),$(3),$(LINUX_DIR)$(2))/vmlinux $(KERNEL_BUILD_DIR)/vmlinux$(1).elf$(2); \
+		$(CP) $(if $(3),$(3),$(LINUX_DIR)$(2))/vmlinux $(KERNEL_BUILD_DIR)/vmlinux$(1).debug$(2); \
 		$(foreach k, \
 			$(if $(KERNEL_IMAGES),$(KERNEL_IMAGES),$(filter-out vmlinux dtbs,$(KERNELNAME))), \
-			$(CP) $(LINUX_DIR)$(2)/arch/$(LINUX_KARCH)/boot/$(IMAGES_DIR)/$(k) $(KERNEL_BUILD_DIR)/$(k)$(1)$(2); \
+			$(CP) $(if $(3),$(3),$(LINUX_DIR)$(2))/arch/$(LINUX_KARCH)/boot/$(IMAGES_DIR)/$(k) $(KERNEL_BUILD_DIR)/$(k)$(1)$(2); \
 		) \
 	}
 endef
@@ -183,39 +184,37 @@ ifneq ($(CONFIG_TARGET_ROOTFS_INITRAMFS),)
 # For Separate Initramf with $2 declared, skip kernel compile, it has
 # already been done previously on generic image build
 define Kernel/CompileImage/Initramfs
-	$(call locked,{ \
-		$(if $(2),$(call Kernel/PrepareConfigPerRootfs,$(LINUX_DIR)$(2));) \
-		$(call Kernel/Configure/Initramfs,$(if $(1),$(1),$(TARGET_DIR)),$(LINUX_DIR)$(2)); \
-		$(CP) $(GENERIC_PLATFORM_DIR)/other-files/init $(if $(1),$(1),$(TARGET_DIR))/init; \
-		$(if $(SOURCE_DATE_EPOCH),touch -hcd "@$(SOURCE_DATE_EPOCH)" $(if $(1),$(1),$(TARGET_DIR)) $(if $(1),$(1),$(TARGET_DIR))/init;) \
-		rm -rf $(LINUX_DIR)$(2)/usr/initramfs_data.cpio*; \
-		$(if $(CONFIG_TARGET_ROOTFS_INITRAMFS_SEPARATE), \
-			$(call locked,{ \
-				$(if $(call qstrip,$(CONFIG_EXTERNAL_CPIO)), \
-					$(CP) $(CONFIG_EXTERNAL_CPIO) $(KERNEL_BUILD_DIR)/initrd$(2).cpio;,\
-					( cd $(if $(1),$(1),$(TARGET_DIR)); find . | LC_ALL=C sort | $(STAGING_DIR_HOST)/bin/cpio --reproducible -o -H newc -R 0:0 > $(KERNEL_BUILD_DIR)/initrd$(2).cpio );) \
-				$(if $(SOURCE_DATE_EPOCH), \
-					touch -hcd "@$(SOURCE_DATE_EPOCH)" $(KERNEL_BUILD_DIR)/initrd$(2).cpio;) \
-				$(if $(CONFIG_TARGET_INITRAMFS_COMPRESSION_BZIP2), \
-					$(STAGING_DIR_HOST)/bin/bzip2 -9 -c < $(KERNEL_BUILD_DIR)/initrd$(2).cpio > $(KERNEL_BUILD_DIR)/initrd$(2).cpio.bzip2;) \
-				$(if $(CONFIG_TARGET_INITRAMFS_COMPRESSION_GZIP), \
-					$(STAGING_DIR_HOST)/bin/libdeflate-gzip -n -f -S .gzip -12 $(KERNEL_BUILD_DIR)/initrd$(2).cpio;) \
-				$(if $(CONFIG_TARGET_INITRAMFS_COMPRESSION_LZ4), \
-					$(STAGING_DIR_HOST)/bin/lz4c -l -c1 -fz --favor-decSpeed $(KERNEL_BUILD_DIR)/initrd$(2).cpio $(KERNEL_BUILD_DIR)/initrd$(2).cpio.lz4;) \
-				$(if $(CONFIG_TARGET_INITRAMFS_COMPRESSION_LZMA), \
-					$(STAGING_DIR_HOST)/bin/lzma e -lc1 -lp2 -pb2 $(KERNEL_BUILD_DIR)/initrd$(2).cpio $(KERNEL_BUILD_DIR)/initrd$(2).cpio.lzma;) \
-				$(if $(CONFIG_TARGET_INITRAMFS_COMPRESSION_LZO), \
-					$(STAGING_DIR_HOST)/bin/lzop -9 -f $(KERNEL_BUILD_DIR)/initrd$(2).cpio;) \
-				$(if $(CONFIG_TARGET_INITRAMFS_COMPRESSION_XZ), \
-					$(STAGING_DIR_HOST)/bin/xz -T$(if $(filter 1,$(NPROC)),2,0) -9 -fz --check=crc32 $(KERNEL_BUILD_DIR)/initrd$(2).cpio;) \
-				$(if $(CONFIG_TARGET_INITRAMFS_COMPRESSION_ZSTD), \
-					$(STAGING_DIR_HOST)/bin/zstd -T0 -f -o $(KERNEL_BUILD_DIR)/initrd$(2).cpio.zstd $(KERNEL_BUILD_DIR)/initrd$(2).cpio;) \
-			}, gen-cpio$(2)); \
-			$(if $(2),,$(KERNEL_MAKE) $(KERNEL_MAKEOPTS_IMAGE) $(if $(KERNELNAME),$(KERNELNAME),all);),\
-			$(KERNEL_MAKE) $(if $(2),-C $(LINUX_DIR)$(2)) $(KERNEL_MAKEOPTS_IMAGE) $(if $(KERNELNAME),$(KERNELNAME),all);) \
-		$(call Kernel/CopyImage,-initramfs,$(2)); \
-		$(if $(2),rm -rf $(LINUX_DIR)$(2);) \
-	}, gen-initramfs$(2));
+	$(call Kernel/PrepareConfigPerRootfs,$(LINUX_DIR)$(if $(2),$(2),-initramfs))
+	$(call Kernel/Configure/Initramfs,$(if $(1),$(1),$(TARGET_DIR)),$(LINUX_DIR)$(if $(2),$(2),-initramfs))
+	$(CP) $(GENERIC_PLATFORM_DIR)/other-files/init $(if $(1),$(1),$(TARGET_DIR))/init
+	$(if $(SOURCE_DATE_EPOCH),touch -hcd "@$(SOURCE_DATE_EPOCH)" $(if $(1),$(1),$(TARGET_DIR)) $(if $(1),$(1),$(TARGET_DIR))/init)
+	rm -rf $(LINUX_DIR)$(if $(2),$(2),-initramfs)/usr/initramfs_data.cpio*
+	$(if $(CONFIG_TARGET_ROOTFS_INITRAMFS_SEPARATE), \
+		$(if $(call qstrip,$(CONFIG_EXTERNAL_CPIO)), \
+			$(CP) $(CONFIG_EXTERNAL_CPIO) $(KERNEL_BUILD_DIR)/initrd$(2).cpio;,\
+			( cd $(if $(1),$(1),$(TARGET_DIR)); find . | LC_ALL=C sort | $(STAGING_DIR_HOST)/bin/cpio --reproducible -o -H newc -R 0:0 > $(KERNEL_BUILD_DIR)/initrd$(2).cpio );) \
+		$(if $(SOURCE_DATE_EPOCH), \
+			touch -hcd "@$(SOURCE_DATE_EPOCH)" $(KERNEL_BUILD_DIR)/initrd$(2).cpio;) \
+		$(if $(CONFIG_TARGET_INITRAMFS_COMPRESSION_BZIP2), \
+			$(STAGING_DIR_HOST)/bin/bzip2 -9 -c < $(KERNEL_BUILD_DIR)/initrd$(2).cpio > $(KERNEL_BUILD_DIR)/initrd$(2).cpio.bzip2;) \
+		$(if $(CONFIG_TARGET_INITRAMFS_COMPRESSION_GZIP), \
+			$(STAGING_DIR_HOST)/bin/libdeflate-gzip -n -f -S .gzip -12 $(KERNEL_BUILD_DIR)/initrd$(2).cpio;) \
+		$(if $(CONFIG_TARGET_INITRAMFS_COMPRESSION_LZ4), \
+			$(STAGING_DIR_HOST)/bin/lz4c -l -c1 -fz --favor-decSpeed $(KERNEL_BUILD_DIR)/initrd$(2).cpio $(KERNEL_BUILD_DIR)/initrd$(2).cpio.lz4;) \
+		$(if $(CONFIG_TARGET_INITRAMFS_COMPRESSION_LZMA), \
+			$(STAGING_DIR_HOST)/bin/lzma e -lc1 -lp2 -pb2 $(KERNEL_BUILD_DIR)/initrd$(2).cpio $(KERNEL_BUILD_DIR)/initrd$(2).cpio.lzma;) \
+		$(if $(CONFIG_TARGET_INITRAMFS_COMPRESSION_LZO), \
+			$(STAGING_DIR_HOST)/bin/lzop -9 -f $(KERNEL_BUILD_DIR)/initrd$(2).cpio;) \
+		$(if $(CONFIG_TARGET_INITRAMFS_COMPRESSION_XZ), \
+			$(STAGING_DIR_HOST)/bin/xz -T$(if $(filter 1,$(NPROC)),2,0) -9 -fz --check=crc32 $(KERNEL_BUILD_DIR)/initrd$(2).cpio;) \
+		$(if $(CONFIG_TARGET_INITRAMFS_COMPRESSION_ZSTD), \
+			$(STAGING_DIR_HOST)/bin/zstd -T0 -f -o $(KERNEL_BUILD_DIR)/initrd$(2).cpio.zstd $(KERNEL_BUILD_DIR)/initrd$(2).cpio;) \
+	)
+	+$(if $(CONFIG_TARGET_ROOTFS_INITRAMFS_SEPARATE), \
+		$(if $(2),,$(KERNEL_MAKE) -C $(LINUX_DIR)-initramfs $(KERNEL_MAKEOPTS_IMAGE) $(if $(KERNELNAME),$(KERNELNAME),all)), \
+		$(KERNEL_MAKE) -C $(LINUX_DIR)$(if $(2),$(2),-initramfs) $(KERNEL_MAKEOPTS_IMAGE) $(if $(KERNELNAME),$(KERNELNAME),all))
+	$(call Kernel/CopyImage,-initramfs,$(2),$(LINUX_DIR)$(if $(2),$(2),-initramfs))
+	rm -rf $(LINUX_DIR)$(if $(2),$(2),-initramfs)
 endef
 else
 define Kernel/CompileImage/Initramfs
