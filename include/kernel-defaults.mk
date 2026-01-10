@@ -180,14 +180,15 @@ endif
 
 # $1: image suffix
 # $2: Per Device Rootfs ID
+# $3: Custom LINUX_DIR (optional)
 define Kernel/CopyImage
-	cmp -s $(LINUX_DIR)$(2)/vmlinux $(KERNEL_BUILD_DIR)/vmlinux$(1).debug$(2) || { \
-		$(KERNEL_CROSS)objcopy -O binary $(OBJCOPY_STRIP) -S $(LINUX_DIR)$(2)/vmlinux $(LINUX_KERNEL)$(1)$(2); \
-		$(KERNEL_CROSS)objcopy $(OBJCOPY_STRIP) -S $(LINUX_DIR)$(2)/vmlinux $(KERNEL_BUILD_DIR)/vmlinux$(1).elf$(2); \
-		$(CP) $(LINUX_DIR)$(2)/vmlinux $(KERNEL_BUILD_DIR)/vmlinux$(1).debug$(2); \
+	cmp -s $(if $(3),$(3),$(LINUX_DIR)$(2))/vmlinux $(KERNEL_BUILD_DIR)/vmlinux$(1).debug$(2) || { \
+		$(KERNEL_CROSS)objcopy -O binary $(OBJCOPY_STRIP) -S $(if $(3),$(3),$(LINUX_DIR)$(2))/vmlinux $(LINUX_KERNEL)$(1)$(2); \
+		$(KERNEL_CROSS)objcopy $(OBJCOPY_STRIP) -S $(if $(3),$(3),$(LINUX_DIR)$(2))/vmlinux $(KERNEL_BUILD_DIR)/vmlinux$(1).elf$(2); \
+		$(CP) $(if $(3),$(3),$(LINUX_DIR)$(2))/vmlinux $(KERNEL_BUILD_DIR)/vmlinux$(1).debug$(2); \
 		$(foreach k, \
 			$(if $(KERNEL_IMAGES),$(KERNEL_IMAGES),$(filter-out vmlinux dtbs,$(KERNELNAME))), \
-			$(CP) $(LINUX_DIR)$(2)/arch/$(LINUX_KARCH)/boot/$(IMAGES_DIR)/$(k) $(KERNEL_BUILD_DIR)/$(k)$(1)$(2); \
+			$(CP) $(if $(3),$(3),$(LINUX_DIR)$(2))/arch/$(LINUX_KARCH)/boot/$(IMAGES_DIR)/$(k) $(KERNEL_BUILD_DIR)/$(k)$(1)$(2); \
 		) \
 	}
 endef
@@ -201,7 +202,7 @@ endef
 define Kernel/PrepareConfigPerRootfs
 	{ \
 		[ ! -d "$(1)" ] || rm -rf $(1); \
-		mkdir $(1) && $(CP) -T $(LINUX_DIR) $(1); \
+		mkdir $(1) && $(CP) -H -T $(LINUX_DIR) $(1); \
 		touch $(1)/.config; \
 	}
 endef
@@ -231,12 +232,13 @@ endef
 # For Separate Initramfs, the regular kernel is used as is, as its config
 # already has the ramdisk support (see Kernel/SetNoInitramfs)
 define Kernel/CompileImage/Initramfs
-	$(call locked,{ \
-		$(if $(2),$(call Kernel/PrepareConfigPerRootfs,$(LINUX_DIR)$(2));) \
-		$(if $(CONFIG_TARGET_ROOTFS_INITRAMFS_SEPARATE),, \
-			$(call Kernel/Configure/Initramfs,$(if $(1),$(1),$(TARGET_DIR)),$(LINUX_DIR)$(2)); \
-			rm -rf $(LINUX_DIR)$(2)/usr/initramfs_data.cpio*;) \
-		$(if $(CONFIG_TARGET_ROOTFS_INITRAMFS_SEPARATE), \
+	$(if $(CONFIG_TARGET_ROOTFS_INITRAMFS_SEPARATE),, \
+		$(call Kernel/PrepareConfigPerRootfs,$(LINUX_DIR)$(if $(2),$(2),-initramfs)))
+	$(if $(CONFIG_TARGET_ROOTFS_INITRAMFS_SEPARATE),, \
+		$(call Kernel/Configure/Initramfs,$(if $(1),$(1),$(TARGET_DIR)),$(LINUX_DIR)$(if $(2),$(2),-initramfs)))
+	$(if $(CONFIG_TARGET_ROOTFS_INITRAMFS_SEPARATE),, \
+		rm -rf $(LINUX_DIR)$(if $(2),$(2),-initramfs)/usr/initramfs_data.cpio*)
+	$(if $(CONFIG_TARGET_ROOTFS_INITRAMFS_SEPARATE), \
 			$(call locked,{ \
 				$(if $(call qstrip,$(CONFIG_EXTERNAL_CPIO)), \
 					$(CP) $(CONFIG_EXTERNAL_CPIO) $(KERNEL_BUILD_DIR)/initrd$(2).cpio;,\
@@ -263,11 +265,12 @@ define Kernel/CompileImage/Initramfs
 				$(if $(CONFIG_TARGET_INITRAMFS_COMPRESSION_ZSTD), \
 					$(call Kernel/CacheInitrd,$(2),zstd) \
 					$(STAGING_DIR_HOST)/bin/zstd -T0 -f -o $(KERNEL_BUILD_DIR)/initrd$(2).cpio.zstd $(KERNEL_BUILD_DIR)/initrd$(2).cpio;) \
-			}, gen-cpio$(2));,\
-			$(KERNEL_MAKE) $(if $(2),-C $(LINUX_DIR)$(2)) $(KERNEL_MAKEOPTS_IMAGE) $(if $(KERNELNAME),$(KERNELNAME),all);) \
-		$(call Kernel/CopyImage,-initramfs,$(2)); \
-		$(if $(2),rm -rf $(LINUX_DIR)$(2);) \
-	}, gen-initramfs$(2));
+			}, gen-cpio$(2));)
+	+$(if $(CONFIG_TARGET_ROOTFS_INITRAMFS_SEPARATE),true, \
+		$(KERNEL_MAKE) -C $(LINUX_DIR)$(if $(2),$(2),-initramfs) $(KERNEL_MAKEOPTS_IMAGE) $(if $(KERNELNAME),$(KERNELNAME),all))
+	$(call Kernel/CopyImage,-initramfs,$(2),$(if $(CONFIG_TARGET_ROOTFS_INITRAMFS_SEPARATE),$(LINUX_DIR),$(LINUX_DIR)$(if $(2),$(2),-initramfs)))
+	$(if $(CONFIG_TARGET_ROOTFS_INITRAMFS_SEPARATE),, \
+		rm -rf $(LINUX_DIR)$(if $(2),$(2),-initramfs))
 endef
 else
 define Kernel/CompileImage/Initramfs
