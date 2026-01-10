@@ -636,6 +636,13 @@ define Device/Check
 endef
 
 ifndef IB
+ifdef TARGET_PER_DEVICE_ROOTFS
+# Build each package-set-specific initramfs kernel only once.
+$(KDIR)/.initramfs-kernel.%: image_prepare target-dir-%
+	$(call Kernel/CompileImage/Initramfs,$(KDIR)/target-dir-$*,.$*)
+	@touch $@
+endif
+
 define Device/Build/initramfs
   $(call Device/Export,$(KDIR)/tmp/$$(KERNEL_INITRAMFS_IMAGE),$(1))
   $$(_TARGET): $$(if $$(KERNEL_INITRAMFS),$(BIN_DIR)/$$(KERNEL_INITRAMFS_IMAGE) \
@@ -643,8 +650,7 @@ define Device/Build/initramfs
 
   $(KDIR)/$$(KERNEL_INITRAMFS_NAME):: image_prepare
   ifdef TARGET_PER_DEVICE_ROOTFS
-    $(KDIR)/$$(KERNEL_INITRAMFS_NAME).$$(ROOTFS_ID/$(1)):: image_prepare target-dir-$$(ROOTFS_ID/$(1))
-	$(call Kernel/CompileImage/Initramfs,$(KDIR)/target-dir-$$(ROOTFS_ID/$(1)),.$$(ROOTFS_ID/$(1)))
+    $(KDIR)/$$(KERNEL_INITRAMFS_NAME).$$(ROOTFS_ID/$(1)):: $(KDIR)/.initramfs-kernel.$$(ROOTFS_ID/$(1))
   endif
   $(1)-initramfs-images: $$(if $$(KERNEL_INITRAMFS),$(BIN_DIR)/$$(KERNEL_INITRAMFS_IMAGE))
 
