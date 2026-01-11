@@ -1,9 +1,9 @@
-src-git-full packages https://github.com/x-wrt/packages.git
-src-git-full luci https://github.com/x-wrt/luci.git
-src-git-full routing https://github.com/x-wrt/routing.git
-src-git-full telephony https://github.com/x-wrt/telephony.git
-src-git-full video https://github.com/x-wrt/video.git
+src-git packages https://github.com/x-wrt/packages.git;26.04_b202601120303
+src-git luci https://github.com/x-wrt/luci.git;26.04_b202601120303
+src-git routing https://github.com/x-wrt/routing.git;26.04_b202601120303
+src-git telephony https://github.com/x-wrt/telephony.git;26.04_b202601120303
+src-git video https://github.com/x-wrt/video.git;26.04_b202601120303
 #src-git-full targets https://github.com/openwrt/targets.git
 #src-git-full oldpackages http://git.openwrt.org/packages.git
 #src-link custom /usr/src/openwrt/custom-feed
-src-git-full x https://github.com/x-wrt/com.x-wrt.git
+src-git x https://github.com/x-wrt/com.x-wrt.git;26.04_b202601120303
