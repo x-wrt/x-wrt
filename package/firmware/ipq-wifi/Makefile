@@ -14,6 +14,8 @@ PKG_FLAGS:=nonshared
 include $(INCLUDE_DIR)/package.mk
 
 define Build/Compile
+	$(CP) ./files/board-cmcc_pz-l8.ipq5018 $(PKG_BUILD_DIR)/
+	$(CP) ./files/board-cmcc_pz-l8.qcn6122 $(PKG_BUILD_DIR)/
 endef
 
 # Use ath10k-bdencoder from https://github.com/qca/qca-swiss-army-knife.git
