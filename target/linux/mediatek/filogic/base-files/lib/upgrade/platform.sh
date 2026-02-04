@@ -440,6 +440,7 @@ platform_do_upgrade() {
 	cudy,wr3000-v1|\
 	kebidumei,ax3000-u22|\
 	tenbay,ms3000k|\
+	tenda,ax12-pro-v2|\
 	tenda,ax12l-pro|\
 	totolink,x6000r|\
 	wavlink,wl-wn573hx3|\
@@ -620,6 +621,7 @@ platform_check_image() {
 		}
 		return 0
 		;;
+	tenda,ax12-pro-v2|\
 	tenda,ax12l-pro)
 		return 0
 		;;
