@@ -50,6 +50,7 @@ preinit_set_mac_address() {
 			ip link set dev eth1 address "$(macaddr_add $addr 1)"
 		fi
 		;;
+	tenda,ax12-pro-v2|\
 	tenda,ax12l-pro)
 		addr=$(mtd_get_mac_ascii CFG "TENDA.lan_mac")
 		ip link set eth0 down
