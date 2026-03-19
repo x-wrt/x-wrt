@@ -8,6 +8,13 @@ case "$(board_name)" in
 		uci commit system
 	fi
 	;;
+	tenda,be12-pro)
+		grep -q lan5 /etc/config/network || {
+			sed -i 's/lan3/lan5/g' /etc/config/network
+			sed -i 's/lan2/lan4/g' /etc/config/network
+			sed -i 's/lan1/lan3/g' /etc/config/network
+		}
+	;;
 esac
 
 exit 0
