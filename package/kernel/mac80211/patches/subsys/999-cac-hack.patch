@@ -1,0 +1,15 @@
+diff --git a/include/net/cfg80211.h b/include/net/cfg80211.h
+index ada352b..3a65210 100644
+--- a/include/net/cfg80211.h
++++ b/include/net/cfg80211.h
+@@ -160,8 +160,8 @@ enum ieee80211_channel_flags {
+ #define IEEE80211_CHAN_NO_HT40 \
+ 	(IEEE80211_CHAN_NO_HT40PLUS | IEEE80211_CHAN_NO_HT40MINUS)
+ 
+-#define IEEE80211_DFS_MIN_CAC_TIME_MS		60000
+-#define IEEE80211_DFS_MIN_NOP_TIME_MS		(30 * 60 * 1000)
++#define IEEE80211_DFS_MIN_CAC_TIME_MS		10000
++#define IEEE80211_DFS_MIN_NOP_TIME_MS		(1 * 60 * 1000)
+ 
+ /**
+  * struct ieee80211_channel - channel definition
