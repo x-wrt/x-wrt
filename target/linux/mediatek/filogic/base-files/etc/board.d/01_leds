@@ -224,6 +224,9 @@ openwrt,one)
 	ucidef_set_led_netdev "lanact" "LANACT" "green:lan" "eth1" "rx tx"
 	ucidef_set_led_netdev "lanlink" "LANLINK" "amber:lan" "eth1" "link"
 	;;
+ruijie,rg-x60)
+	ucidef_set_led_netdev "WAN" "WAN" "blue:status" "eth1" "link tx rx"
+	;;
 routerich,ax3000|\
 routerich,ax3000-ubootmod)
 	ucidef_set_led_netdev "lan-1" "lan-1" "blue:lan-1" "lan1" "link tx rx"
