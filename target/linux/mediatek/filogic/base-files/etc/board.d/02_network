@@ -204,6 +204,9 @@ mediatek_setup_interfaces()
 	mercusys,mr90x-v1-ubi)
 		ucidef_set_interfaces_lan_wan "lan0 lan1 lan2" eth1
 		;;
+	ruijie,rg-x60)
+		ucidef_set_interfaces_lan_wan "lan2 lan3 lan4" eth1
+		;;
 	tenda,be12-pro)
 		ucidef_set_interfaces_lan_wan "lan3 lan4 lan5 eth1" eth2
 		;;
@@ -332,6 +335,7 @@ mediatek_setup_macs()
 		wan_mac=$(macaddr_add "$lan_mac" 1)
 		label_mac=$wan_mac
 		;;
+	ruijie,rg-x60|\
 	ruijie,rg-x60-pro-ubootlayout|\
 	ruijie,rg-x60-pro)
 		label_mac=$(mtd_get_mac_ascii product_info ethaddr)
