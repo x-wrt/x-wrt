@@ -3,6 +3,7 @@
 # Licensed under the terms of the GNU GPL License version 2 or later.
 #
 # Author: Peter Tyser <ptyser@xes-inc.com>
+# Modified for multi-DTB and multi-Config support.
 #
 # U-Boot firmware supports the booting of images in the Flattened Image
 # Tree (FIT) format.  The FIT format uses a device tree structure to
@@ -20,7 +21,7 @@ usage() {
 
 	printf "\n\t-A ==> set architecture to 'arch'"
 	printf "\n\t-C ==> set compression type 'comp'"
-	printf "\n\t-c ==> set config name 'config'"
+	printf "\n\t-c ==> set config name 'config' (can be specified more than once)"
 	printf "\n\t-a ==> set load address to 'addr' (hex)"
 	printf "\n\t-e ==> set entry point to 'entry' (hex)"
 	printf "\n\t-f ==> set device tree compatible string"
@@ -29,7 +30,7 @@ usage() {
 	printf "\n\t-k ==> include kernel image 'kernel'"
 	printf "\n\t-D ==> human friendly Device Tree Blob 'name'"
 	printf "\n\t-n ==> fdt unit-address 'address'"
-	printf "\n\t-d ==> include Device Tree Blob 'dtb'"
+	printf "\n\t-d ==> include Device Tree Blob 'dtb' (can be specified more than once)"
 	printf "\n\t-r ==> include RootFS blob 'rootfs'"
 	printf "\n\t-H ==> specify hash algo instead of SHA1"
 	printf "\n\t-l ==> legacy mode character (@ etc otherwise -)"
@@ -48,16 +49,18 @@ HASH=sha1
 LOADABLES=
 DTOVERLAY=
 DTADDR=
+DTBS=""
+CONFIGS=""
 
 while getopts ":A:a:c:C:D:d:e:f:i:k:l:n:o:O:v:r:s:H:" OPTION
 do
 	case $OPTION in
 		A ) ARCH=$OPTARG;;
 		a ) LOAD_ADDR=$OPTARG;;
-		c ) CONFIG=$OPTARG;;
+		c ) CONFIGS="$CONFIGS $OPTARG";; # 累加 Config
 		C ) COMPRESS=$OPTARG;;
 		D ) DEVICE=$OPTARG;;
-		d ) DTB=$OPTARG;;
+		d ) DTBS="$DTBS $OPTARG";;     # 累加 DTB
 		e ) ENTRY_ADDR=$OPTARG;;
 		f ) COMPATIBLE=$OPTARG;;
 		i ) INITRD=$OPTARG;;
@@ -78,7 +81,7 @@ done
 # Make sure user entered all required parameters
 if [ -z "${ARCH}" ] || [ -z "${COMPRESS}" ] || [ -z "${LOAD_ADDR}" ] || \
 	[ -z "${ENTRY_ADDR}" ] || [ -z "${VERSION}" ] || [ -z "${KERNEL}" ] || \
-	[ -z "${OUTPUT}" ] || [ -z "${CONFIG}" ]; then
+	[ -z "${OUTPUT}" ] || [ -z "${CONFIGS}" ]; then
 	usage
 fi
 
@@ -96,28 +99,6 @@ fi
 [ "$FDTADDR" ] && {
 	DTADDR="$FDTADDR"
 }
-
-# Conditionally create fdt information
-if [ -n "${DTB}" ]; then
-	FDT_NODE="
-		fdt${REFERENCE_CHAR}$FDTNUM {
-			description = \"${ARCH_UPPER} OpenWrt ${DEVICE} device tree blob\";
-			${COMPATIBLE_PROP}
-			data = /incbin/(\"${DTB}\");
-			type = \"flat_dt\";
-			${DTADDR:+load = <${DTADDR}>;}
-			arch = \"${ARCH}\";
-			compression = \"none\";
-			hash${REFERENCE_CHAR}1 {
-				algo = \"crc32\";
-			};
-			hash${REFERENCE_CHAR}2 {
-				algo = \"${HASH}\";
-			};
-		};
-"
-	FDT_PROP="fdt = \"fdt${REFERENCE_CHAR}$FDTNUM\";"
-fi
 
 if [ -n "${INITRD}" ]; then
 	INITRD_NODE="
@@ -158,6 +139,81 @@ if [ -n "${ROOTFS}" ]; then
 		};
 "
 	LOADABLES="${LOADABLES:+$LOADABLES, }\"rootfs${REFERENCE_CHAR}${ROOTFSNUM}\""
+fi
+
+# ===================================================================
+# 核心修改点：动态处理多个 DTB 和 Config
+# ===================================================================
+FDT_NODES=""
+MAIN_CONFIGS=""
+
+# 提取第一个 config 作为 default 启动项
+for c in $CONFIGS; do
+	DEFAULT_CONFIG="$c"
+	break
+done
+[ -z "$DEFAULT_CONFIG" ] && DEFAULT_CONFIG="config-1"
+
+# 使用 shell 参数机制来迭代读取 CONFIGS
+set -- $CONFIGS
+CURRENT_FDTNUM=$FDTNUM
+
+if [ -n "${DTBS}" ]; then
+	for dtb in $DTBS; do
+		descname="${dtb##*/}"
+		descname="${descname#image-}"
+		descname="${descname%.dtb}"
+		# 一一映射：取出当前循环对应的 config 名字
+		cfg=$1
+		if [ -z "$cfg" ]; then
+			cfg="config-${CURRENT_FDTNUM}"
+		else
+			shift # 移到下一个 config
+		fi
+
+		# 拼接 DTB 节点
+		FDT_NODES="${FDT_NODES}
+		fdt${REFERENCE_CHAR}${CURRENT_FDTNUM} {
+			description = \"${ARCH_UPPER} OpenWrt ${DEVICE}(${descname}) device tree blob\";
+			${COMPATIBLE_PROP}
+			data = /incbin/(\"${dtb}\");
+			type = \"flat_dt\";
+			${DTADDR:+load = <${DTADDR}>;}
+			arch = \"${ARCH}\";
+			compression = \"none\";
+			hash${REFERENCE_CHAR}1 {
+				algo = \"crc32\";
+			};
+			hash${REFERENCE_CHAR}2 {
+				algo = \"${HASH}\";
+			};
+		};"
+
+		FDT_PROP="fdt = \"fdt${REFERENCE_CHAR}${CURRENT_FDTNUM}\";"
+
+		# 拼接对应的 Config 节点
+		MAIN_CONFIGS="${MAIN_CONFIGS}
+		${cfg} {
+			description = \"OpenWrt ${DEVICE}(${descname})\";
+			kernel = \"kernel${REFERENCE_CHAR}1\";
+			${FDT_PROP}
+			${LOADABLES:+loadables = ${LOADABLES};}
+			${COMPATIBLE_PROP}
+			${INITRD_PROP}
+		};"
+
+		CURRENT_FDTNUM=$((CURRENT_FDTNUM + 1))
+	done
+else
+	# 如果没有传入 DTB (-d)，仍然需要生成只有 kernel 的 config
+	MAIN_CONFIGS="
+		${DEFAULT_CONFIG} {
+			description = \"OpenWrt ${DEVICE}\";
+			kernel = \"kernel${REFERENCE_CHAR}1\";
+			${LOADABLES:+loadables = ${LOADABLES};}
+			${COMPATIBLE_PROP}
+			${INITRD_PROP}
+		};"
 fi
 
 # add DT overlay blobs
@@ -221,22 +277,15 @@ DATA="/dts-v1/;
 			};
 		};
 ${INITRD_NODE}
-${FDT_NODE}
+${FDT_NODES}
 ${FDTOVERLAY_NODE}
 ${ROOTFS_NODE}
 	};
 
 	configurations {
-		default = \"${CONFIG}\";
-		${CONFIG} {
-			description = \"OpenWrt ${DEVICE}\";
-			kernel = \"kernel${REFERENCE_CHAR}1\";
-			${FDT_PROP}
-			${LOADABLES:+loadables = ${LOADABLES};}
-			${COMPATIBLE_PROP}
-			${INITRD_PROP}
-		};
-		${OVCONFIGS}
+		default = \"${DEFAULT_CONFIG}\";
+${MAIN_CONFIGS}
+${OVCONFIGS}
 	};
 };"
 
