@@ -1,0 +1,92 @@
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+/*
+ * Author: Developer X <dev@x-wrt.com>
+ */
+
+/dts-v1/;
+#include "mt7986a-ruijie-rg-x60-pro.dts"
+
+/ {
+	compatible = "ruijie,rg-x60", "mediatek,mt7986a";
+	model = "Ruijie RG-X60";
+
+	aliases {
+		led-boot = &rgb_red;
+		led-failsafe = &rgb_red;
+		led-running = &rgb_green;
+		led-upgrade = &rgb_red;
+	};
+
+	gpio-keys {
+		compatible = "gpio-keys";
+
+		button-0 {
+			label = "reset";
+			gpios = <&pio 14 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_RESTART>;
+		};
+
+		button-1 {
+			label = "mesh";
+			gpios = <&pio 15 GPIO_ACTIVE_LOW>;
+			linux,code = <BTN_MISC>;
+		};
+	};
+
+	leds-gpio {
+		compatible = "gpio-leds";
+
+		mesh_green: led-0 {
+			color = <LED_COLOR_ID_GREEN>;
+			function = LED_FUNCTION_WPS;
+			gpios = <&pio 22 GPIO_ACTIVE_LOW>;
+		};
+
+		rgb_red: led-1 {
+			color = <LED_COLOR_ID_RED>;
+			function = LED_FUNCTION_STATUS;
+			gpios = <&pio 10 GPIO_ACTIVE_LOW>;
+		};
+
+		rgb_green: led-2 {
+			color = <LED_COLOR_ID_GREEN>;
+			function = LED_FUNCTION_STATUS;
+			gpios = <&pio 9 GPIO_ACTIVE_LOW>;
+		};
+
+		rgb_blue: led-3 {
+			color = <LED_COLOR_ID_BLUE>;
+			function = LED_FUNCTION_STATUS;
+			gpios = <&pio 11 GPIO_ACTIVE_LOW>;
+		};
+	};
+};
+
+&gmac1 {
+	phy-handle = <&phy15>;
+};
+
+&mdio {
+	/delete-node/ phy@7;
+
+	phy15: phy@15 {
+		compatible = "ethernet-phy-id03a2.a411";
+		reg = <15>;
+		reset-assert-us = <100000>;
+		reset-deassert-us = <100000>;
+		reset-gpios = <&pio 6 GPIO_ACTIVE_LOW>;
+		airoha,polarity = <1>;
+		airoha,surge = <0>;
+		airoha,phy-handle;
+	};
+};
+
+&switch {
+	ports {
+		/delete-node/ port@0;
+	};
+
+	mdio {
+		/delete-node/ phy@0;
+	};
+};
