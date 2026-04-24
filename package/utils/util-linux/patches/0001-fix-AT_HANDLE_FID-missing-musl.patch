@@ -1,0 +1,13 @@
+--- a/sys-utils/nsenter.c
++++ b/sys-utils/nsenter.c
+@@ -20,6 +20,10 @@
+ #include <sys/types.h>
+ #include <sys/stat.h>
+ 
++#ifndef AT_HANDLE_FID
++# define AT_HANDLE_FID  0x200   /* file handle is needed to compare object identity and may not be usable to open an object */
++#endif
++
+ #include "strutils.h"
+ #include "nls.h"
+ #include "xalloc.h"
