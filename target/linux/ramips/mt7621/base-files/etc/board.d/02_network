@@ -28,6 +28,7 @@ ramips_setup_interfaces()
 	sim,simax1800u|\
 	tplink,mr600-v2-eu|\
 	xwrt,wr1800k-ax-nand|\
+	qihoo,360t6gs|\
 	xiaomi,mi-router-3-pro-nor|\
 	xiaomi,mi-router-3-pro|\
 	xiaomi,mi-router-cr6606|\
@@ -340,6 +341,11 @@ ramips_setup_macs()
 		label_mac=$(mtd_get_mac_ascii config2 factory_mac)
 		wan_mac=$(macaddr_add "$label_mac" 3)
 		lan_mac=$label_mac
+		;;
+	qihoo,360t6gs)
+		lan_mac=$(cat /sys/class/net/eth0/address)
+		label_mac=$lan_mac
+		wan_mac=$(macaddr_add "$lan_mac" 1)
 		;;
 	d-team,newifi-d2)
 		lan_mac=$(cat /sys/class/net/eth0/address)
