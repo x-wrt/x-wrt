@@ -1,0 +1,11 @@
+--- a/tools/perf/Makefile.config
++++ b/tools/perf/Makefile.config
+@@ -577,7 +577,7 @@ ifndef NO_LIBELF
+ 
+   ifeq ($(feature-libelf-zstd), 1)
+     ifdef NO_LIBZSTD
+-      $(error Error: libzstd is required by libelf, please do not set NO_LIBZSTD)
++      $(info Error: libzstd is required by libelf, please do not set NO_LIBZSTD)
+     endif
+   endif
+ 
