@@ -552,6 +552,12 @@ config KERNEL_DEBUG_INFO
 	help
 	  This will compile your kernel and modules with debug information.
 
+config KERNEL_DEBUG_INFO_NONE
+	bool "Compile the kernel without debug information"
+	default y if SMALL_FLASH
+	help
+	  This will compile your kernel and modules without debug information.
+
 config KERNEL_DEBUG_INFO_BTF
 	bool "Enable additional BTF type information"
 	depends on !HOST_OS_MACOS
