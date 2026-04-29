@@ -3356,6 +3356,8 @@ define Device/ubnt_edgerouter-x
   $(Device/ubnt_edgerouter_common)
   DEVICE_MODEL := EdgeRouter X
   SUPPORTED_DEVICES += ubnt-erx ubiquiti,edgerouterx
+  DEVICE_COMPAT_MESSAGE := 分区表发生改变了，请下载下面链接的过渡固件升级，然后再升级本固件： \
+    https://downloads.x-wrt.com/rom/ubnt/ubnt_edgerouter-x-squashfs-sysupgrade.bin
 endef
 TARGET_DEVICES += ubnt_edgerouter-x
 
@@ -3366,6 +3368,8 @@ define Device/ubnt_edgerouter-x-sfp
   DEVICE_ALT0_MODEL := EdgePoint R6
   DEVICE_PACKAGES += kmod-i2c-algo-pca kmod-gpio-pca953x kmod-sfp
   SUPPORTED_DEVICES += ubnt-erx-sfp ubiquiti,edgerouterx-sfp
+  DEVICE_COMPAT_MESSAGE := 分区表发生改变了，请下载下面链接的过渡固件升级，然后再升级本固件： \
+    https://downloads.x-wrt.com/rom/ubnt/ubnt_edgerouter-x-sfp-squashfs-sysupgrade.bin
 endef
 TARGET_DEVICES += ubnt_edgerouter-x-sfp
 
