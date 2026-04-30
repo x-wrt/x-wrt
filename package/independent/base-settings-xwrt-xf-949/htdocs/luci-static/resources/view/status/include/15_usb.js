@@ -62,7 +62,7 @@ return baseclass.extend({
 		var fields = [
 			_('USB Info'),         usbinfo.info ? usbinfo.info : "-",
 			_('Wi-Fi Bridge'),             wwan,
-			_('LAN Port') + "(" + _('auto') + ")",              wan,
+			_('LAN Port'),              wan,
 			_('Management IP'),              lan,
 			_('Wi-Fi AP'),            lan
 		];

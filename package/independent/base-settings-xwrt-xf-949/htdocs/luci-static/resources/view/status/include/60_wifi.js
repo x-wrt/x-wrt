@@ -155,7 +155,7 @@ return baseclass.extend({
 
 		return E('div', { class: 'ifacebox' }, [
 			E('div', { class: 'ifacebox-head center ' + (radio.isUp() ? 'active' : '') },
-				E('strong', radio.getName())),
+				E('strong', 'Radio')),
 			E('div', { class: 'ifacebox-body left' }, [
 				L.itemlist(E('span'), [
 					_('Type'), radio.getI18n().replace(/^Generic | Wireless Controller .+$/g, ''),

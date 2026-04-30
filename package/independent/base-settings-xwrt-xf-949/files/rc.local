@@ -1,4 +1,6 @@
 
 env -i ACTION="ifchange" INTERFACE="br-lan" LINK=1 /sbin/hotplug-call iface
 
+echo "1" >/sys/kernel/debug/ieee80211/phy0/mt76/edcca
+
 exit 0

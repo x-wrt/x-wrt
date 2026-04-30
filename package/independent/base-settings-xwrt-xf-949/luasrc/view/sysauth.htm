@@ -30,7 +30,7 @@
 <link rel="icon" href="<%=media%>/favicon.png" type="image/svg+xml" />
 <script type="text/javascript" src="<%=url('admin/translations', luci.i18n.context.lang)%><%# ?v=PKG_VERSION %>"></script>
 <script type="text/javascript" src="<%=resource%>/cbi.js"></script>
-<title>USB 设备共享器</title>
+<title>USB打印机网络共享器</title>
 <style>
     .el-dropdown .el-dropdown-selfdefine:focus:active,
     .el-dropdown .el-dropdown-selfdefine:focus:not(.focusing),
@@ -1322,7 +1322,7 @@
     <div id=app>
         <div data-v-2e6336a5 class=login-container>
             <form data-v-2e6336a5 class="el-form login-form el-form--label-left" autocomplete=on>
-                <h3 data-v-2e6336a5 class="title">USB设备共享器</h3>
+                <h3 data-v-2e6336a5 class="title">USB打印机网络共享器</h3>
         <%- if fuser then %>
                 <div class="alert-message warning">
                        <p><%:Invalid username and/or password! Please try again.%></p>
@@ -1417,14 +1417,14 @@ function getUserLang() {
 
         // 更新语言设置和界面文本
         if(lang == 'zh-cn') {
-            document.title = title.innerText = 'USB设备共享器'
+            document.title = title.innerText = 'USB打印机网络共享器'
             tips.innerText = "绿联网络 © 2025-2030 版权所有"
             login.innerText = '登录'
             userName.setAttribute("placeholder", "用户名")
             passWord.setAttribute("placeholder", "密码")
             display.setAttribute("placeholder", "选择语言")
         } else {
-            document.title = title.innerText = 'USB Device Share'
+            document.title = title.innerText = 'USB Network Print Server'
             tips.innerText = "Ugreen Network@2025-2030 All rights reserved"
             login.innerText = 'Login'
             userName.setAttribute("placeholder", "Username")

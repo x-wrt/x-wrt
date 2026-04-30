@@ -26,7 +26,7 @@ function renderbox(ifc, ipv6) {
 
 	return E('div', { class: 'ifacebox' }, [
 		E('div', { class: 'ifacebox-head center ' + (active ? 'active' : '') },
-			E('strong', ifc.getName())),
+			E('strong', ifc.getName().toUpperCase())),
 		E('div', { class: 'ifacebox-body left' }, [
 			L.itemlist(E('span'), [
 				_('Protocol'), ifc.getI18n() || E('em', _('Not connected')),
@@ -48,12 +48,12 @@ function renderbox(ifc, ipv6) {
 				_('DNS') + ' 4', dnssrv[3],
 				_('DNS') + ' 5', dnssrv[4],
 				_('Expires'), (expires != null && expires > -1) ? '%t'.format(expires) : null,
-				_('Connected Duration'), (uptime > 0) ? '%t'.format(uptime) : null
+				_('Uptime'), (uptime > 0) ? '%t'.format(uptime) : null
 			]),
 			E('div', {}, renderBadge(
 				L.resource('icons/%s.png').format(dev ? dev.getType() : 'ethernet_disabled'), null,
 				_('Device'), dev ? dev.getI18n() : '-',
-				_('MAC-Address'), dev.getMAC())
+				_('MAC Address'), dev.getMAC())
 			)
 		])
 	]);

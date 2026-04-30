@@ -8,7 +8,7 @@
 
 / {
 	compatible = "xwrt,xf-949", "mediatek,mt7628an-soc";
-	model = "CM428";
+	model = "10941";
 
 	chosen {
 		bootargs = "console=ttyS0,57600 console=ttyS1,57600";
