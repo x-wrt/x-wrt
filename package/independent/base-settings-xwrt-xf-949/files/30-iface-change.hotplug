@@ -125,8 +125,10 @@ handle_if_event_fw()
 			iptables -t filter -C forwarding_lan_rule -j DROP 2>/dev/null || \
 			iptables -t filter -A forwarding_lan_rule -j DROP 2>/dev/null
 
+			if ! iptables -t nat -C prerouting_lan_rule -p tcp --dport 80 -d ${lan_ip} -j RETURN 2>/dev/null; then
+				iptables -t nat -I prerouting_lan_rule -p tcp --dport 80 -d ${lan_ip} -j RETURN
+			fi
 			if ! iptables -t nat -C prerouting_lan_rule -p tcp --dport 80 -j REDIRECT --to-ports 18080 2>/dev/null; then
-				iptables -t nat -A prerouting_lan_rule -p tcp --dport 80 -d ${lan_ip} -j RETURN
 				iptables -t nat -A prerouting_lan_rule -p tcp --dport 80 -j REDIRECT --to-ports 18080
 			fi
 
