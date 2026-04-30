@@ -1,5 +1,7 @@
 . /lib/functions.sh
 
+uci set system.@system[0].compat_version='2.0' && uci commit system
+
 # don't modify FW data when booting with initramfs image
 fstype="$(/bin/mount | awk '($3 ~ /^\/$/) && ($5 !~ /rootfs/) { print $5 }')"
 [ "$fstype" = "tmpfs" ] && \
