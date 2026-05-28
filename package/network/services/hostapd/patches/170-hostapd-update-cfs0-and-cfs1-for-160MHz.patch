@@ -78,14 +78,14 @@ Signed-off-by: P Praneesh <ppranees@codeaurora.org>
  	}
  
 +	chwidth = hostapd_get_oper_chwidth(hapd->iconf);
-+	if (((host_to_le32(mode->vht_capab)) & VHT_CAP_EXTENDED_NSS_BW_SUPPORT)
++	if ((mode->vht_capab & VHT_CAP_EXTENDED_NSS_BW_SUPPORT)
 +		&& ((chwidth == CHANWIDTH_160MHZ) || (chwidth == CHANWIDTH_80P80MHZ))) {
-+		cap->vht_capabilities_info |= VHT_CAP_EXTENDED_NSS_BW_SUPPORT;
++		cap->vht_capabilities_info |= host_to_le32(VHT_CAP_EXTENDED_NSS_BW_SUPPORT);
 +		cap->vht_capabilities_info &= ~(host_to_le32(VHT_CAP_SUPP_CHAN_WIDTH_160_80PLUS80MHZ));
 +		cap->vht_capabilities_info &= ~(host_to_le32(VHT_CAP_SUPP_CHAN_WIDTH_160MHZ));
 +		cap->vht_capabilities_info &= ~(host_to_le32(VHT_CAP_SUPP_CHAN_WIDTH_MASK));
 +	} else {
-+		cap->vht_capabilities_info &= ~VHT_CAP_EXTENDED_NSS_BW_SUPPORT_MASK;
++		cap->vht_capabilities_info &= ~host_to_le32(VHT_CAP_EXTENDED_NSS_BW_SUPPORT_MASK);
 +	}
 +
  	/* Supported MCS set comes from hw */
