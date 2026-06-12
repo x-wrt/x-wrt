@@ -1,0 +1,26 @@
+From 82fdca60cc5d0db96e9bf278bddb35348691406e Mon Sep 17 00:00:00 2001
+From: Chen Minqiang <ptpt52@gmail.com>
+Date: Fri, 12 Jun 2026 18:05:15 +0800
+Subject: [PATCH] bug in ash signal handling code in busybox
+
+---
+ shell/ash.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/shell/ash.c b/shell/ash.c
+index fb887f3..3eb73ea 100644
+--- a/shell/ash.c
++++ b/shell/ash.c
+@@ -9608,6 +9608,9 @@ dotrap(void)
+ 		savestatus = status;
+ 	}
+ 	pending_sig = 0;
++#if ENABLE_FEATURE_EDITING
++	bb_got_signal = 0;
++#endif
+ 	barrier();
+ 
+ 	TRACE(("dotrap entered\n"));
+-- 
+2.17.1
+
