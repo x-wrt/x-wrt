@@ -1,6 +1,7 @@
 #!/bin/sh
 
 . /lib/functions.sh
+. /lib/functions/network.sh
 . ../netifd-proto.sh
 . /lib/config/uci.sh
 init_proto "$@"
@@ -85,7 +86,14 @@ proto_dhcpv6_setup() {
 	[ -n "$reqaddress" ] && append opts "-N$reqaddress"
 
 	[ -z "$reqprefix" -o "$reqprefix" = "auto" ] && reqprefix=0
-	[ "$reqprefix" != "no" ] && append opts "-P$reqprefix"
+	[ "$reqprefix" != "no" ] && {
+		local iaid=$(echo -n $reqprefix | sed -nr 's/^.*:([0-9A-Fa-f]{1,8})$/\1/p')
+		[ -z "$iaid" ] && {
+			network_generate_iface_iaid iaid "$iface"
+			reqprefix="$reqprefix:$iaid"
+		}
+		append opts "-P$reqprefix"
+	}
 
 	[ -n "$clientid" ] && {
 		clientid="$(hexdump_2hex "$clientid")"
