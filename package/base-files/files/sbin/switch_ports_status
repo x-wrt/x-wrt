@@ -125,65 +125,124 @@ $_ports"
 
 get_switch_device
 
-#echo -e "switchs=\n$_switchs"
-#echo -e "ports=\n$_ports"
-#echo -e "cpus=\n$_cpus"
+get_map_value() {
+	local key="$1"
+	local map_var="$2"
+	local out_var="$3"
+	eval "local map=\"\$$map_var\""
+	local pair
+	local old_ifs="$IFS"
+	IFS="
+"
+	for pair in $map; do
+		case "$pair" in
+			"$key="*)
+				IFS="$old_ifs"
+				eval "$out_var=\"\${pair#*=}\""
+				return 0
+				;;
+		esac
+	done
+	IFS="$old_ifs"
+	eval "$out_var=\"\""
+	return 1
+}
+
+set_map_value() {
+	local key="$1"
+	local val="$2"
+	local map_var="$3"
+	eval "local map=\"\$$map_var\""
+	local pair
+	local new_map=""
+	local found=0
+	local old_ifs="$IFS"
+	IFS="
+"
+	for pair in $map; do
+		case "$pair" in
+			"$key="*) new_map="$new_map$key=$val
+"; found=1 ;;
+			?*) new_map="$new_map$pair
+" ;;
+		esac
+	done
+	if [ "$found" = "0" ]; then
+		new_map="$new_map$key=$val
+"
+	fi
+	IFS="$old_ifs"
+	eval "$map_var=\"\$new_map\""
+}
 
 get_switch_linkmap()
 {
-	sw=$2
-	ports=$3
-	status=0
+	local out_var="$1"
+	local sw="$2"
+	local ports="$3"
+	local status=0 link i
 	status="$(swconfig dev $sw get link_map 2>/dev/null)"
-	if test -n "$status"; then
-		echo $status
-		export -n "$1=$status"
+	if [ -n "$status" ]; then
+		eval "$out_var=\"\$status\""
 		return
 	fi
+	status=0
 	for i in $ports; do
-		link=$(swconfig dev $sw port $i get link 2>/dev/null)
-		link=${link/*link:up*/1}
-		link=${link/*link:down*/0}
+		link="$(swconfig dev $sw port $i get link 2>/dev/null)"
+		link="${link/*link:up*/1}"
+		link="${link/*link:down*/0}"
 		[ "$link" = "0" ] || [ "$link" = "1" ] || link=0
 		status=$(((link<<i) | status))
 	done
-	export -n "$1=$status"
+	eval "$out_var=\"\$status\""
 }
 
 # only trigger on **matched** interface and status is up
 trigger_event()
 {
 	#find out all device and its upper, and its upper's upper
-	up1=$(for br in $(ls -d /sys/class/net/$DEVICE/upper_* 2>/dev/null); do test -e $br && echo ${br##/sys/class/net/*/upper_}; done)
-	up2=$(for dev in $up1; do for br in $(ls -d /sys/class/net/$dev/upper_* 2>/dev/null); do test -e $br && echo ${br##/sys/class/net/*/upper_}; done; done)
+	local up1=""
+	local up2=""
+	local br="" dir dev line status dhcp_pid D
+	for dir in /sys/class/net/$DEVICE/upper_*; do
+		[ -e "$dir" ] && up1="$up1 ${dir##*/upper_}"
+	done
+	for dev in $up1; do
+		for dir in /sys/class/net/$dev/upper_*; do
+			[ -e "$dir" ] && up2="$up2 ${dir##*/upper_}"
+		done
+	done
 	br="$DEVICE $up1 $up2"
 
-	for DEVICE in $br; do
-
-	ubus list | grep network.interface. | while read line; do
+	local interfaces="$(ubus list network.interface.\* 2>/dev/null)"
+	for line in $interfaces; do
 		status="$(ubus call $line status 2>/dev/null)"
-		if echo "$status" | grep -q "\"device\": \"$DEVICE\"," && echo "$status" | grep -q '"up": true,'; then
-			if echo "$status" | grep -q '"proto": "dhcp"'; then
-				dhcp_pid=$(cat /var/run/udhcpc-${DEVICE}.pid)
-				if test -e /sys/class/net/${DEVICE}/brif && test -n "${dhcp_pid}"; then
-					LOG "EVENT($EVENT): DEVICE=$DEVICE $line notify dhcp renew"
-					kill -USR1 ${dhcp_pid}
-				else
-					LOG "EVENT($EVENT): DEVICE=$DEVICE $line ubus call down/up"
+		echo "$status" | grep -q '"up": true,' || continue
+		for D in $br; do
+			if echo "$status" | grep -q "\"device\": \"$D\","; then
+				if echo "$status" | grep -q '"proto": "dhcp"'; then
+					dhcp_pid="$(cat /var/run/udhcpc-${D}.pid 2>/dev/null)"
+					if [ -e "/sys/class/net/${D}/brif" ] && [ -n "${dhcp_pid}" ]; then
+						LOG "EVENT($EVENT): DEVICE=$D $line notify dhcp renew"
+						kill -USR1 ${dhcp_pid} 2>/dev/null
+					else
+						LOG "EVENT($EVENT): DEVICE=$D $line ubus call down/up"
+						ubus call $line down
+						ubus call $line up
+					fi
+				elif echo "$status" | grep -q '"proto": "pppoe"'; then
+					LOG "EVENT($EVENT): DEVICE=$D $line ubus call down/up"
 					ubus call $line down
 					ubus call $line up
 				fi
-			elif echo "$status" | grep -q '"proto": "pppoe"'; then
-				LOG "EVENT($EVENT): DEVICE=$DEVICE $line ubus call down/up"
-				ubus call $line down
-				ubus call $line up
+				break
 			fi
-		fi
+		done
 	done
 
 	#call hotplug ifchange action
-	env -i ACTION="ifchange" INTERFACE="$DEVICE" LINK=$LINK /sbin/hotplug-call iface
-
+	for D in $br; do
+		env -i ACTION="ifchange" INTERFACE="$D" LINK=$LINK /sbin/hotplug-call iface
 	done
 }
 
@@ -191,17 +250,18 @@ trigger_event()
 call_link_changed()
 {
 	local idx=0
-	while uci get network.@switch_vlan[$idx] >/dev/null 2>&1; do
-		device=$(uci get network.@switch_vlan[$idx].device)
+	local device ports vlan p cpu
+	while uci -q get network.@switch_vlan[$idx] >/dev/null; do
+		device=$(uci -q get network.@switch_vlan[$idx].device)
 		[ "$device" = "$SW" ] || {
 			idx=$((idx+1))
 			continue
 		}
 
-		ports=$(uci get network.@switch_vlan[$idx].ports)
+		ports=$(uci -q get network.@switch_vlan[$idx].ports)
 		for p in $ports; do
 			if [ "$p" = "${DIFFPORT}" ] || [ "$p" = "${DIFFPORT}t" ]; then
-				vlan=$(uci get network.@switch_vlan[$idx].vlan)
+				vlan=$(uci -q get network.@switch_vlan[$idx].vlan)
 				for p in $ports; do
 					for cpu in $CPUS; do
 						if [ "$p" = ${cpu##*@}t ]; then
@@ -223,30 +283,32 @@ call_link_changed()
 
 # init _linkmaps
 for sw in $_switchs; do
-	ports="`echo $(echo "$_ports" | grep ${sw}= | cut -d= -f2)`"
-	cpus="$(echo "$_cpus" | grep ${sw}= | cut -d= -f2 | head -n1)"
-	#echo $cpus get_switch_linkmap "$sw" "$ports"
+	get_map_value "$sw" "_ports" ports
+	get_map_value "$sw" "_cpus" cpus
 	get_switch_linkmap newlinkmap "$sw" "$ports"
-	#newlinkmap=0
-	_linkmaps="$sw=$newlinkmap
-$_linkmaps"
+	set_map_value "$sw" "$newlinkmap" "_linkmaps"
 done
 
 get_br_linkmap()
 {
-	br=$2
-	CA=$(for ca in $(ls /sys/class/net/$br/lower_*/carrier 2>/dev/null); do echo -n $ca:$(cat $ca); done)
-	#CA=`echo ${CA}`
-	export -n "$1=$CA"
+	local out_var="$1"
+	local br="$2"
+	local ca CA="" val
+	for ca in /sys/class/net/$br/lower_*/carrier; do
+		[ -e "$ca" ] && { read -r val < "$ca"; CA="$CA$ca:$val "; }
+	done
+	eval "$out_var=\"\${CA% }\""
 }
 
 _br_linkmaps=""
 #init bridge _br_linkmaps
-BR=$(for i in $(ls /sys/class/net/*/brif 2>/dev/null); do br=${i#/sys/class/net/}; echo "${br/\/brif}"; done)
+BR=""
+for brif in /sys/class/net/*/brif; do
+	[ -e "$brif" ] && { br="${brif#/sys/class/net/}"; BR="$BR ${br%/brif}"; }
+done
 for br in $BR; do
-	get_br_linkmap newlinkmap $br
-	_br_linkmaps="$br=$newlinkmap
-$_br_linkmaps"
+	get_br_linkmap newlinkmap "$br"
+	set_map_value "$br" "$newlinkmap" "_br_linkmaps"
 done
 
 loop=1
@@ -261,51 +323,51 @@ trap "cleanup" EXIT
 #main loop
 while [ "$loop" = "1" ]; do
 
-BR=$(for i in $(ls /sys/class/net/*/brif 2>/dev/null); do br=${i#/sys/class/net/}; echo "${br/\/brif}"; done)
+BR=""
+for brif in /sys/class/net/*/brif; do
+	[ -e "$brif" ] && { br="${brif#/sys/class/net/}"; BR="$BR ${br%/brif}"; }
+done
+
 for br in $BR; do
-	if echo "$_br_linkmaps" | grep -q "${br}="; then
-		oldlinkmap="$(echo "$_br_linkmaps" | grep ${br}= | cut -d= -f2)"
-		get_br_linkmap newlinkmap $br
-		if ! [ "$oldlinkmap" = "$newlinkmap" ]; then
-			_br_linkmaps="$(echo "$_br_linkmaps" | sed "s,$br=.*,$br=$newlinkmap,")"
+	if get_map_value "$br" "_br_linkmaps" oldlinkmap; then
+		get_br_linkmap newlinkmap "$br"
+		if [ "$oldlinkmap" != "$newlinkmap" ]; then
+			set_map_value "$br" "$newlinkmap" "_br_linkmaps"
 			LOG "EVENT($EVENT): DEVICE=$br link changed"
 			DEVICE=$br trigger_event
 			EVENT=$((EVENT+1))
 		fi
 	else
-		get_br_linkmap newlinkmap $br
-		_br_linkmaps="$br=$newlinkmap
-$_br_linkmaps"
+		get_br_linkmap newlinkmap "$br"
+		set_map_value "$br" "$newlinkmap" "_br_linkmaps"
 	fi
 done
 
 for sw in $_switchs; do
-	ports="`echo $(echo "$_ports" | grep ${sw}= | cut -d= -f2)`"
-	cpus="$(echo "$_cpus" | grep ${sw}= | cut -d= -f2 | head -n1)"
-	oldlinkmap="$(echo "$_linkmaps" | grep ${sw}= | cut -d= -f2)"
+	get_map_value "$sw" "_ports" ports
+	get_map_value "$sw" "_cpus" cpus
+	get_map_value "$sw" "_linkmaps" oldlinkmap
+	oldlinkmap="${oldlinkmap:-0}"
 
 	get_switch_linkmap newlinkmap "$sw" "$ports"
 
 	diffstatus=$((oldlinkmap^newlinkmap))
 
 	#store _linkmaps if newlinkmap changed
-	if test $diffstatus -ne 0; then
-		_linkmaps="$(echo "$_linkmaps" | sed "s/$sw=.*/$sw=$newlinkmap/")"
+	if [ $diffstatus -ne 0 ]; then
+		set_map_value "$sw" "$newlinkmap" "_linkmaps"
 	fi
 
-	#echo sw=$sw ports=$ports cpus=$cpus oldlinkmap=$oldlinkmap
-	#echo "_linkmaps:"
-	#echo "$_linkmaps"
-
-	test $diffstatus -ne 0 && \
-	for i in $ports; do
-		if test $((diffstatus&(1<<i))) -ne 0; then
-			newstatus=$((!!(newlinkmap&(1<<i))))
-			LOG "EVENT($EVENT): SW=$sw PORTS=$ports CPUS=$cpus NEWLINKMAP=$newlinkmap DIFFPORT=$i LINK=$newstatus"
-			SW=$sw PORTS=$ports CPUS=$cpus NEWLINKMAP=$newlinkmap DIFFPORT=$i LINK=$newstatus call_link_changed
-			EVENT=$((EVENT+1))
-		fi
-	done
+	if [ $diffstatus -ne 0 ]; then
+		for i in $ports; do
+			if [ $((diffstatus&(1<<i))) -ne 0 ]; then
+				newstatus=$((!!(newlinkmap&(1<<i))))
+				LOG "EVENT($EVENT): SW=$sw PORTS=$ports CPUS=$cpus NEWLINKMAP=$newlinkmap DIFFPORT=$i LINK=$newstatus"
+				SW=$sw PORTS=$ports CPUS=$cpus NEWLINKMAP=$newlinkmap DIFFPORT=$i LINK=$newstatus call_link_changed
+				EVENT=$((EVENT+1))
+			fi
+		done
+	fi
 done
 
 	sleep 3
