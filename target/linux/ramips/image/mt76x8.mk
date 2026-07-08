@@ -29,7 +29,7 @@ define Build/elecom-header
 		echo -ne "$$(echo "031d6129$${fw_size}06000000$(model_id)" | \
 			sed 's/../\\x&/g')"; \
 		dd if=/dev/zero bs=92 count=1; \
-		data_crc="$$(dd if=$@ | gzip -c | tail -c 8 | \
+		data_crc="$$(dd if=$@ | libdeflate-gzip -c | tail -c 8 | \
 			od -An -N4 -tx4 --endian little | tr -d ' \n')"; \
 		echo -ne "$$(echo "$${data_crc}00000000" | sed 's/../\\x&/g')"; \
 		dd if=$@; \
