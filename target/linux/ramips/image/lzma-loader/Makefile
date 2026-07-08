@@ -53,7 +53,7 @@ loader-compile: $(PKG_BUILD_DIR)/.prepared
 		clean all
 
 loader.gz: $(PKG_BUILD_DIR)/loader.bin
-	gzip -nc9 $< > $(LOADER_GZ)
+	libdeflate-gzip -nc9 $< > $(LOADER_GZ)
 
 loader.elf: $(PKG_BUILD_DIR)/loader.elf
 	$(CP) $< $(LOADER_ELF)
