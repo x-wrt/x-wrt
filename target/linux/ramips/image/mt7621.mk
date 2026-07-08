@@ -128,14 +128,14 @@ endef
 
 define Build/iodata-mstc-header
 	( \
-		data_size_crc="$$(dd if=$@ ibs=64 skip=1 2>/dev/null | gzip -c | \
+		data_size_crc="$$(dd if=$@ ibs=64 skip=1 2>/dev/null | libdeflate-gzip -c | \
 			tail -c 8 | od -An -tx8 --endian little | tr -d ' \n')"; \
 		echo -ne "$$(echo $$data_size_crc | sed 's/../\\x&/g')" | \
 			dd of=$@ bs=8 count=1 seek=7 conv=notrunc 2>/dev/null; \
 	)
 	dd if=/dev/zero of=$@ bs=4 count=1 seek=1 conv=notrunc 2>/dev/null
 	( \
-		header_crc="$$(dd if=$@ bs=64 count=1 2>/dev/null | gzip -c | \
+		header_crc="$$(dd if=$@ bs=64 count=1 2>/dev/null | libdeflate-gzip -c | \
 			tail -c 8 | od -An -N4 -tx4 --endian little | tr -d ' \n')"; \
 		echo -ne "$$(echo $$header_crc | sed 's/../\\x&/g')" | \
 			dd of=$@ bs=4 count=1 seek=1 conv=notrunc 2>/dev/null; \
@@ -147,7 +147,7 @@ define Build/iodata-mstc-header2
 	$(eval model_id=$(word 2,$(1)))
 
 	( \
-		fw_len_crc=$$(gzip -c $@ | tail -c 8 | \
+		fw_len_crc=$$(libdeflate-gzip -c $@ | tail -c 8 | \
 			od -An -tx8 --endian little); \
 		printf "\x03\x1d\x61\x29\x07$(model)" | \
 			dd bs=21 count=1 conv=sync 2>/dev/null; \
@@ -165,7 +165,7 @@ define Build/iodata-mstc-header2
 		cat $@; \
 	) > $@.new
 	( \
-		header_crc="$$(head -c116 $@.new | gzip -c | tail -c8 | \
+		header_crc="$$(head -c116 $@.new | libdeflate-gzip -c | tail -c8 | \
 			od -An -tx4 -N4 --endian little)"; \
 		printf "$$(echo $$header_crc | sed 's/../\\x&/g')"; \
 	) | dd of=$@.new bs=4 oflag=seek_bytes seek=110 conv=notrunc
@@ -178,10 +178,10 @@ define Build/znet-header
 	$(eval magic=$(if $(word 2,$(1)),$(word 2,$(1)),ZNET))
 	$(eval hdrlen=$(if $(word 3,$(1)),$(word 3,$(1)),0x30))
 	( \
-		data_size_crc="$$(dd if=$@ 2>/dev/null | gzip -c | \
+		data_size_crc="$$(dd if=$@ 2>/dev/null | libdeflate-gzip -c | \
 			tail -c 8 | od -An -N4 -tx4 --endian big | tr -d ' \n')"; \
 		payload_len="$$(dd if=$@ bs=4 count=1 skip=1 2>/dev/null | od -An -tdI --endian big | tr -d ' \n')"; \
-		payload_size_crc="$$(dd if=$@ ibs=1 count=$$payload_len 2>/dev/null | gzip -c | \
+		payload_size_crc="$$(dd if=$@ ibs=1 count=$$payload_len 2>/dev/null | libdeflate-gzip -c | \
 			tail -c 8 | od -An -N4 -tx4 --endian big | tr -d ' \n')"; \
 		echo -ne "$(magic)" | dd bs=4 count=1 conv=sync 2>/dev/null; \
 		echo -ne "$$(printf '%08x' $$(stat -c%s $@) | fold -s2 | xargs -I {} echo \\x{} | tac | tr -d '\n')" | \
@@ -208,7 +208,7 @@ define Build/belkin-header
 			$$(date -d "@$(SOURCE_DATE_EPOCH)" "+%-y %-m %-d")); \
 		hw_fw_ver=$$(printf "%02x%02x%02x%02x" \
 			$(hw_ver) $$(echo $(fw_ver) | cut -d. -f-3 | tr . ' ')); \
-		fw_len_crc=$$(gzip -c $@ | tail -c 8 | od -An -tx8 | tr -d ' \n'); \
+		fw_len_crc=$$(libdeflate-gzip -c $@ | tail -c 8 | od -An -tx8 | tr -d ' \n'); \
 		fw_crc_len="$${fw_len_crc:8:8}$${fw_len_crc:0:8}"; \
 		\
 		printf "$(magic)" | dd bs=4 count=1 conv=sync 2>/dev/null; \
@@ -277,7 +277,7 @@ define Build/norplusemmc-combined-tar
 
 	printf '\xeb\x48' | dd of="$@" conv=notrunc
 
-	gzip -f -9n -c "$@" > "$@.emmc"
+	libdeflate-gzip -f -n9 -c "$@" > "$@.emmc"
 
 	sh $(TOPDIR)/scripts/sysupgrade-tar.sh \
 		--board $(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME)) \
