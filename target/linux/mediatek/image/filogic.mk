@@ -135,7 +135,7 @@ endef
 define Build/mstc-header
   $(eval version=$(word 1,$(1)))
   $(eval magic=$(word 2,$(1)))
-  gzip -c $@ | tail -c8 > $@.crclen
+  libdeflate-gzip -c $@ | tail -c8 > $@.crclen
   ( \
     printf "$(magic)"; \
     tail -c+5 $@.crclen; head -c4 $@.crclen; \
@@ -165,14 +165,14 @@ define Build/cetron-header
 		printf "$(magic)" | dd bs=4 count=1 conv=sync 2>/dev/null; \
 		cat $@; \
 	) > $@.tmp
-	fw_crc=$$(gzip -c $@.tmp | tail -c 8 | od -An -N4 -tx4 --endian little | tr -d ' \n'); \
+	fw_crc=$$(libdeflate-gzip -c $@.tmp | tail -c 8 | od -An -N4 -tx4 --endian little | tr -d ' \n'); \
 	printf "$$(echo $$fw_crc | sed 's/../\\x&/g')" | cat - $@.tmp > $@
 	rm $@.tmp
 endef
 
 define Build/tenda-mkdualimageheader
 	printf '%b' "\x47\x6f\x64\x31\x00\x00\x00\x00" >"$@.new"
-	gzip -c "$@" | tail -c8 >>"$@.new"
+	libdeflate-gzip -c "$@" | tail -c8 >>"$@.new"
 	cat "$@" >>"$@.new"
 	mv "$@.new" "$@"
 endef
