@@ -37,7 +37,7 @@ endef
 
 define Build/dlink-sge-signature
 	( \
-		crc=$$(gzip -c $@ | tail -c 8 | od -An -tx4 --endian little | cut -d " " -f2); \
+		crc=$$(libdeflate-gzip -c $@ | tail -c 8 | od -An -tx4 --endian little | cut -d " " -f2); \
 		cat $@; \
 		$(MKHASH) md5 $@ ; \
 		echo $(1); \
@@ -130,7 +130,7 @@ define Build/pisen_wmb001n-factory
   cp "bin/pisen_wmb001n_factory-header.bin" "$@" && \
   $(TAR) -cp --numeric-owner --owner=0 --group=0 --mode=a-s --sort=name \
     $(if $(SOURCE_DATE_EPOCH),--mtime="@$(SOURCE_DATE_EPOCH)") \
-    -C "$@.tmp" . | gzip -9n >> "$@" && \
+    -C "$@.tmp" . | libdeflate-gzip -n9 >> "$@" && \
   rm -rf "$@.tmp"
 endef
 
