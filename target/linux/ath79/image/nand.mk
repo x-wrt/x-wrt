@@ -3,7 +3,7 @@ define Build/dongwon-header
 	head -c 8 /dev/zero >> $@.tmp
 	tail -c +9 $@ >> $@.tmp
 	( \
-		header_crc="$$(head -c 68 $@.tmp | gzip -c | \
+		header_crc="$$(head -c 68 $@.tmp | libdeflate-gzip -c | \
 			tail -c 8 | od -An -N4 -tx4 --endian little | tr -d ' \n')"; \
 		printf "$$(echo $$header_crc | sed 's/../\\x&/g')" | \
 			dd of=$@.tmp bs=4 count=1 seek=1 conv=notrunc \
@@ -96,7 +96,7 @@ define Device/arris_sbr-ac1750
   BLOCKSIZE := 128k
   IMAGE_SIZE := 32m
   PAGESIZE := 2048
-  KERNEL := kernel-bin | append-dtb | gzip | uImage gzip
+  KERNEL := kernel-bin | append-dtb | libdeflate-gzip | uImage gzip
   KERNEL_INITRAMFS := kernel-bin | append-dtb | uImage none
   IMAGES += kernel1.bin rootfs1.bin
   IMAGE/kernel1.bin := append-kernel | check-size $$$$(KERNEL_SIZE)
@@ -595,7 +595,7 @@ define Device/zyxel_nbg6716
   IMAGE/sysupgrade.tar/squashfs := append-rootfs | pad-to $$$$(BLOCKSIZE) | \
 	sysupgrade-tar rootfs=$$$$@ | append-metadata
   IMAGE/sysupgrade-4M-Kernel.bin/squashfs := append-kernel | \
-	pad-to $$$$(KERNEL_SIZE) | append-ubi | pad-to 263192576 | gzip
+	pad-to $$$$(KERNEL_SIZE) | append-ubi | pad-to 263192576 | libdeflate-gzip
   IMAGE/factory.bin := append-kernel | pad-to $$$$(KERNEL_SIZE) | append-ubi | \
 	zyxel-factory
   UBINIZE_OPTS := -E 5
