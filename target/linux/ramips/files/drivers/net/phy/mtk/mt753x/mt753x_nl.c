@@ -76,7 +76,9 @@ static int mt753x_nl_list_devs(char *buff, int size)
 		len = snprintf(buf, sizeof(buf),
 		               "id: %d, model: %s, node: %s\n",
 		               gsw->id, gsw->name, gsw->dev->of_node->name);
-		strncat(buff, buf, size - total);
+		if (total + len >= size)
+			break;
+		strncat(buff, buf, size - total - 1);
 		total += len;
 	}
 
@@ -358,7 +360,8 @@ static int mt753x_nl_response(struct sk_buff *skb, struct genl_info *info)
 
 	ret = cmditem->process(info, gsw);
 
-	mt753x_put_gsw();
+	if (cmditem->require_dev)
+		mt753x_put_gsw();
 
 	return ret;
 }
