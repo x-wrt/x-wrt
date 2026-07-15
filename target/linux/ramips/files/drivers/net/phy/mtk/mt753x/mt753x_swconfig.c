@@ -415,14 +415,23 @@ static int mt753x_get_port_mib(struct switch_dev *dev,
 
 	for (i = 0; i < ARRAY_SIZE(mt753x_mibs); ++i) {
 		u64 counter;
+		int ret;
 
-		len += snprintf(buf + len, sizeof(buf) - len,
+		ret = snprintf(buf + len, sizeof(buf) - len,
 		                "%-11s: ", mt753x_mibs[i].name);
+		if (ret < 0 || ret >= sizeof(buf) - len)
+			break;
+		len += ret;
+
 		mutex_lock(&gsw->reg_mutex);
 		counter = get_mib_counter(gsw, i, val->port_vlan);
 		mutex_unlock(&gsw->reg_mutex);
-		len += snprintf(buf + len, sizeof(buf) - len, "%llu\n",
+
+		ret = snprintf(buf + len, sizeof(buf) - len, "%llu\n",
 		                counter);
+		if (ret < 0 || ret >= sizeof(buf) - len)
+			break;
+		len += ret;
 	}
 
 	val->value.s = buf;
@@ -535,13 +544,23 @@ static int mt753x_sw_get_mib(struct switch_dev *dev,
 
 	for (i = 0; i < ARRAY_SIZE(mt7620_mibs); ++i) {
 		u64 counter;
-		len += snprintf(buf + len, sizeof(buf) - len,
+		int ret;
+
+		ret = snprintf(buf + len, sizeof(buf) - len,
 		                "%-11s: ", mt7620_mibs[i].name);
+		if (ret < 0 || ret >= sizeof(buf) - len)
+			break;
+		len += ret;
+
 		mutex_lock(&gsw->reg_mutex);
 		counter = get_mib_counter_7620(gsw, i);
 		mutex_unlock(&gsw->reg_mutex);
-		len += snprintf(buf + len, sizeof(buf) - len, "%llu\n",
+
+		ret = snprintf(buf + len, sizeof(buf) - len, "%llu\n",
 		                counter);
+		if (ret < 0 || ret >= sizeof(buf) - len)
+			break;
+		len += ret;
 	}
 
 	val->value.s = buf;
