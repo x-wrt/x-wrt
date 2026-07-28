@@ -18,6 +18,8 @@ PKG_SOURCE_URL:=https://hewlettpackard.github.io/wireless-tools
 PKG_HASH:=6fb80935fe208538131ce2c4178221bab1078a1656306bce8909c19887e2e5a1
 TAR_OPTIONS += || true
 
+PKG_BUILD_FLAGS:=no-mips16 no-lto
+
 PKG_MAINTAINER:=Felix Fietkau <nbd@nbd.name>
 PKG_LICENSE:=GPL-2.0
 

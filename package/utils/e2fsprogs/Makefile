@@ -23,7 +23,7 @@ PKG_BUILD_DEPENDS:=util-linux
 PKG_INSTALL:=1
 
 PKG_BUILD_PARALLEL:=1
-PKG_BUILD_FLAGS:=gc-sections lto
+PKG_BUILD_FLAGS:=gc-sections no-mips16 no-lto
 
 include $(INCLUDE_DIR)/package.mk
 include $(INCLUDE_DIR)/host-build.mk
