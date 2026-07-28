@@ -16,6 +16,7 @@ PKG_SOURCE_URL:=https://www.lua.org/ftp/ \
 	https://www.tecgraf.puc-rio.br/lua/ftp/
 PKG_HASH:=0c2eed3f960446e1a3e4b9a1ca2f3ff893b6ce41942cf54d5dd59ab4b3b058ac
 PKG_BUILD_PARALLEL:=1
+PKG_BUILD_FLAGS:=no-mips16 no-lto
 
 PKG_LICENSE:=MIT
 PKG_LICENSE_FILES:=COPYRIGHT
