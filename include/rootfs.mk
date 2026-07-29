@@ -1,33 +1,34 @@
 ifdef CONFIG_USE_MKLIBS
   define mklibs
-	rm -rf $(TMP_DIR)/mklibs-progs $(TMP_DIR)/mklibs-out
+	rm -rf $(TMP_DIR)/mklibs-$(notdir $(1))-progs $(TMP_DIR)/mklibs-$(notdir $(1))-out $(TMP_DIR)/mklibs-$(notdir $(1))-libs
 	# first find all programs and add them to the mklibs list
 	find $(STAGING_DIR_ROOT) -type f -perm /100 -exec \
 		file -r -N -F '' {} + | \
-		awk ' /executable.*dynamically/ { print $$1 }' > $(TMP_DIR)/mklibs-progs
+		awk ' /executable.*dynamically/ { print $$1 }' > $(TMP_DIR)/mklibs-$(notdir $(1))-progs
 	# find all loadable objects that are not regular libraries and add them to the list as well
 	find $(STAGING_DIR_ROOT) -type f -name \*.so\* -exec \
 		file -r -N -F '' {} + | \
-		awk ' /shared object/ { print $$1 }' > $(TMP_DIR)/mklibs-libs
-	mkdir -p $(TMP_DIR)/mklibs-out
+		awk ' /shared object/ { print $$1 }' > $(TMP_DIR)/mklibs-$(notdir $(1))-libs
+	mkdir -p $(TMP_DIR)/mklibs-$(notdir $(1))-out
 	$(STAGING_DIR_HOST)/bin/mklibs -D \
-		-d $(TMP_DIR)/mklibs-out \
+		-d $(TMP_DIR)/mklibs-$(notdir $(1))-out \
 		--sysroot $(STAGING_DIR_ROOT) \
-		`cat $(TMP_DIR)/mklibs-libs | sed 's:/*[^/]\+/*$$::' | uniq | sed 's:^$(STAGING_DIR_ROOT):-L :'` \
+		`cat $(TMP_DIR)/mklibs-$(notdir $(1))-libs | sed 's:/*[^/]\+/*$$::' | uniq | sed 's:^$(STAGING_DIR_ROOT):-L :'` \
 		--ldlib $(patsubst $(STAGING_DIR_ROOT)/%,/%,$(firstword $(wildcard \
 			$(foreach name,ld-uClibc.so.* ld-linux.so.* ld-*.so ld-musl-*.so.*, \
 			  $(STAGING_DIR_ROOT)/lib/$(name) \
 			)))) \
 		--target $(REAL_GNU_TARGET_NAME) \
-		`cat $(TMP_DIR)/mklibs-progs $(TMP_DIR)/mklibs-libs` 2>&1
-	$(RSTRIP) $(TMP_DIR)/mklibs-out
-	for lib in `ls $(TMP_DIR)/mklibs-out/*.so.* 2>/dev/null`; do \
+		`cat $(TMP_DIR)/mklibs-$(notdir $(1))-progs $(TMP_DIR)/mklibs-$(notdir $(1))-libs` 2>&1
+	$(RSTRIP) $(TMP_DIR)/mklibs-$(notdir $(1))-out
+	for lib in `ls $(TMP_DIR)/mklibs-$(notdir $(1))-out/*.so.* 2>/dev/null`; do \
 		LIB="$${lib##*/}"; \
 		DEST="`ls "$(1)/lib/$$LIB" "$(1)/usr/lib/$$LIB" 2>/dev/null`"; \
 		[ -n "$$DEST" ] || continue; \
 		echo "Copying stripped library $$lib to $$DEST"; \
 		cp "$$lib" "$$DEST" || exit 1; \
 	done
+	rm -rf $(TMP_DIR)/mklibs-$(notdir $(1))-progs $(TMP_DIR)/mklibs-$(notdir $(1))-out $(TMP_DIR)/mklibs-$(notdir $(1))-libs
   endef
 endif
 
