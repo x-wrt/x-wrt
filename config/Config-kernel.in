@@ -676,9 +676,17 @@ config KERNEL_KPROBE_EVENTS
 	bool
 	default y if KERNEL_KPROBES
 
+config KERNEL_BPF_SYSCALL
+	bool "Enable bpf() system call"
+	default n
+	help
+	  Enable the bpf() system call that allows eBPF programs to be loaded
+	  into the kernel.
+
 config KERNEL_BPF_EVENTS
 	bool "Compile the kernel with BPF event support"
 	select KERNEL_KPROBES
+	select KERNEL_BPF_SYSCALL
 	help
 	  Allows to attach BPF programs to kprobe, uprobe and tracepoint events.
 	  This is required to use BPF maps of type BPF_MAP_TYPE_PERF_EVENT_ARRAY
@@ -1011,7 +1019,8 @@ if KERNEL_CGROUPS
 
 	config KERNEL_CGROUP_BPF
 		bool "Support for eBPF programs attached to cgroups"
-		default y
+		depends on KERNEL_BPF_SYSCALL
+		default n
 
 	config KERNEL_CPUSETS
 		bool "Cpuset support"
