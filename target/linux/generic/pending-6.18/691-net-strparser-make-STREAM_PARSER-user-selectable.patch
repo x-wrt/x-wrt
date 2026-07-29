@@ -1,0 +1,17 @@
+From: Chen Minqiang <ptpt52@gmail.com>
+Subject: [PATCH] net: strparser: make STREAM_PARSER user-selectable
+
+Allow STREAM_PARSER to be explicitly selected by out-of-tree modules
+or OpenWrt package configuration instead of relying on internal kernel
+reverse dependencies like AF_KCM.
+
+Signed-off-by: Chen Minqiang <ptpt52@gmail.com>
+---
+--- a/net/strparser/Kconfig
++++ b/net/strparser/Kconfig
+@@ -1,3 +1,4 @@
+ # SPDX-License-Identifier: GPL-2.0-only
+ config STREAM_PARSER
+-	def_bool n
++	tristate "Stream parser support"
++	default n
