@@ -1,0 +1,24 @@
+From: OpenWrt Fix <fix@openwrt.org>
+Subject: [PATCH] wifi: mac80211: fix NULL pointer dereference in ieee80211_txq_may_transmit
+
+When txqi->schedule_order is uninitialized or zeroed (next == NULL),
+list_empty(&txqi->schedule_order) checks (head->next == head), which evaluates
+to false because (0x0 == head) is false. This incorrectly assumes the list is
+non-empty and calls list_del_init(&txqi->schedule_order).
+list_del_init then attempts next->prev = prev, which dereferences (0x0)->prev (0x8),
+triggering a kernel Data Abort / Oops.
+
+Fix this by ensuring txqi->schedule_order.next is non-NULL before checking list_empty.
+
+Signed-off-by: OpenWrt Fix <fix@openwrt.org>
+---
+--- a/net/mac80211/tx.c
++++ b/net/mac80211/tx.c
+@@ -4252,7 +4252,7 @@ bool ieee80211_txq_may_transmit(struct i
+ 	return false;
+ out:
+-	if (!list_empty(&txqi->schedule_order))
++	if (txqi->schedule_order.next && !list_empty(&txqi->schedule_order))
+ 		list_del_init(&txqi->schedule_order);
+ 	spin_unlock_bh(&local->active_txq_lock[ac]);
+
