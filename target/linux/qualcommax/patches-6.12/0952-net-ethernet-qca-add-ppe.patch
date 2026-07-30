@@ -1,6 +1,6 @@
 --- a/drivers/net/ethernet/qualcomm/Kconfig
 +++ b/drivers/net/ethernet/qualcomm/Kconfig
-@@ -61,6 +61,13 @@ config QCOM_EMAC
+@@ -61,6 +61,12 @@ config QCOM_EMAC
  	  low power, Receive-Side Scaling (RSS), and IEEE 1588-2008
  	  Precision Clock Synchronization Protocol.
  
@@ -9,7 +9,6 @@
 +	select PHYLINK
 +	help
 +	  Driver for Qualcomm 802.11ax PPE (Packet Processing Engine) switches.
-+
 +
  source "drivers/net/ethernet/qualcomm/rmnet/Kconfig"
  

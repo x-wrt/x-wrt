@@ -1,14 +1,14 @@
 --- a/drivers/net/ethernet/qualcomm/Kconfig
 +++ b/drivers/net/ethernet/qualcomm/Kconfig
-@@ -81,6 +81,11 @@ config QCOM_80211AX_PPE
+@@ -81,6 +81,12 @@ config QCOM_80211AX_PPE
  	help
  	  Driver for Qualcomm 802.11ax PPE (Packet Processing Engine) switches.
  
 +config QCOM_EDMA
 +	tristate "EDMA dataplane ethernet driver for Qualcomm IPQ platforms"
++	select PAGE_POOL
 +	help
 +	  EDMA dataplane ethernet driver for Qualcomm IPQ platforms.
-+
  
  source "drivers/net/ethernet/qualcomm/rmnet/Kconfig"
  
