@@ -6,9 +6,9 @@
  
 +config QCOM_EDMA
 +	tristate "EDMA dataplane ethernet driver for Qualcomm IPQ platforms"
++	select PAGE_POOL
 +	help
 +	  EDMA dataplane ethernet driver for Qualcomm IPQ platforms.
-+
  
  source "drivers/net/ethernet/qualcomm/rmnet/Kconfig"
  
