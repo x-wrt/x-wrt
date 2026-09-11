@@ -26,20 +26,25 @@ emmc_upgrade_tar() {
 	[ "$has_rootfs" = 1 -a "$EMMC_ROOT_DEV" ] && {
 		# Invalidate kernel image while rootfs is being written
 		[ "$has_kernel" = 1 -a "$EMMC_KERN_DEV" ] && {
-			dd if=/dev/zero of="$EMMC_KERN_DEV" bs=512 count=8
-			sync
+			dd if=/dev/zero of="$EMMC_KERN_DEV" bs=512 count=8 || return 1
+			sync || return 1
 		}
 
-		export EMMC_ROOTFS_BLOCKS=$(($(tar x${gz}f "$tar_file" ${board_dir}/root -O | dd of="$EMMC_ROOT_DEV" bs=512 2>&1 | grep "records out" | cut -d' ' -f1)))
+		EMMC_ROOTFS_BLOCKS=$(($(set -o pipefail; tar x${gz}f "$tar_file" ${board_dir}/root -O | dd of="$EMMC_ROOT_DEV" bs=512 2>&1 | grep "records out" | cut -d' ' -f1))) || return 1
+		export EMMC_ROOTFS_BLOCKS
 		# Account for 64KiB ROOTDEV_OVERLAY_ALIGN in libfstools
 		EMMC_ROOTFS_BLOCKS=$(((EMMC_ROOTFS_BLOCKS + 127) & ~127))
-		sync
+		sync || return 1
 	}
-	[ "$has_dtb" = 1 -a "$EMMC_DTB_DEV" ] &&
-		export EMMC_DTB_BLOCKS=$(($(tar x${gz}f "$tar_file" ${board_dir}/dtb -O | dd of="$EMMC_DTB_DEV" bs=512 2>&1 | grep "records out" | cut -d' ' -f1)))
+	[ "$has_dtb" = 1 -a "$EMMC_DTB_DEV" ] && {
+		EMMC_DTB_BLOCKS=$(($(set -o pipefail; tar x${gz}f "$tar_file" ${board_dir}/dtb -O | dd of="$EMMC_DTB_DEV" bs=512 2>&1 | grep "records out" | cut -d' ' -f1))) || return 1
+		export EMMC_DTB_BLOCKS
+	}
 
-	[ "$has_kernel" = 1 -a "$EMMC_KERN_DEV" ] &&
-		export EMMC_KERNEL_BLOCKS=$(($(tar x${gz}f "$tar_file" ${board_dir}/kernel -O | dd of="$EMMC_KERN_DEV" bs=512 2>&1 | grep "records out" | cut -d' ' -f1)))
+	[ "$has_kernel" = 1 -a "$EMMC_KERN_DEV" ] && {
+		EMMC_KERNEL_BLOCKS=$(($(set -o pipefail; tar x${gz}f "$tar_file" ${board_dir}/kernel -O | dd of="$EMMC_KERN_DEV" bs=512 2>&1 | grep "records out" | cut -d' ' -f1))) || return 1
+		export EMMC_KERNEL_BLOCKS
+	}
 
 	if [ -z "$UPGRADE_BACKUP" ]; then
 		if [ "$EMMC_DATA_DEV" ]; then
