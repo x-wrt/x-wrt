@@ -1,0 +1,190 @@
+Subject: [PATCH] wifi: mac80211: guard TX rate lookup against missing bands
+
+A band index can be in range while its wiphy band entry is NULL. Check
+both conditions before software rate lookup and log the interface,
+PHY, supported bands and TX flags with rate limiting.
+
+Reject native frames with invalid bands before TX handlers or driver
+handoff, including the already processed fragment dequeue path. Free
+rejected frames outside the FQ lock and continue draining the queue.
+The void rate query API cannot consume the caller's skb; invalidate its
+output rates on error instead.
+
+Hardware-encapsulated frames do not populate info->band. Preserve their
+normal TX path and skip software rate lookup when the hardware also
+provides rate control, rather than treating the unset band as an error.
+
+This contains the NULL dereference and adds diagnostics; it does not
+establish the origin of every invalid-band frame.
+
+---
+--- a/net/mac80211/driver-ops.h
++++ b/net/mac80211/driver-ops.h
+@@ -35,6 +35,13 @@
+ 			  struct ieee80211_tx_control *control,
+ 			  struct sk_buff *skb)
+ {
++	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
++
++	if (unlikely(!ieee80211_tx_band_valid(local, info, info->control.vif))) {
++		ieee80211_free_txskb(&local->hw, skb);
++		return;
++	}
++
+ 	local->ops->tx(&local->hw, control, skb);
+ }
+ 
+--- a/net/mac80211/ieee80211_i.h
++++ b/net/mac80211/ieee80211_i.h
+@@ -2227,6 +2227,43 @@
+ void ieee80211_apvlan_link_clear(struct ieee80211_sub_if_data *sdata);
+ 
+ /* tx handling */
++void ieee80211_tx_warn_invalid_band(struct ieee80211_local *local,
++				    struct ieee80211_tx_info *info,
++				    struct ieee80211_vif *vif);
++
++static inline bool
++ieee80211_tx_uses_hw_rate_control(struct ieee80211_local *local,
++				  struct ieee80211_tx_info *info)
++{
++	return (info->flags & IEEE80211_TX_CTL_HW_80211_ENCAP) &&
++	       ieee80211_hw_check(&local->hw, HAS_RATE_CONTROL);
++}
++
++static inline struct ieee80211_supported_band *
++ieee80211_tx_get_sband(struct ieee80211_local *local,
++		       struct ieee80211_tx_info *info,
++		       struct ieee80211_vif *vif)
++{
++	struct ieee80211_supported_band *sband = NULL;
++
++	if (info->band < NUM_NL80211_BANDS)
++		sband = local->hw.wiphy->bands[info->band];
++	if (unlikely(!sband))
++		ieee80211_tx_warn_invalid_band(local, info, vif);
++
++	return sband;
++}
++
++static inline bool
++ieee80211_tx_band_valid(struct ieee80211_local *local,
++			struct ieee80211_tx_info *info,
++			struct ieee80211_vif *vif)
++{
++	/* Hardware encapsulation does not populate info->band. */
++	return ieee80211_tx_uses_hw_rate_control(local, info) ||
++	       ieee80211_tx_get_sband(local, info, vif);
++}
++
+ void ieee80211_clear_tx_pending(struct ieee80211_local *local);
+ void ieee80211_tx_pending(struct tasklet_struct *t);
+ netdev_tx_t ieee80211_monitor_start_xmit(struct sk_buff *skb,
+--- a/net/mac80211/rate.c
++++ b/net/mac80211/rate.c
+@@ -890,6 +890,7 @@
+ 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
+ 	struct ieee80211_supported_band *sband;
+ 	u32 mask = ~0;
++	int i;
+ 
+ 	rate_control_fill_sta_table(sta, info, dest, max_rates);
+ 
+@@ -897,10 +898,19 @@
+ 		return;
+ 
+ 	sdata = vif_to_sdata(vif);
+-	if (info->band >= NUM_NL80211_BANDS)
+-		return;
+-
+-	sband = sdata->local->hw.wiphy->bands[info->band];
++	/* Hardware encapsulation leaves info->band unset and uses HW rates. */
++	if (ieee80211_tx_uses_hw_rate_control(sdata->local, info))
++		return;
++
++	sband = ieee80211_tx_get_sband(sdata->local, info, vif);
++	if (unlikely(!sband)) {
++		for (i = 0; i < max_rates; i++) {
++			dest[i].idx = -1;
++			dest[i].count = 0;
++			dest[i].flags = 0;
++		}
++		return;
++	}
+ 
+ 	if (ieee80211_is_tx_data(skb))
+ 		rate_control_apply_mask(sdata, sta, sband, dest, max_rates);
+--- a/net/mac80211/tx.c
++++ b/net/mac80211/tx.c
+@@ -39,6 +39,26 @@
+ #include "rate.h"
+ 
+ /* misc utils */
++
++void ieee80211_tx_warn_invalid_band(struct ieee80211_local *local,
++				    struct ieee80211_tx_info *info,
++				    struct ieee80211_vif *vif)
++{
++	u32 bands = 0;
++	int band;
++
++	if (!net_ratelimit())
++		return;
++
++	for (band = 0; band < NUM_NL80211_BANDS; band++)
++		if (local->hw.wiphy->bands[band])
++			bands |= BIT(band);
++
++	wiphy_warn(local->hw.wiphy,
++		   "%s: invalid TX band %u (supported 0x%x), flags 0x%x control 0x%x\n",
++		   vif ? vif_to_sdata(vif)->name : "<none>", info->band,
++		   bands, info->flags, info->control.flags);
++}
+ 
+ static __le16 ieee80211_duration(struct ieee80211_tx_data *tx,
+ 				 struct sk_buff *skb, int group_addr,
+@@ -685,10 +705,12 @@
+ 
+ 	memset(&txrc, 0, sizeof(txrc));
+ 
+-	if (info->band < NUM_NL80211_BANDS)
+-		sband = tx->local->hw.wiphy->bands[info->band];
+-	else
++	if (ieee80211_tx_uses_hw_rate_control(tx->local, info))
+ 		return TX_CONTINUE;
++
++	sband = ieee80211_tx_get_sband(tx->local, info, &tx->sdata->vif);
++	if (unlikely(!sband))
++		return TX_DROP;
+ 
+ 	len = min_t(u32, tx->skb->len + FCS_LEN,
+ 			 tx->local->hw.wiphy->frag_threshold);
+@@ -3928,8 +3950,13 @@
+ 
+ 	spin_unlock_bh(&fq->lock);
+ 
++	info = IEEE80211_SKB_CB(skb);
++	if (unlikely(!ieee80211_tx_band_valid(local, info, vif))) {
++		ieee80211_free_txskb(&local->hw, skb);
++		goto begin;
++	}
++
+ 	hdr = (struct ieee80211_hdr *)skb->data;
+-	info = IEEE80211_SKB_CB(skb);
+ 
+ 	memset(&tx, 0, sizeof(tx));
+ 	__skb_queue_head_init(&tx.skbs);
+@@ -4075,6 +4102,13 @@
+ 
+ out:
+ 	spin_unlock_bh(&fq->lock);
++
++	/* Already processed fragments bypass the normal dequeue handlers. */
++	if (skb && unlikely(!ieee80211_tx_band_valid(local,
++						     IEEE80211_SKB_CB(skb), vif))) {
++		ieee80211_free_txskb(&local->hw, skb);
++		goto begin;
++	}
+ 
+ 	return skb;
+ }
