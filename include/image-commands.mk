@@ -697,7 +697,7 @@ endef
 # E.g. | qemu-image vdi <optional extra arguments to qemu-img binary>
 define Build/qemu-image
 	if command -v qemu-img; then \
-		qemu-img convert -f raw -O $1 $@ $@.new; \
+		qemu-img convert -f raw -O $1 $@ $@.new && \
 		mv $@.new $@; \
 	else \
 		echo "WARNING: Install qemu-img to create VDI/VMDK images" >&2; exit 1; \
