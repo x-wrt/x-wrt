@@ -1,23 +1,58 @@
 set_netdev_labels() {
-	local dir
-	local label
-	local netdev
+	local dir property label netdev
 
 	for dir in /sys/class/net/*; do
-		[ -r "$dir/of_node/label" ] || continue
-		read -r label < "$dir/of_node/label"
+		property="$dir/of_node/openwrt,netdev-name"
+		[ -r "$property" ] || property="$dir/of_node/label"
+		[ -r "$property" ] || continue
+		label=
+		IFS= read -r label < "$property"
 		netdev="${dir##*/}"
-		[ "$netdev" = "$label" ] && continue
-		ip link set "$netdev" name "$label"
-	done
-
-	for dir in /sys/class/net/*; do
-		[ -r "$dir/of_node/openwrt,netdev-name" ] || continue
-		read -r label < "$dir/of_node/openwrt,netdev-name"
-		netdev="${dir##*/}"
-		[ "$netdev" = "$label" ] && continue
-		ip link set "$netdev" name "$label"
+		[ -n "$label" ] && [ "$netdev" != "$label" ] || continue
+		ip link set dev "$netdev" name "$label" 2>/dev/null
 	done
 }
 
-boot_hook_add preinit_main set_netdev_labels
+wait_netdev_labels() {
+	local property properties node status label pending
+	local tries=30
+
+	# Only explicit names and legacy Ethernet MAC labels imply a rename.
+	for property in $(find /sys/firmware/devicetree/base \
+		-name 'openwrt,netdev-name' -o -path '*/ethernet@*/mac@*/label'); do
+		[ "${property##*/}" != label ] || \
+			[ ! -r "${property%/*}/openwrt,netdev-name" ] || continue
+		node="${property%/*}"
+		# A disabled node or ancestor will never register a netdev.
+		while [ "$node" != /sys/firmware/devicetree/base ]; do
+			if [ -r "$node/status" ]; then
+				status=
+				IFS= read -r status < "$node/status"
+				case "$status" in okay|ok) ;; *) continue 2 ;; esac
+			fi
+			node="${node%/*}"
+		done
+		properties="$properties $property"
+	done
+
+	# Stay in preinit so netifd cannot bring up the old names first.
+	while :; do
+		set_netdev_labels
+		pending=
+		for property in $properties; do
+			label=
+			IFS= read -r label < "$property"
+			[ -n "$label" ] || continue
+			[ "/sys/class/net/$label/of_node" -ef "${property%/*}" ] || \
+				pending="$pending $label"
+		done
+		[ -n "$pending" ] || return 0
+		[ "$tries" -gt 0 ] || break
+		tries=$((tries - 1))
+		sleep 1
+	done
+
+	echo "netdev: rename timed out after 30 seconds:$pending" >&2
+}
+
+boot_hook_add preinit_main wait_netdev_labels
