@@ -683,7 +683,7 @@ define KernelPackage/phy-motorcomm
 endef
 
 define KernelPackage/phy-motorcomm/description
-  Supports the Motorcomm 8511/8521/8531/8531S/8821 Ethernet PHYs
+  Supports the Motorcomm 8511/8521/8522/8531/8531S/8821/8824 Ethernet PHYs
 endef
 
 $(eval $(call KernelPackage,phy-motorcomm))
@@ -718,6 +718,29 @@ define KernelPackage/dsa/description
 endef
 
 $(eval $(call KernelPackage,dsa))
+
+
+define KernelPackage/dsa-yt92xx
+  SUBMENU:=$(NETWORK_DEVICES_MENU)
+  TITLE:=Motorcomm YT9215/YT9224 managed switch DSA support
+  DEPENDS:=@LINUX_6_18 +kmod-dsa +kmod-phy-motorcomm
+  KCONFIG:= \
+	CONFIG_NET_DSA_YT92XX \
+	CONFIG_NET_DSA_TAG_YT921X \
+	CONFIG_NET_DSA_TAG_YT922X
+  FILES:= \
+	$(LINUX_DIR)/drivers/net/dsa/yt921x.ko \
+	$(LINUX_DIR)/net/dsa/tag_yt921x.ko \
+	$(LINUX_DIR)/net/dsa/tag_yt922x.ko
+  AUTOLOAD:=$(call AutoProbe,yt921x)
+endef
+
+define KernelPackage/dsa-yt92xx/description
+  Motorcomm YT9215/YT9224 switch support, including the selectable
+  yt922x_4b CPU port tag for MediaTek hardware flow offload.
+endef
+
+$(eval $(call KernelPackage,dsa-yt92xx))
 
 
 define KernelPackage/dsa-notag
