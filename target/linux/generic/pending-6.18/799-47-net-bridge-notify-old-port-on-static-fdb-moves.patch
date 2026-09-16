@@ -1,0 +1,27 @@
+From: JiaY-shi <shi05275@163.com>
+Subject: [PATCH] net: bridge: notify switchdev before a static FDB move
+
+Moving a static FDB entry with bridge fdb replace updates fdb->dst before
+notifying switchdev. The old destination therefore never receives a
+delete. DSA can retain CPU-port address references after a move onto a
+user port and skip programming the hardware on a later move back to a
+foreign bridge port. The software and hardware FDB then disagree.
+
+Notify the old destination before changing it, as the dynamic learning
+path in br_fdb_update already does. Reproduced on YT9224 by moving a test
+MAC from a DSA port to ap-mld0, back to DSA and to ap-mld0 again. Replaying
+an explicit delete before each add restores correct CPU-port programming.
+
+Signed-off-by: JiaY-shi <shi05275@163.com>
+
+---
+--- a/net/bridge/br_fdb.c
++++ b/net/bridge/br_fdb.c
+@@ -1222,6 +1222,7 @@
+ 			return -EEXIST;
+ 
+ 		if (READ_ONCE(fdb->dst) != source) {
++			br_switchdev_fdb_notify(br, fdb, RTM_DELNEIGH);
+ 			WRITE_ONCE(fdb->dst, source);
+ 			modified = true;
+ 		}
