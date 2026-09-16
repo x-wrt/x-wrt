@@ -13,14 +13,17 @@ Add an optional port_vlan_protocol operation and call it for that
 attribute, so a driver can follow the change or refuse it. Drivers that
 do not implement it behave as before.
 
+X-Wrt: keep the existing Motorcomm protocol validation callback as a fallback
+when the driver has no protocol setter, and reuse the existing bridge event.
+
 Signed-off-by: Quinn O'Shea <qoshea@gmail.com>
 ---
 --- a/include/net/dsa.h
 +++ b/include/net/dsa.h
-@@ -1064,6 +1064,8 @@ struct dsa_switch_ops {
- 	int	(*port_vlan_filtering)(struct dsa_switch *ds, int port,
- 				       bool vlan_filtering,
- 				       struct netlink_ext_ack *extack);
+@@ -1076,6 +1076,8 @@ struct dsa_switch_ops {
+ 	/* Optional validation before the bridge changes its VLAN EtherType. */
+ 	int	(*port_vlan_protocol_validate)(struct dsa_switch *ds, int port,
+ 					       u16 proto, struct netlink_ext_ack *extack);
 +	int	(*port_vlan_protocol)(struct dsa_switch *ds, int port, u16 proto,
 +				      struct netlink_ext_ack *extack);
  	int	(*port_vlan_add)(struct dsa_switch *ds, int port,
@@ -28,7 +31,7 @@ Signed-off-by: Quinn O'Shea <qoshea@gmail.com>
  				 struct netlink_ext_ack *extack);
 --- a/net/dsa/port.c
 +++ b/net/dsa/port.c
-@@ -880,6 +880,17 @@ bool dsa_port_skip_vlan_configuration(st
+@@ -880,6 +880,21 @@ bool dsa_port_skip_vlan_configuration(st
  	return !ds->configure_vlan_while_not_filtering && !br_vlan_enabled(br);
  }
  
@@ -37,10 +40,14 @@ Signed-off-by: Quinn O'Shea <qoshea@gmail.com>
 +{
 +	struct dsa_switch *ds = dp->ds;
 +
-+	if (!ds->ops->port_vlan_protocol)
-+		return -EOPNOTSUPP;
++	if (ds->ops->port_vlan_protocol)
++		return ds->ops->port_vlan_protocol(ds, dp->index, proto, extack);
 +
-+	return ds->ops->port_vlan_protocol(ds, dp->index, proto, extack);
++	if (ds->ops->port_vlan_protocol_validate)
++		return ds->ops->port_vlan_protocol_validate(ds, dp->index,
++							    proto, extack);
++
++	return -EOPNOTSUPP;
 +}
 +
  int dsa_port_ageing_time(struct dsa_port *dp, clock_t ageing_clock)
@@ -59,16 +66,18 @@ Signed-off-by: Quinn O'Shea <qoshea@gmail.com>
  int dsa_port_mst_enable(struct dsa_port *dp, bool on,
 --- a/net/dsa/user.c
 +++ b/net/dsa/user.c
-@@ -614,6 +614,12 @@ static int dsa_user_port_attr_set(struct
- 		ret = dsa_port_vlan_filtering(dp, attr->u.vlan_filtering,
- 					      extack);
+@@ -614,12 +614,10 @@ static int dsa_user_port_attr_set(struct
  		break;
-+	case SWITCHDEV_ATTR_ID_BRIDGE_VLAN_PROTOCOL:
+ 	case SWITCHDEV_ATTR_ID_BRIDGE_VLAN_PROTOCOL:
+-		if (!dsa_port_offloads_bridge_dev(dp, attr->orig_dev) ||
+-		    !dp->ds->ops->port_vlan_protocol_validate)
 +		if (!dsa_port_offloads_bridge_dev(dp, attr->orig_dev))
-+			return -EOPNOTSUPP;
-+
-+		ret = dsa_port_vlan_protocol(dp, attr->u.vlan_protocol, extack);
-+		break;
- 	case SWITCHDEV_ATTR_ID_BRIDGE_AGEING_TIME:
- 		if (!dsa_port_offloads_bridge_dev(dp, attr->orig_dev))
  			return -EOPNOTSUPP;
+ 
+-		ret = dp->ds->ops->port_vlan_protocol_validate(dp->ds, dp->index,
+-							    attr->u.vlan_protocol, extack);
++		ret = dsa_port_vlan_protocol(dp, attr->u.vlan_protocol, extack);
+ 		break;
+ 	case SWITCHDEV_ATTR_ID_BRIDGE_MC_DISABLED:
+ 		if ((!dsa_port_offloads_bridge_dev(dp, attr->orig_dev) &&
+ 		     !dsa_port_offloads_bridge_port(dp, attr->orig_dev)) ||
