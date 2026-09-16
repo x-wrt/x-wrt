@@ -8,6 +8,10 @@ MxL862xx management VIDs. Keep the path field at 16 bits by omitting
 the VID's fixed top two bits and reserving five bits for the physical
 port, so port 16 retains its VID and QDMA queue mapping.
 
+Support the YT922x four-byte tag using the full 16-bit port control word
+as the outer VLAN TCI. Reject native eight-byte tags and VLAN-filtering
+ports whose access PVID policy cannot be reproduced by this PPE path.
+
 Signed-off-by: Chen Minqiang <ptpt52@gmail.com>
 ---
  drivers/net/ethernet/mediatek/Makefile        |   2 +-
@@ -1502,7 +1506,7 @@ Signed-off-by: Chen Minqiang <ptpt52@gmail.com>
  	return 0;
 --- /dev/null
 +++ b/drivers/net/ethernet/mediatek/mtk_ppe_offload1.c
-@@ -0,0 +1,800 @@
+@@ -0,0 +1,810 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + *  Copyright (C) 2020 Felix Fietkau <nbd@nbd.name>
@@ -1519,6 +1523,7 @@ Signed-off-by: Chen Minqiang <ptpt52@gmail.com>
 +#include <net/flow_offload.h>
 +#include <net/pkt_cls.h>
 +#include <net/dsa.h>
++#include <linux/log2.h>
 +#include <linux/dsa/8021q.h>
 +#include "mtk_eth_soc.h"
 +#ifdef CONFIG_NET_MEDIATEK_SOC_WED
@@ -1780,6 +1785,13 @@ Signed-off-by: Chen Minqiang <ptpt52@gmail.com>
 +			*vid = 0xc00 | ((*port >> 5) & 0x3ff);
 +			*port &= 0x1f;
 +			return 0;
++		case DSA_TAG_PROTO_YT922X_4B:
++			*vid = *port;
++			/* TX tag bits 13:5 select exactly one physical port. */
++			if (!is_power_of_2(*vid) || (*vid & ~GENMASK(13, 5)))
++				return -EINVAL;
++			*port = __ffs(*vid) - 5;
++			return 0;
 +		case DSA_TAG_PROTO_MTK:
 +			return *port < MTK_DSA_USER_PORT_MAX ? 0 : -EINVAL;
 +		default:
@@ -1892,7 +1904,8 @@ Signed-off-by: Chen Minqiang <ptpt52@gmail.com>
 +				mtk_foe_entry_set_queue(eth, entry, mac->dsa_queue_base + mac->dsa_port_rank[dsa_port]);
 +			}
 +		}
-+		if (dsa_proto == DSA_TAG_PROTO_MXL862_8021Q)
++		if (dsa_proto == DSA_TAG_PROTO_MXL862_8021Q ||
++		    dsa_proto == DSA_TAG_PROTO_YT922X_4B)
 +			mtk_foe_entry_set_vlan(eth, entry, dsa_vid);
 +		else if (dsa_proto == DSA_TAG_PROTO_MTK)
 +			mtk_foe_entry_set_dsa(eth, entry, dsa_port);
@@ -2023,7 +2036,8 @@ Signed-off-by: Chen Minqiang <ptpt52@gmail.com>
 +				mtk_foe_entry_set_queue(eth, entry, mac->dsa_queue_base + mac->dsa_port_rank[dsa_port]);
 +			}
 +		}
-+		if (dsa_proto == DSA_TAG_PROTO_MXL862_8021Q)
++		if (dsa_proto == DSA_TAG_PROTO_MXL862_8021Q ||
++		    dsa_proto == DSA_TAG_PROTO_YT922X_4B)
 +			mtk_foe_entry_set_vlan(eth, entry, dsa_vid);
 +		else if (dsa_proto == DSA_TAG_PROTO_MTK)
 +			mtk_foe_entry_set_dsa(eth, entry, dsa_port);
@@ -2762,16 +2776,17 @@ Signed-off-by: Chen Minqiang <ptpt52@gmail.com>
   */
 --- a/net/dsa/user.c
 +++ b/net/dsa/user.c
-@@ -22,6 +22,8 @@
+@@ -22,6 +22,9 @@
  #include <net/dcbnl.h>
  #include <linux/netpoll.h>
  #include <linux/string.h>
 +#include <linux/dsa/8021q.h>
++#include <linux/dsa/yt922x.h>
 +#include <net/netfilter/nf_flow_table.h>
  
  #include "conduit.h"
  #include "dsa.h"
-@@ -2585,6 +2587,41 @@ static int dsa_user_hwtstamp_set(struct
+@@ -2585,6 +2588,49 @@ static int dsa_user_hwtstamp_set(struct
  	return ds->ops->port_hwtstamp_set(ds, dp->index, cfg, extack);
  }
  
@@ -2779,6 +2794,7 @@ Signed-off-by: Chen Minqiang <ptpt52@gmail.com>
 +{
 +	struct net_device *dev = path->dev;
 +	struct dsa_port *dp;
++	u16 dsa_tag;
 +
 +	if (!(path->flags & FLOW_OFFLOAD_PATH_ETHERNET))
 +		return -EINVAL;
@@ -2792,6 +2808,13 @@ Signed-off-by: Chen Minqiang <ptpt52@gmail.com>
 +		/* The outer VID's top two bits are always 11. */
 +		path->dsa_port = ((dsa_tag_8021q_standalone_vid(dp) & 0x3ff) << 5) |
 +				 dp->index;
++		break;
++	case DSA_TAG_PROTO_YT922X_4B:
++		dsa_tag = dsa_tag_yt922x_4b_standalone_vid(dp);
++		/* The software tagger supplies access-port PVIDs. */
++		if (dsa_port_is_vlan_filtering(dp) || !dsa_tag)
++			return -EOPNOTSUPP;
++		path->dsa_port = dsa_tag;
 +		break;
 +	case DSA_TAG_PROTO_MTK:
 +		if (dp->index >= 32)
@@ -2813,7 +2836,7 @@ Signed-off-by: Chen Minqiang <ptpt52@gmail.com>
  static const struct net_device_ops dsa_user_netdev_ops = {
  	.ndo_open		= dsa_user_open,
  	.ndo_stop		= dsa_user_close,
-@@ -2606,6 +2643,7 @@ static const struct net_device_ops dsa_u
+@@ -2606,6 +2652,7 @@ static const struct net_device_ops dsa_u
  	.ndo_vlan_rx_kill_vid	= dsa_user_vlan_rx_kill_vid,
  	.ndo_change_mtu		= dsa_user_change_mtu,
  	.ndo_fill_forward_path	= dsa_user_fill_forward_path,
