@@ -1,0 +1,28 @@
+From: Chen Minqiang <ptpt52@gmail.com>
+Subject: [PATCH] net: phy: motorcomm: select PHY_PACKAGE for phy package support
+
+The YT8824 quad-port 2.5G PHY support added in the motorcomm driver
+uses phy_package helpers (devm_of_phy_package_join, phy_package_probe_once,
+phy_package_get_priv, phy_package_get_node, __phy_package_read,
+__phy_package_write) but the Kconfig entry for MOTORCOMM_PHY is missing
+'select PHY_PACKAGE', causing link errors when PHY_PACKAGE is not
+otherwise enabled.
+
+Add the missing 'select PHY_PACKAGE' to fix the build.
+
+Fixes: 799-36 ("net: phy: Add driver for Motorcomm Quad 2.5GbE phy")
+Signed-off-by: Chen Minqiang <ptpt52@gmail.com>
+---
+ drivers/net/phy/Kconfig | 1 +
+ 1 file changed, 1 insertion(+)
+
+--- a/drivers/net/phy/Kconfig
++++ b/drivers/net/phy/Kconfig
+@@ -423,6 +423,7 @@ config MICROSEMI_PHY
+ 
+ config MOTORCOMM_PHY
+ 	tristate "Motorcomm PHYs"
++	select PHY_PACKAGE
+ 	help
+ 	  Enables support for Motorcomm network PHYs.
+ 	  Currently supports YT85xx Gigabit Ethernet PHYs.
