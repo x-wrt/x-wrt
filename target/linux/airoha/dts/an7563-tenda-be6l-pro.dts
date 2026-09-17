@@ -1,0 +1,234 @@
+// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+/dts-v1/;
+
+/memreserve/ 0x80000000 0x88000;
+
+#include "an7563.dtsi"
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+
+/ {
+	model = "Tenda BE6L Pro";
+	compatible = "tenda,be6l-pro", "airoha,an7563", "airoha,en7581";
+
+	aliases {
+		serial0 = &uart1;
+		led-boot = &led_status_green;
+		led-failsafe = &led_status_red;
+		led-running = &led_status_green;
+		led-upgrade = &led_status_red;
+	};
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+		bootargs-override = "console=ttyS0,115200n8 earlycon ubi.mtd=ubi";
+	};
+
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x80000000 0x20000000>;
+	};
+
+	gpio-keys {
+		compatible = "gpio-keys";
+
+		reset {
+			label = "reset";
+			linux,code = <KEY_RESTART>;
+			gpios = <&an7563_pinctrl 5 GPIO_ACTIVE_LOW>;
+			debounce-interval = <10>;
+		};
+	};
+
+	gpio-leds {
+		compatible = "gpio-leds";
+
+		led_status_green: led-green {
+			function = LED_FUNCTION_STATUS;
+			color = <LED_COLOR_ID_GREEN>;
+			gpios = <&an7563_pinctrl 8 GPIO_ACTIVE_HIGH>;
+		};
+
+		led_status_red: led-red {
+			function = LED_FUNCTION_STATUS;
+			color = <LED_COLOR_ID_RED>;
+			gpios = <&an7563_pinctrl 9 GPIO_ACTIVE_LOW>;
+		};
+	};
+};
+
+&an7563_pinctrl {
+	wifi-reset-hog {
+		gpio-hog;
+		gpios = <6 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "wifi-reset";
+	};
+
+	mdio_pins: mdio-pins {
+		mux {
+			function = "mdio";
+			groups = "mdio";
+		};
+	};
+
+	pcie0_rst_pins: pcie0-rst-pins {
+		conf {
+			pins = "pcie_reset0";
+			drive-open-drain = <1>;
+		};
+	};
+};
+
+&eth {
+	status = "okay";
+};
+
+&gdm1 {
+	status = "okay";
+	nvmem-cells = <&macaddr_factory_4 (-16)>;
+	nvmem-cell-names = "mac-address";
+};
+
+&gdm2 {
+	phy-mode = "2500base-x";
+	phy-handle = <&phy15>;
+	openwrt,netdev-name = "wan";
+	status = "okay";
+
+	nvmem-cells = <&macaddr_factory_4 (-15)>;
+	nvmem-cell-names = "mac-address";
+};
+
+&pon_pcs {
+	status = "okay";
+};
+
+&switch {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&mdio_pins>;
+};
+
+&gsw_port2 {
+	label = "lan1";
+	status = "okay";
+};
+
+&gsw_port3 {
+	label = "lan2";
+	status = "okay";
+};
+
+&gsw_port4 {
+	label = "lan3";
+	status = "okay";
+};
+
+&mdio {
+	phy15: ethernet-phy@f {
+		compatible = "ethernet-phy-ieee802.3-c22";
+		reg = <15>;
+		reset-gpios = <&an7563_pinctrl 13 GPIO_ACTIVE_LOW>;
+		reset-assert-us = <250000>;
+		reset-deassert-us = <20000>;
+	};
+};
+
+&pcie0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pcie0_rst_pins>;
+	status = "okay";
+
+	pcie@0,0 {
+		reg = <0x0000 0 0 0 0>;
+		device_type = "pci";
+		#address-cells = <3>;
+		#size-cells = <2>;
+		ranges;
+
+		wifi@0,0 {
+			compatible = "mediatek,mt76";
+			reg = <0x0000 0 0 0 0>;
+			nvmem-cells = <&eeprom_factory_0>;
+			nvmem-cell-names = "eeprom";
+		};
+	};
+};
+
+&snfi {
+	status = "okay";
+};
+
+&spi_nand {
+	airoha,bmt;
+
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		partition@0 {
+			label = "Bootloader";
+			reg = <0x00000000 0x00080000>;
+			read-only;
+		};
+
+		partition@80000 {
+			label = "u-boot-env";
+			reg = <0x00080000 0x00080000>;
+			read-only;
+		};
+
+		partition@100000 {
+			label = "Factory";
+			reg = <0x00100000 0x00400000>;
+			read-only;
+
+			nvmem-layout {
+				compatible = "fixed-layout";
+				#address-cells = <1>;
+				#size-cells = <1>;
+
+				eeprom_factory_0: eeprom@0 {
+					reg = <0x0 0x1e00>;
+				};
+
+				macaddr_factory_4: macaddr@4 {
+					compatible = "mac-base";
+					reg = <0x4 0x6>;
+					#nvmem-cell-cells = <1>;
+				};
+			};
+		};
+
+		partition@500000 {
+			label = "kernel";
+			reg = <0x00500000 0x00600000>;
+		};
+
+		/* Remaining KernelFS1, KernelFS2, CFM and CFM_BACKUP. */
+		partition@b00000 {
+			label = "ubi";
+			reg = <0x00b00000 0x05980000>;
+		};
+
+		partition@6480000 {
+			label = "CFG";
+			reg = <0x06480000 0x00400000>;
+			read-only;
+		};
+
+		partition@6880000 {
+			label = "MISC2";
+			reg = <0x06880000 0x00400000>;
+			read-only;
+		};
+
+		partition@6c80000 {
+			label = "art";
+			reg = <0x06c80000 0x00380000>;
+			read-only;
+		};
+	};
+};
