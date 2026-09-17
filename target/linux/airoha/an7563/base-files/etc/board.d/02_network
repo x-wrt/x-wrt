@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+. /lib/functions/uci-defaults.sh
+. /lib/functions/system.sh
+
+board_config_update
+
+case "$(board_name)" in
+tenda,be6l-pro)
+	ucidef_set_interfaces_lan_wan "lan1 lan2 lan3" "wan"
+
+	lan_mac=$(mtd_get_mac_ascii CFG HW_NIC0_ADDR)
+	if [ -n "$lan_mac" ]; then
+		ucidef_set_interface_macaddr "lan" "$lan_mac"
+		ucidef_set_interface_macaddr "wan" "$(macaddr_add "$lan_mac" 1)"
+		ucidef_set_label_macaddr "$lan_mac"
+	fi
+	;;
+esac
+
+board_config_flush
+
+exit 0
