@@ -383,6 +383,8 @@
 			device_type = "pci";
 			reg = <0x1fa91000 0x1000>;
 			reg-names = "port0";
+			phys = <&pcie0_phy>;
+			phy-names = "pcie-phy0";
 			linux,pci-domain = <0>;
 			#address-cells = <3>;
 			#size-cells = <2>;
@@ -414,6 +416,8 @@
 			device_type = "pci";
 			reg = <0x1fa92000 0x1000>;
 			reg-names = "port1";
+			phys = <&pcie1_phy>;
+			phy-names = "pcie-phy1";
 			linux,pci-domain = <1>;
 			#address-cells = <3>;
 			#size-cells = <2>;
@@ -438,6 +442,18 @@
 				#address-cells = <0>;
 				#interrupt-cells = <1>;
 			};
+		};
+
+		pcie0_phy: phy@1fa93700 {
+			compatible = "airoha,an7563-pcie-phy";
+			reg = <0x1fa93700 0x568>;
+			#phy-cells = <0>;
+		};
+
+		pcie1_phy: phy@1fa95700 {
+			compatible = "airoha,an7563-pcie-phy";
+			reg = <0x1fa95700 0x568>;
+			#phy-cells = <0>;
 		};
 	};
 };
