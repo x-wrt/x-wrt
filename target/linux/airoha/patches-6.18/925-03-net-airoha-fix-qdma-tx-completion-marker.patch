@@ -1,0 +1,62 @@
+From: PTPT52.AI <ptpt52@gmail.com>
+Date: Sat, 19 Sep 2026 22:00:00 +0800
+Subject: [PATCH] net: airoha: fix QDMA TX completion queue marker and visibility
+
+The completion queue is initialized to 0xffffffff, but the consumer
+tests and recycles entries using 0x000000ff. The latter can also be a
+valid completion for descriptor 255 on ring zero.
+
+Use U32_MAX consistently when reading and recycling entries. The
+vendor qdma_bmgr.c also retries when an announced completion is still
+0xffffffff: the status can become visible before the queue data.
+Use bounded rereads with READ_ONCE and a DMA read barrier; leave an
+unpublished entry unconsumed.
+
+This independently identifiable completion-handling defect does not
+explain the observed board TX stall, where no completions arrive.
+
+Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
+---
+--- a/drivers/net/ethernet/airoha/airoha_eth.c
++++ b/drivers/net/ethernet/airoha/airoha_eth.c
+@@ -21,6 +21,9 @@
+ #include "airoha_regs.h"
+ #include "airoha_eth.h"
+ 
++#define AIROHA_QDMA_IRQ_ENTRY_INVALID	U32_MAX
++#define AIROHA_QDMA_IRQ_ENTRY_RETRIES	16
++
+ u32 airoha_rr(void __iomem *base, u32 offset)
+ {
+ 	return readl(base + offset);
+@@ -1222,17 +1225,27 @@ static int airoha_qdma_tx_napi_poll(stru
+ 	irq_queued = FIELD_GET(IRQ_ENTRY_LEN_MASK, status);
+ 
+ 	while (irq_queued > 0 && done < budget) {
+-		u32 qid, val = irq_q->q[head];
+ 		struct airoha_qdma_desc *desc;
+ 		struct airoha_queue_entry *e;
+ 		struct airoha_queue *q;
+ 		u32 index, desc_ctrl;
+ 		struct sk_buff *skb;
++		u32 qid, val;
++		int retry;
+ 
+-		if (val == 0xff)
++		for (retry = 0; retry < AIROHA_QDMA_IRQ_ENTRY_RETRIES;
++		     retry++) {
++			dma_rmb();
++			val = READ_ONCE(irq_q->q[head]);
++			if (val != AIROHA_QDMA_IRQ_ENTRY_INVALID)
++				break;
++			cpu_relax();
++		}
++		if (val == AIROHA_QDMA_IRQ_ENTRY_INVALID)
+ 			break;
+ 
+-		irq_q->q[head] = 0xff; /* mark as done */
++		/* Mark the entry free before advancing the hardware queue. */
++		WRITE_ONCE(irq_q->q[head], AIROHA_QDMA_IRQ_ENTRY_INVALID);
+ 		head = (head + 1) % irq_q->size;
+ 		irq_queued--;
+ 		done++;
