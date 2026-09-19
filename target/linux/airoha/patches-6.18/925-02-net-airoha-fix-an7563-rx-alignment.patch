@@ -1,0 +1,69 @@
+From: PTPT52.AI <ptpt52@gmail.com>
+Date: Sat, 19 Sep 2026 22:00:00 +0800
+Subject: [PATCH] net: airoha: fix AN7563 QDMA receive alignment
+
+Enable QDMA RX two-byte offset on AN7563 and point RX descriptors at
+the aligned DMA buffer base, before the reserved NET_IP_ALIGN bytes.
+Leave the software buffer pointer and DMA synchronization range at
+the actual packet start.
+
+Board captures showed incoming ARP Ethernet headers displaced by two
+bytes; enabling this mode with the corresponding descriptor address
+restored the complete destination MAC and ARP header. Other SoCs
+keep their existing receive buffer layout.
+
+Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
+---
+--- a/drivers/net/ethernet/airoha/airoha_eth.c
++++ b/drivers/net/ethernet/airoha/airoha_eth.c
+@@ -690,6 +690,7 @@ static int airoha_qdma_fill_rx_queue(str
+ 	while (q->queued < q->ndesc - 1) {
+ 		struct airoha_queue_entry *e = &q->entry[q->head];
+ 		struct airoha_qdma_desc *desc = &q->desc[q->head];
++		dma_addr_t dma_addr;
+ 		struct page *page;
+ 		int offset;
+ 		u32 val;
+@@ -707,11 +708,14 @@ static int airoha_qdma_fill_rx_queue(str
+ 		e->buf = page_address(page) + offset;
+ 		e->dma_addr = page_pool_get_dma_addr(page) + offset;
+ 		e->dma_len = SKB_WITH_OVERHEAD(AIROHA_RX_LEN(q->buf_size));
++		dma_addr = e->dma_addr;
++		if (qdma->eth->soc->has_rx_2b_offset)
++			dma_addr -= NET_IP_ALIGN;
+ 
+ 		WRITE_ONCE(desc->tcp_ts_reply, 0);
+ 		val = FIELD_PREP(QDMA_DESC_LEN_MASK, e->dma_len);
+ 		WRITE_ONCE(desc->ctrl, cpu_to_le32(val));
+-		WRITE_ONCE(desc->addr, cpu_to_le32(e->dma_addr));
++		WRITE_ONCE(desc->addr, cpu_to_le32(dma_addr));
+ 		val = FIELD_PREP(QDMA_DESC_NEXT_ID_MASK, q->head);
+ 		WRITE_ONCE(desc->data, cpu_to_le32(val));
+ 		WRITE_ONCE(desc->msg0, 0);
+@@ -1643,6 +1647,8 @@ static int airoha_qdma_hw_init(struct ai
+ 		       FIELD_PREP(GLOBAL_CFG_DMA_PREFERENCE_MASK, 3) |
+ 		       GLOBAL_CFG_CPU_TXR_RR_MASK |
+ 		       GLOBAL_CFG_PAYLOAD_BYTE_SWAP_MASK |
++		       (qdma->eth->soc->has_rx_2b_offset ?
++			GLOBAL_CFG_RX_2B_OFFSET_MASK : 0) |
+ 		       GLOBAL_CFG_MULTICAST_MODIFY_FP_MASK |
+ 		       GLOBAL_CFG_MULTICAST_EN_MASK |
+ 		       GLOBAL_CFG_IRQ0_EN_MASK | GLOBAL_CFG_IRQ1_EN_MASK |
+@@ -4436,6 +4442,7 @@ static const struct airoha_eth_soc_data
+ 	.frag_nbq = 1,
+ 	.assemble_nbq = 15,
+ 	.rx_irq_bank1_mask = GENMASK(14, 10),
++	.has_rx_2b_offset = true,
+ 	.ops = {
+ 		.get_sport = airoha_en7581_get_sport,
+ 		.get_dev_from_sport = airoha_en7581_get_dev_from_sport,
+--- a/drivers/net/ethernet/airoha/airoha_eth.h
++++ b/drivers/net/ethernet/airoha/airoha_eth.h
+@@ -616,6 +616,7 @@ struct airoha_eth_soc_data {
+ 	int frag_nbq;
+ 	int assemble_nbq;
+ 	u32 rx_irq_bank1_mask;
++	bool has_rx_2b_offset;
+ 	bool has_lro;
+ 	bool has_ppe_stats;
+ 	struct {
