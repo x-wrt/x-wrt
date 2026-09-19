@@ -236,17 +236,20 @@
 			};
 		};
 
-		pon_pcs: pcs@1fa60000 {
+		pon_pcs: pcs@1fa08000 {
 			compatible = "airoha,an7563-pcs-pon";
-			reg = <0x1fa60000 0x1000>,
-			      <0x1fa65e00 0x64>,
-			      <0x1faf3000 0x2000>,
-			      <0x1fa655f0 0xc>;
-			reg-names = "mac", "an", "pma", "irq";
-			resets = <&scu EN7581_XPON_PHY_RST>,
-				 <&scu EN7581_XSI_MAC_RST>,
-				 <&scu EN7581_XSI_PHY_RST>;
-			reset-names = "pon-phy", "xsi-mac", "xsi-phy";
+			reg = <0x1fa08000 0x1000>,
+			      <0x1fa80000 0x64>,
+			      <0x1fa80a00 0x168>,
+			      <0x1fa84000 0x685>,
+			      <0x1fa86000 0x400>,
+			      <0x1faf3000 0x1000>,
+			      <0x1faf4000 0x1000>;
+			reg-names = "mac", "an", "pcs", "multi", "rate",
+				    "phya", "pma";
+			resets = <&scu EN7581_XPON_MAC_RST>,
+				 <&scu EN7581_XPON_PHY_RST>;
+			reset-names = "mac", "phy";
 			airoha,scu = <&scu>;
 			#pcs-cells = <0>;
 			status = "disabled";
