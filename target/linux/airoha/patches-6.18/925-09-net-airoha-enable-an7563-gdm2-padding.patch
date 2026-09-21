@@ -1,0 +1,31 @@
+From: PTPT52.AI <ptpt52@gmail.com>
+Date: Sun, 20 Sep 2026 20:40:00 +0800
+Subject: [PATCH] net: airoha: enable AN7563 GDM2 padding
+
+The AN7563 vendor FE initialization enables GDM padding on GDM2 before
+traffic is sent to the HSGMII/XSI WAN interface.  The running vendor
+firmware consequently has GDM2_FWD_CFG bit 28 set (0x17f14444), while
+the upstream driver only enables padding on GDM3 and GDM4 and leaves the
+AN7563 GDM2 value at 0x07f14444.
+
+Enable GDM2 padding on AN7563 to match the vendor initialization.  The
+forwarding destination, checksum and CRC controls are left unchanged.
+
+Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
+---
+ drivers/net/ethernet/airoha/airoha_eth.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+--- a/drivers/net/ethernet/airoha/airoha_eth.c
++++ b/drivers/net/ethernet/airoha/airoha_eth.c
+@@ -690,6 +690,10 @@ static int airoha_fe_init(struct airoha_
+ 		      FIELD_PREP(IP_ASSEMBLE_NBQ_MASK,
+ 				 eth->soc->assemble_nbq));
+ 
++	if (eth->soc->version == 0x7563)
++		airoha_fe_set(eth, REG_GDM_FWD_CFG(AIROHA_GDM2_IDX),
++			      GDM_PAD_EN_MASK);
++
+ 	if (eth->soc->num_gdm > 2) {
+ 		airoha_fe_set(eth, REG_GDM_FWD_CFG(AIROHA_GDM3_IDX),
+ 			      GDM_PAD_EN_MASK | GDM_STRIP_CRC_MASK);
