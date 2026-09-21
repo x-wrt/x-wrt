@@ -1,0 +1,53 @@
+From: PTPT52.AI <ptpt52@gmail.com>
+Date: Sun, 20 Sep 2026 16:30:00 +0800
+Subject: [PATCH] net: airoha: use DRAM LMGR descriptors on AN7563
+
+The AN7563 vendor driver forces qdmaDscpMode to zero for the EN7523
+family, selecting DRAM descriptor mode.  A register dump from the
+working vendor firmware confirms QDMA_CSR_LMGR_INIT_CFG is 0x11804000,
+with LMGR_SRAM_MODE bit 30 clear.
+
+The upstream driver unconditionally sets LMGR_SRAM_MODE while starting
+the hardware forwarding descriptor manager.  This selects a different
+resource-manager layout on AN7563 and can prevent submitted TX
+descriptors from completing.
+
+Describe the LMGR mode in the SoC data and explicitly clear bit 30 for
+AN7563.  Keep the existing SRAM mode on EN7581 and AN7583.
+
+Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
+---
+ drivers/net/ethernet/airoha/airoha_eth.c | 4 +++-
+ drivers/net/ethernet/airoha/airoha_eth.h | 1 +
+ 2 files changed, 4 insertions(+), 1 deletion(-)
+
+--- a/drivers/net/ethernet/airoha/airoha_eth.c
++++ b/drivers/net/ethernet/airoha/airoha_eth.c
+@@ -1574,7 +1574,8 @@ static int airoha_qdma_init_hfwd_queues(
+ 			LMGR_INIT_START | LMGR_SRAM_MODE_MASK |
+ 			HW_FWD_DESC_NUM_MASK,
+ 			FIELD_PREP(HW_FWD_DESC_NUM_MASK, num_desc) |
+-			LMGR_INIT_START | LMGR_SRAM_MODE_MASK);
++			LMGR_INIT_START |
++			(eth->soc->lmgr_dram_mode ? 0 : LMGR_SRAM_MODE_MASK));
+ 
+ 	return read_poll_timeout(airoha_qdma_rr, status,
+ 				 !(status & LMGR_INIT_START), USEC_PER_MSEC,
+@@ -4514,6 +4515,7 @@ static const struct airoha_eth_soc_data a
+ 	.assemble_nbq = 15,
+ 	.rx_irq_bank1_mask = GENMASK(14, 10),
+ 	.has_rx_2b_offset = true,
++	.lmgr_dram_mode = true,
+ 	.ops = {
+ 		.get_sport = airoha_en7581_get_sport,
+ 		.get_dev_from_sport = airoha_en7581_get_dev_from_sport,
+--- a/drivers/net/ethernet/airoha/airoha_eth.h
++++ b/drivers/net/ethernet/airoha/airoha_eth.h
+@@ -617,6 +617,7 @@ struct airoha_eth_soc_data {
+ 	int assemble_nbq;
+ 	u32 rx_irq_bank1_mask;
+ 	bool has_rx_2b_offset;
++	bool lmgr_dram_mode;
+ 	bool has_lro;
+ 	bool has_ppe_stats;
+ 	struct {
