@@ -379,7 +379,7 @@
 		};
 
 		pcie0: pcie@1fa91000 {
-			compatible = "airoha,en7523-pcie", "mediatek,mt7622-pcie";
+			compatible = "airoha,an7563-pcie", "mediatek,mt7622-pcie";
 			device_type = "pci";
 			reg = <0x1fa91000 0x1000>;
 			reg-names = "port0";
@@ -412,7 +412,7 @@
 		};
 
 		pcie1: pcie@1fa92000 {
-			compatible = "airoha,en7523-pcie", "mediatek,mt7622-pcie";
+			compatible = "airoha,an7563-pcie", "mediatek,mt7622-pcie";
 			device_type = "pci";
 			reg = <0x1fa92000 0x1000>;
 			reg-names = "port1";
