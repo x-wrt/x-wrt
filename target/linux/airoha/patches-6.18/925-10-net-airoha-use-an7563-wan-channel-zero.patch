@@ -1,0 +1,55 @@
+From: PTPT52.AI <ptpt52@gmail.com>
+Date: Sun, 20 Sep 2026 22:20:00 +0800
+Subject: [PATCH] net: airoha: use QDMA WAN channel 0 on AN7563
+
+The AN7563 vendor active-Ethernet WAN driver uses a dedicated QDMA
+instance and fixes ordinary WAN traffic to channel 0.  The queue field
+is still selected independently from the packet priority.
+
+The common driver instead derives the channel from the GDM port id.
+Since the AN7563 WAN is connected to GDM2, this maps its traffic to
+QDMA1 channel 2 (netdev queues 16 through 23), differing from the
+channel 0 selected by the vendor ae_wan transmit path.  The same
+difference is also stored in PPE flow entries for hardware-forwarded
+traffic.
+
+Select channel 0 for both AN7563 GDM2 software transmit and PPE flow
+entries, matching the vendor driver.  Keep the existing channel
+selection for DSA/LAN traffic and other SoCs.
+
+Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
+---
+ drivers/net/ethernet/airoha/airoha_eth.c | 5 ++++-
+ drivers/net/ethernet/airoha/airoha_ppe.c | 6 +++++-
+ 2 files changed, 9 insertions(+), 2 deletions(-)
+
+--- a/drivers/net/ethernet/airoha/airoha_eth.c
++++ b/drivers/net/ethernet/airoha/airoha_eth.c
+@@ -2619,7 +2619,10 @@ static u16 airoha_dev_select_queue(struc
+ 	 * index, rely on port id otherwise. Select QoS queue based on the
+ 	 * skb priority.
+ 	 */
+-	channel = netdev_uses_dsa(netdev) ? skb_get_queue_mapping(skb) : port->id;
++	if (dev->eth->soc->version == 0x7563 && port->id == AIROHA_GDM2_IDX)
++		channel = 0;
++	else
++		channel = netdev_uses_dsa(netdev) ? skb_get_queue_mapping(skb) : port->id;
+ 	channel = channel % AIROHA_NUM_QOS_CHANNELS;
+ 	queue = skb->priority % AIROHA_NUM_QOS_QUEUES;
+ 	queue = channel * AIROHA_NUM_QOS_QUEUES + queue;
+
+--- a/drivers/net/ethernet/airoha/airoha_ppe.c
++++ b/drivers/net/ethernet/airoha/airoha_ppe.c
+@@ -398,7 +398,11 @@ static int airoha_ppe_foe_entry_prepare(
+ 			 * channel according to the DSA user port index, rely
+ 			 * on port id otherwise.
+ 			 */
+-			channel = dsa_port >= 0 ? dsa_port : port->id;
++			if (eth->soc->version == 0x7563 &&
++			    port->id == AIROHA_GDM2_IDX)
++				channel = 0;
++			else
++				channel = dsa_port >= 0 ? dsa_port : port->id;
+ 			channel = channel % AIROHA_NUM_QOS_CHANNELS;
+ 			priority = rt_tos2priority(dsfield);
+ 			priority = priority % AIROHA_NUM_QOS_QUEUES;
