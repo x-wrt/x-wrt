@@ -21,6 +21,24 @@
 	#address-cells = <1>;
 	#size-cells = <1>;
 
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		qdma0_buf: qdma0-buf {
+			no-map;
+			size = <0x01000000>;
+			alignment = <0x00010000>;
+		};
+
+		qdma1_buf: qdma1-buf {
+			no-map;
+			size = <0x01000000>;
+			alignment = <0x00010000>;
+		};
+	};
+
 	psci {
 		compatible = "arm,psci-0.2";
 		method = "smc";
@@ -282,6 +300,8 @@
 				     <GIC_SPI 60 IRQ_TYPE_LEVEL_HIGH>,
 				     <GIC_SPI 49 IRQ_TYPE_LEVEL_HIGH>,
 				     <GIC_SPI 64 IRQ_TYPE_LEVEL_HIGH>;
+			memory-region = <&qdma0_buf>, <&qdma1_buf>;
+			memory-region-names = "qdma0-buf", "qdma1-buf";
 			#address-cells = <1>;
 			#size-cells = <0>;
 			status = "disabled";
