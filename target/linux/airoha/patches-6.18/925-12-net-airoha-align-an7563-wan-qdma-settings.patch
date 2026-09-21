@@ -1,0 +1,132 @@
+From: PTPT52.AI <ptpt52@gmail.com>
+Date: Mon, 21 Sep 2026 10:15:39 +0800
+Subject: [PATCH] net: airoha: align AN7563 WAN QDMA settings
+
+The EN7523-family vendor QDMA driver uses a separate initialization path
+for the WAN instance.  Compared with its LAN path, WAN uses a
+hardware-forwarding low threshold of 256, enables PSE buffer estimation,
+disables equal-rate mode, uses a 20/200 rate-meter window and timeslice,
+and leaves the LAN multicast mode bits disabled.
+
+The common driver applies its LAN-oriented settings to both QDMA instances.
+Select the verified vendor values only for AN7563 QDMA1 and keep all other
+instances unchanged.
+
+Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
+---
+ drivers/net/ethernet/airoha/airoha_eth.c | 63 ++++++++++++++++++++++----------
+ 1 file changed, 44 insertions(+), 19 deletions(-)
+
+--- a/drivers/net/ethernet/airoha/airoha_eth.c
++++ b/drivers/net/ethernet/airoha/airoha_eth.c
+@@ -1520,10 +1520,18 @@ static void airoha_qdma_cleanup_tx_queue
+ 	spin_unlock_bh(&q->lock);
+ }
+ 
++static bool airoha_is_an7563_qdma_wan(struct airoha_qdma *qdma)
++{
++	struct airoha_eth *eth = qdma->eth;
++
++	return eth->soc->version == 0x7563 && qdma == &eth->qdma[1];
++}
++
+ static int airoha_qdma_init_hfwd_queues(struct airoha_qdma *qdma)
+ {
+ 	int size, index, num_desc = HW_DSCP_NUM;
+ 	struct airoha_eth *eth = qdma->eth;
++	bool is_wan = airoha_is_an7563_qdma_wan(qdma);
+ 	int id = qdma - &eth->qdma[0];
+ 	bool payload_1k = eth->soc->version == 0x7563 || id;
+ 	u32 status, buf_size;
+@@ -1579,7 +1587,8 @@ static int airoha_qdma_init_hfwd_queues(
+ 			FIELD_PREP(HW_FWD_DSCP_PAYLOAD_SIZE_MASK,
+ 				   payload_1k));
+ 	airoha_qdma_rmw(qdma, REG_FWD_DSCP_LOW_THR, FWD_DSCP_LOW_THR_MASK,
+-			FIELD_PREP(FWD_DSCP_LOW_THR_MASK, 128));
++			FIELD_PREP(FWD_DSCP_LOW_THR_MASK,
++				   is_wan ? 256 : 128));
+ 	airoha_qdma_rmw(qdma, REG_LMGR_INIT_CFG,
+ 			LMGR_INIT_START | LMGR_SRAM_MODE_MASK |
+ 			HW_FWD_DESC_NUM_MASK,
+@@ -1596,22 +1605,35 @@ static int airoha_qdma_init_hfwd_queues(
+ 
+ static void airoha_qdma_init_qos(struct airoha_qdma *qdma)
+ {
++	bool is_wan = airoha_is_an7563_qdma_wan(qdma);
++
+ 	airoha_qdma_clear(qdma, REG_TXWRR_MODE_CFG, TWRR_WEIGHT_SCALE_MASK);
+ 	airoha_qdma_set(qdma, REG_TXWRR_MODE_CFG, TWRR_WEIGHT_BASE_MASK);
+ 
+-	airoha_qdma_clear(qdma, REG_PSE_BUF_USAGE_CFG,
+-			  PSE_BUF_ESTIMATE_EN_MASK);
++	if (is_wan)
++		airoha_qdma_set(qdma, REG_PSE_BUF_USAGE_CFG,
++				PSE_BUF_ESTIMATE_EN_MASK);
++	else
++		airoha_qdma_clear(qdma, REG_PSE_BUF_USAGE_CFG,
++				  PSE_BUF_ESTIMATE_EN_MASK);
+ 
+ 	airoha_qdma_set(qdma, REG_EGRESS_RATE_METER_CFG,
+-			EGRESS_RATE_METER_EN_MASK |
+-			EGRESS_RATE_METER_EQ_RATE_EN_MASK);
+-	/* 2047us x 31 = 63.457ms */
++			EGRESS_RATE_METER_EN_MASK);
++	if (is_wan)
++		airoha_qdma_clear(qdma, REG_EGRESS_RATE_METER_CFG,
++				  EGRESS_RATE_METER_EQ_RATE_EN_MASK);
++	else
++		airoha_qdma_set(qdma, REG_EGRESS_RATE_METER_CFG,
++				EGRESS_RATE_METER_EQ_RATE_EN_MASK);
++	/* LAN: 2047us x 31 = 63.457ms. WAN: 200us x 20 = 4ms. */
+ 	airoha_qdma_rmw(qdma, REG_EGRESS_RATE_METER_CFG,
+ 			EGRESS_RATE_METER_WINDOW_SZ_MASK,
+-			FIELD_PREP(EGRESS_RATE_METER_WINDOW_SZ_MASK, 0x1f));
++			FIELD_PREP(EGRESS_RATE_METER_WINDOW_SZ_MASK,
++				   is_wan ? 20 : 0x1f));
+ 	airoha_qdma_rmw(qdma, REG_EGRESS_RATE_METER_CFG,
+ 			EGRESS_RATE_METER_TIMESLICE_MASK,
+-			FIELD_PREP(EGRESS_RATE_METER_TIMESLICE_MASK, 0x7ff));
++			FIELD_PREP(EGRESS_RATE_METER_TIMESLICE_MASK,
++				   is_wan ? 200 : 0x7ff));
+ 
+ 	/* ratelimit init */
+ 	airoha_qdma_set(qdma, REG_GLB_TRTCM_CFG, GLB_TRTCM_EN_MASK);
+@@ -1667,6 +1689,7 @@ static void airoha_qdma_init_qos_stats(s
+ 
+ static int airoha_qdma_hw_init(struct airoha_qdma *qdma)
+ {
++	u32 global_cfg;
+ 	int i;
+ 
+ 	for (i = 0; i < qdma->eth->soc->num_qdma_int_regs; i++)
+@@ -1710,17 +1733,19 @@ static int airoha_qdma_hw_init(struct air
+ 					  TX_RING_IRQ_BLOCKING_CFG_MASK);
+ 	}
+ 
+-	airoha_qdma_wr(qdma, REG_QDMA_GLOBAL_CFG,
+-		       FIELD_PREP(GLOBAL_CFG_DMA_PREFERENCE_MASK, 3) |
+-		       GLOBAL_CFG_CPU_TXR_RR_MASK |
+-		       GLOBAL_CFG_PAYLOAD_BYTE_SWAP_MASK |
+-		       (qdma->eth->soc->has_rx_2b_offset ?
+-			GLOBAL_CFG_RX_2B_OFFSET_MASK : 0) |
+-		       GLOBAL_CFG_MULTICAST_MODIFY_FP_MASK |
+-		       GLOBAL_CFG_MULTICAST_EN_MASK |
+-		       GLOBAL_CFG_IRQ0_EN_MASK | GLOBAL_CFG_IRQ1_EN_MASK |
+-		       GLOBAL_CFG_TX_WB_DONE_MASK |
+-		       FIELD_PREP(GLOBAL_CFG_MAX_ISSUE_NUM_MASK, 2));
++	global_cfg = FIELD_PREP(GLOBAL_CFG_DMA_PREFERENCE_MASK, 3) |
++		     GLOBAL_CFG_CPU_TXR_RR_MASK |
++		     GLOBAL_CFG_PAYLOAD_BYTE_SWAP_MASK |
++		     (qdma->eth->soc->has_rx_2b_offset ?
++		      GLOBAL_CFG_RX_2B_OFFSET_MASK : 0) |
++		     GLOBAL_CFG_IRQ0_EN_MASK | GLOBAL_CFG_IRQ1_EN_MASK |
++		     GLOBAL_CFG_TX_WB_DONE_MASK |
++		     FIELD_PREP(GLOBAL_CFG_MAX_ISSUE_NUM_MASK, 2);
++	if (!airoha_is_an7563_qdma_wan(qdma))
++		global_cfg |= GLOBAL_CFG_MULTICAST_MODIFY_FP_MASK |
++			      GLOBAL_CFG_MULTICAST_EN_MASK;
++
++	airoha_qdma_wr(qdma, REG_QDMA_GLOBAL_CFG, global_cfg);
+ 
+ 	airoha_qdma_init_qos(qdma);
+ 
