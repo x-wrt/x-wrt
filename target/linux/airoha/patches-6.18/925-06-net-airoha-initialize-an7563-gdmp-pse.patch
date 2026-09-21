@@ -1,0 +1,142 @@
+From: PTPT52.AI <ptpt52@gmail.com>
+Date: Sun, 20 Sep 2026 15:05:00 +0800
+Subject: [PATCH] net: airoha: initialize the AN7563 GDMP-backed PSE
+
+The AN7563 vendor driver extends the Frame Engine packet-switching
+buffer with the GDMP SRAM.  It assigns the GDMP SRAM to the FE, switches
+the associated SRAM clock to the FE, raises the PSE free-queue limit
+from 0x400 to 0x500 pages, resets the FE core, and then installs the
+matching shared-buffer thresholds.
+
+Without this setup QDMA can submit TX descriptors while packets are
+dropped by PSE before reaching GDM.  On the affected board the PSE
+port-1 drop counter increased once for each attempted ARP transmission,
+while the GDM1 TX counters remained unchanged.
+
+Reproduce the vendor initialization sequence before QDMA is started.
+
+Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
+---
+ drivers/net/ethernet/airoha/Kconfig      |  1 +
+ drivers/net/ethernet/airoha/airoha_eth.c | 55 ++++++++++++++++++++++++
+ drivers/net/ethernet/airoha/airoha_eth.h |  2 +
+ 3 files changed, 58 insertions(+)
+
+--- a/drivers/net/ethernet/airoha/Kconfig
++++ b/drivers/net/ethernet/airoha/Kconfig
+@@ -16,5 +16,6 @@ config NET_AIROHA
+ 	tristate "Airoha SoC Gigabit Ethernet support"
+ 	depends on NET_DSA || !NET_DSA
++	select MFD_SYSCON
+ 	select NET_AIROHA_NPU
+ 	select PAGE_POOL
+ 	select PHYLINK
+--- a/drivers/net/ethernet/airoha/airoha_eth.c
++++ b/drivers/net/ethernet/airoha/airoha_eth.c
+@@ -5,4 +5,5 @@
+  */
++#include <linux/mfd/syscon.h>
+ #include <linux/of.h>
+ #include <linux/of_net.h>
+ #include <linux/of_reserved_mem.h>
+@@ -12,4 +13,5 @@
+ #include <linux/platform_device.h>
++#include <linux/regmap.h>
+ #include <linux/tcp.h>
+ #include <linux/if_vlan.h>
+ #include <linux/pcs/pcs.h>
+@@ -27,6 +29,14 @@
+ #define AIROHA_QDMA_IRQ_ENTRY_INVALID	U32_MAX
+ #define AIROHA_QDMA_IRQ_ENTRY_RETRIES	16
+ 
++#define AN7563_GDMP_DATA_SEL		0x74
++#define AN7563_GDMP_DATA_SEL_MASK	GENMASK(1, 0)
++#define AN7563_GDMP_DATA_SEL_FE		3
++#define AN7563_SCU_SSR3			0x94
++#define AN7563_SCU_SSR3_GDMP_CLK_SEL	BIT(30)
++#define AN7563_PSE_FQ_LIMIT		0x500
++#define AN7563_PSE_SHARE_USED_THD	0x01e001f4
++
+ u32 airoha_rr(void __iomem *base, u32 offset)
+ {
+ 	return readl(base + offset);
+@@ -579,9 +589,37 @@ static void airoha_dev_lro_enable(struct
+ 	}
+ }
+ 
++static int airoha_an7563_pse_init(struct airoha_eth *eth)
++{
++	int err;
++
++	if (eth->soc->version != 0x7563)
++		return 0;
++
++	err = regmap_update_bits(eth->gdmp, AN7563_GDMP_DATA_SEL,
++				 AN7563_GDMP_DATA_SEL_MASK,
++				 AN7563_GDMP_DATA_SEL_FE);
++	if (err)
++		return err;
++
++	err = regmap_clear_bits(eth->scu, AN7563_SCU_SSR3,
++				AN7563_SCU_SSR3_GDMP_CLK_SEL);
++	if (err)
++		return err;
++
++	airoha_fe_wr(eth, PSE_FQ_CFG, AN7563_PSE_FQ_LIMIT);
++
++	return 0;
++}
++
+ static int airoha_fe_init(struct airoha_eth *eth)
+ {
+ 	u32 reset_mask = FE_RST_CORE_MASK;
++	int err;
++
++	err = airoha_an7563_pse_init(eth);
++	if (err)
++		return err;
+ 
+ 	airoha_fe_maccr_init(eth);
+ 
+@@ -617,6 +655,10 @@ static int airoha_fe_init(struct airoha_
+ 	airoha_fe_wr(eth, REG_FE_RST_GLO_CFG, reset_mask);
+ 	usleep_range(1000, 2000);
+ 
++	if (eth->soc->version == 0x7563)
++		airoha_fe_wr(eth, REG_PSE_SHARE_USED_THD,
++			     AN7563_PSE_SHARE_USED_THD);
++
+ 	/* connect RxRing1 and RxRing15 to PSE Port0 OQ-1
+ 	 * connect other rings to PSE Port0 OQ-0
+ 	 */
+@@ -4090,6 +4132,19 @@ static int airoha_probe(struct platform_
+ 
+ 	eth->dev = &pdev->dev;
+ 
++	if (eth->soc->version == 0x7563) {
++		np = pdev->dev.of_node;
++		eth->scu = syscon_regmap_lookup_by_phandle(np, "airoha,scu");
++		if (IS_ERR(eth->scu))
++			return dev_err_probe(eth->dev, PTR_ERR(eth->scu),
++					     "failed to get SCU regmap\n");
++
++		eth->gdmp = syscon_regmap_lookup_by_phandle(np, "airoha,gdmp");
++		if (IS_ERR(eth->gdmp))
++			return dev_err_probe(eth->dev, PTR_ERR(eth->gdmp),
++					     "failed to get GDMP regmap\n");
++	}
++
+ 	err = dma_set_mask_and_coherent(eth->dev, DMA_BIT_MASK(32));
+ 	if (err) {
+ 		dev_err(eth->dev, "failed configuring DMA mask\n");
+--- a/drivers/net/ethernet/airoha/airoha_eth.h
++++ b/drivers/net/ethernet/airoha/airoha_eth.h
+@@ -638,6 +638,8 @@ struct airoha_eth {
+ 	const struct airoha_eth_soc_data *soc;
+ 
+ 	unsigned long state;
++	struct regmap *scu;
++	struct regmap *gdmp;
+ 	void __iomem *fe_regs;
+ 
+ 	struct airoha_npu __rcu *npu;

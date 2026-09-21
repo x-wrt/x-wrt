@@ -125,6 +125,11 @@
 			#reset-cells = <1>;
 		};
 
+		gdmp: syscon@1fbf9000 {
+			compatible = "airoha,an7563-gdmp", "syscon";
+			reg = <0x1fbf9000 0x84>;
+		};
+
 		system-controller@1fbf0200 {
 			compatible = "airoha,en7581-gpio-sysctl", "syscon",
 				     "simple-mfd";
@@ -265,6 +270,8 @@
 				 <&scu EN7581_FE_PDMA_RST>,
 				 <&scu EN7581_FE_QDMA_RST>;
 			reset-names = "fe", "pdma", "qdma";
+			airoha,gdmp = <&gdmp>;
+			airoha,scu = <&scu>;
 			interrupts = <GIC_SPI 37 IRQ_TYPE_LEVEL_HIGH>,
 				     <GIC_SPI 55 IRQ_TYPE_LEVEL_HIGH>,
 				     <GIC_SPI 56 IRQ_TYPE_LEVEL_HIGH>,
