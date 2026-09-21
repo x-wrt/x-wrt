@@ -1,0 +1,33 @@
+From: PTPT52.AI <ptpt52@gmail.com>
+Date: Sun, 20 Sep 2026 12:00:00 +0800
+Subject: [PATCH] net: airoha: disable AN7563 QDMA TX accounting
+
+The AN7563 vendor build enables the EN7523/new QDMA TX message format
+and ACCOUNT_METER_V2.  In this configuration message word 1 uses the
+same forwarding-port and native-buffer-queue fields as EN7581.
+
+For ordinary packets its ACCOUNT_METER_V2 transmit path starts with
+0x7f for each unused accounting ID.  Assignment to the six-bit group-0
+and five-bit group-1 fields truncates those values to their documented
+disabled values, 0x3f and 0x1f.  Together with forwarding port 1 and
+meter 0x7f this produces message word 1 value 0x7f1007ff.  Leave the
+common message layout intact and select the disabled accounting groups
+on AN7563.
+
+Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
+---
+ drivers/net/ethernet/airoha/airoha_eth.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+--- a/drivers/net/ethernet/airoha/airoha_eth.c
++++ b/drivers/net/ethernet/airoha/airoha_eth.c
+@@ -2657,6 +2657,9 @@ static netdev_tx_t airoha_dev_xmit(struc
+ 	msg1 = FIELD_PREP(QDMA_ETH_TXMSG_NBOQ_MASK, dev->nbq) |
+ 	       FIELD_PREP(QDMA_ETH_TXMSG_FPORT_MASK, fport) |
+ 	       FIELD_PREP(QDMA_ETH_TXMSG_METER_MASK, 0x7f);
++	if (dev->eth->soc->version == 0x7563)
++		msg1 |= QDMA_ETH_TXMSG_ACNT_G1_MASK |
++			QDMA_ETH_TXMSG_ACNT_G0_MASK;
+ 
+ 	q = &qdma->q_tx[tx_ring];
+ 	if (WARN_ON_ONCE(!q->ndesc))
