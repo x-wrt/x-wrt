@@ -1,0 +1,227 @@
+From: PTPT52.AI <ptpt52@gmail.com>
+Date: Sun, 20 Sep 2026 19:30:00 +0800
+Subject: [PATCH] net: airoha: enable AN7563 RX scatter only for jumbo frames
+
+The AN7563 vendor driver supplies each normal RX descriptor with a 2K
+skb and leaves the per-ring RX scatter register disabled.  The upstream
+driver enables scatter unconditionally on normal RX rings instead.  On
+AN7563 this makes hardware split frames at 1024 bytes, and continuation
+descriptors do not carry valid source-port metadata.  As a result, even
+standard Ethernet frames larger than 1024 bytes are discarded while
+resolving their net_device.
+
+Follow the vendor configuration for normal traffic: initialize AN7563
+RX rings with scatter disabled while a frame, including its VLAN Ethernet
+header, fits in one RX descriptor.  Enable scatter on all normal rings
+only while an active net_device sharing the QDMA requires a larger MTU.
+Keep the existing always-enabled behavior on EN7581 and AN7583.
+
+When jumbo MTU requires scatter, resolve the net_device and retain the
+DSA/PPE metadata from the first descriptor, then reuse it while appending
+continuation fragments.  This also allows scatter state to be changed as
+devices are opened, stopped, or have their MTU changed.
+
+Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
+---
+--- a/drivers/net/ethernet/airoha/airoha_eth.c
++++ b/drivers/net/ethernet/airoha/airoha_eth.c
+@@ -967,7 +967,7 @@ static int airoha_qdma_rx_process(struct
+ 	while (done < budget) {
+ 		struct airoha_queue_entry *e = &q->entry[q->tail];
+ 		struct airoha_qdma_desc *desc = &q->desc[q->tail];
+-		u32 hash, reason, msg1, desc_ctrl;
++		u32 hash, msg0, msg1, reason, desc_ctrl;
+ 		struct airoha_gdm_dev *dev;
+ 		struct net_device *netdev;
+ 		int data_len, len;
+@@ -991,19 +991,25 @@ static int airoha_qdma_rx_process(struct
+ 		if (!len || data_len < len)
+ 			goto free_frag;
+ 
+-		dev = airoha_qdma_get_gdm_dev(eth, desc);
+-		if (IS_ERR(dev))
+-			goto free_frag;
+-
+-		netdev = netdev_from_priv(dev);
+ 		if (!q->skb) { /* first buffer */
++			dev = airoha_qdma_get_gdm_dev(eth, desc);
++			if (IS_ERR(dev))
++				goto free_frag;
++
++			netdev = netdev_from_priv(dev);
+ 			q->skb = airoha_qdma_build_rx_skb(q, desc, e, netdev);
+ 			if (!q->skb)
+ 				goto free_frag;
++
++			q->rx_msg0 = le32_to_cpu(READ_ONCE(desc->msg0));
++			q->rx_msg1 = le32_to_cpu(READ_ONCE(desc->msg1));
+ 		} else { /* scattered frame */
+ 			struct skb_shared_info *shinfo = skb_shinfo(q->skb);
+ 			int nr_frags = shinfo->nr_frags;
+ 
++			netdev = q->skb->dev;
++			dev = netdev_priv(netdev);
++
+ 			if (nr_frags >= ARRAY_SIZE(shinfo->frags))
+ 				goto free_frag;
+ 
+@@ -1023,8 +1029,10 @@ static int airoha_qdma_rx_process(struct
+ 			 * DMA descriptor. Report DSA tag to the DSA stack
+ 			 * via skb dst info.
+ 			 */
+-			u32 msg0 = le32_to_cpu(READ_ONCE(desc->msg0));
+-			u32 sptag = FIELD_GET(QDMA_ETH_RXMSG_SPTAG, msg0);
++			u32 sptag;
++
++			msg0 = q->rx_msg0;
++			sptag = FIELD_GET(QDMA_ETH_RXMSG_SPTAG, msg0);
+ 
+ 			if (sptag < ARRAY_SIZE(port->dsa_meta) &&
+ 			    port->dsa_meta[sptag])
+@@ -1032,7 +1040,7 @@ static int airoha_qdma_rx_process(struct
+ 						  &port->dsa_meta[sptag]->dst);
+ 		}
+ 
+-		msg1 = le32_to_cpu(READ_ONCE(desc->msg1));
++		msg1 = q->rx_msg1;
+ 		hash = FIELD_GET(AIROHA_RXD4_FOE_ENTRY, msg1);
+ 		if (hash != AIROHA_RXD4_FOE_ENTRY)
+ 			skb_set_hash(q->skb, jhash_1word(hash, 0),
+@@ -1141,7 +1149,7 @@ static int airoha_qdma_init_rx_queue(str
+ 			FIELD_PREP(RX_RING_THR_MASK, thr));
+ 	airoha_qdma_rmw(qdma, REG_RX_DMA_IDX(qid), RX_RING_DMA_IDX_MASK,
+ 			FIELD_PREP(RX_RING_DMA_IDX_MASK, q->head));
+-	if (lro_q)
++	if (lro_q || qdma->eth->soc->rx_sg_by_mtu)
+ 		airoha_qdma_clear(qdma, REG_RX_SCATTER_CFG(qid),
+ 				  RX_RING_SG_EN_MASK);
+ 	else
+@@ -2201,6 +2209,62 @@ static void airoha_qdma_stop(struct airo
+ 	}
+ }
+ 
++static bool airoha_qdma_needs_rx_sg(struct airoha_qdma *qdma,
++				    struct net_device *netdev,
++				    bool netdev_active)
++{
++	struct airoha_eth *eth = qdma->eth;
++	int i, j;
++
++	for (i = 0; i < ARRAY_SIZE(eth->ports); i++) {
++		struct airoha_gdm_port *port = eth->ports[i];
++
++		if (!port)
++			continue;
++
++		for (j = 0; j < ARRAY_SIZE(port->devs); j++) {
++			struct airoha_gdm_dev *dev = port->devs[j];
++			struct net_device *iter;
++			bool active;
++
++			if (!dev || rcu_access_pointer(dev->qdma) != qdma)
++				continue;
++
++			iter = netdev_from_priv(dev);
++			active = iter == netdev ? netdev_active
++						: netif_running(iter);
++			if (active &&
++			    READ_ONCE(iter->mtu) > AIROHA_MAX_SINGLE_RX_MTU)
++				return true;
++		}
++	}
++
++	return false;
++}
++
++static void airoha_qdma_update_rx_sg(struct airoha_qdma *qdma,
++				     struct net_device *netdev,
++				     bool netdev_active)
++{
++	bool enable;
++	int i;
++
++	if (!qdma->eth->soc->rx_sg_by_mtu)
++		return;
++
++	enable = airoha_qdma_needs_rx_sg(qdma, netdev, netdev_active);
++	for (i = 0; i < qdma->eth->soc->num_rx_ring; i++) {
++		struct airoha_queue *q = &qdma->q_rx[i];
++
++		if (!q->ndesc || airoha_qdma_is_lro_queue(q))
++			continue;
++
++		airoha_qdma_rmw(qdma, REG_RX_SCATTER_CFG(i),
++				RX_RING_SG_EN_MASK,
++				enable ? RX_RING_SG_EN_MASK : 0);
++	}
++}
++
+ static void airoha_dev_set_mtu(struct net_device *netdev)
+ {
+ 	struct airoha_gdm_dev *dev = netdev_priv(netdev);
+@@ -2258,6 +2322,7 @@ static int airoha_dev_open(struct net_de
+ 	airoha_dev_set_mtu(netdev);
+ 	port->users++;
+ 
++	airoha_qdma_update_rx_sg(qdma, netdev, true);
+ 	airoha_qdma_start(qdma);
+ 
+ 	if (!airoha_is_lan_gdm_dev(dev) &&
+@@ -2294,6 +2359,7 @@ static int airoha_dev_stop(struct net_de
+ 					    REG_GDM_FWD_CFG(port->id),
+ 					    FE_PSE_PORT_DROP);
+ 	airoha_qdma_stop(qdma);
++	airoha_qdma_update_rx_sg(qdma, netdev, false);
+ 	airoha_update_netdev_features(dev);
+ 
+ 	phylink_stop(dev->phylink);
+@@ -2538,10 +2604,12 @@ static int airoha_dev_change_mtu(struct
+ {
+ 	struct airoha_gdm_dev *dev = netdev_priv(netdev);
+ 	struct airoha_gdm_port *port = dev->port;
++	struct airoha_qdma *qdma = airoha_qdma_deref(dev);
+ 
+ 	WRITE_ONCE(netdev->mtu, mtu);
+ 	if (port->users)
+ 		airoha_dev_set_mtu(netdev);
++	airoha_qdma_update_rx_sg(qdma, netdev, netif_running(netdev));
+ 
+ 	return 0;
+ }
+@@ -4516,6 +4584,7 @@ static const struct airoha_eth_soc_data a
+ 	.rx_irq_bank1_mask = GENMASK(14, 10),
+ 	.has_rx_2b_offset = true,
+ 	.lmgr_dram_mode = true,
++	.rx_sg_by_mtu = true,
+ 	.ops = {
+ 		.get_sport = airoha_en7581_get_sport,
+ 		.get_dev_from_sport = airoha_en7581_get_dev_from_sport,
+--- a/drivers/net/ethernet/airoha/airoha_eth.h
++++ b/drivers/net/ethernet/airoha/airoha_eth.h
+@@ -36,6 +36,9 @@
+ #define AIROHA_NUM_TX_IRQ		2
+ #define AIROHA_RX_HEADROOM		(NET_SKB_PAD + NET_IP_ALIGN)
+ #define AIROHA_RX_LEN(_n)		((_n) - AIROHA_RX_HEADROOM)
++#define AIROHA_MAX_SINGLE_RX_MTU		\
++	(SKB_WITH_OVERHEAD(AIROHA_RX_LEN(AIROHA_MAX_PACKET_SIZE)) - \
++	 VLAN_ETH_HLEN)
+ #define HW_DSCP_NUM			2048
+ #define IRQ_QUEUE_LEN(_n)		((_n) ? 1024 : 2048)
+ #define TX_DSCP_NUM			1024
+@@ -212,6 +215,8 @@ struct airoha_queue {
+ 	struct napi_struct napi;
+ 	struct page_pool *page_pool;
+ 	struct sk_buff *skb;
++	u32 rx_msg0;
++	u32 rx_msg1;
+ 
+ 	struct list_head tx_list;
+ };
+@@ -618,6 +623,7 @@ struct airoha_eth_soc_data {
+ 	u32 rx_irq_bank1_mask;
+ 	bool has_rx_2b_offset;
+ 	bool lmgr_dram_mode;
++	bool rx_sg_by_mtu;
+ 	bool has_lro;
+ 	bool has_ppe_stats;
+ 	struct {
