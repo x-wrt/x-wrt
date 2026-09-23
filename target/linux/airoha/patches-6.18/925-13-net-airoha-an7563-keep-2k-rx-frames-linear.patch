@@ -1,0 +1,100 @@
+From: PTPT52.AI <ptpt52@gmail.com>
+Date: Wed, 23 Sep 2026 16:10:00 +0800
+Subject: [PATCH] net: airoha: an7563: keep 2K RX frames linear
+
+The AN7563 vendor QDMA RX path allocates 2K skb buffers and keeps normal
+RX scatter disabled.  The upstream page-pool build_skb() layout needs
+space for skb_shared_info at the end of each RX allocation, so a 2048-byte
+allocation only leaves about 2026 bytes of MTU payload before the driver
+has to enable RX scatter.
+
+That is too early for AN7563.  At MTU 2027 the hardware starts splitting
+regular TCP data packets into scatter descriptors, but the vendor path
+would still receive the frame linearly in a 2K buffer.
+
+Use a larger software backing allocation for AN7563 normal RX rings so a
+full 2K DMA frame still fits in one build_skb() buffer, keep the hardware
+RX descriptor length capped to the vendor-sized 2K packet buffer, and only
+enable RX scatter once the LAN-side frame no longer fits in that buffer.
+The AN7563 switch path can consume a 4-byte MTK special tag and 4-byte FCS
+inside the 2K descriptor budget; the observed linear LAN MTU limit is 2026.
+
+Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
+---
+--- a/drivers/net/ethernet/airoha/airoha_eth.c
++++ b/drivers/net/ethernet/airoha/airoha_eth.c
+@@ -730,6 +730,17 @@
+ 	return airoha_fe_mc_vlan_clear(eth);
+ }
+ 
++static u16 airoha_qdma_rx_dma_len(struct airoha_queue *q)
++{
++	struct airoha_qdma *qdma = q->qdma;
++
++	if (qdma->eth->soc->version == 0x7563 &&
++	    !airoha_qdma_is_lro_queue(q))
++		return AIROHA_AN7563_RX_DMA_LEN;
++
++	return SKB_WITH_OVERHEAD(AIROHA_RX_LEN(q->buf_size));
++}
++
+ static int airoha_qdma_fill_rx_queue(struct airoha_queue *q)
+ {
+ 	struct airoha_qdma *qdma = q->qdma;
+@@ -756,7 +767,7 @@
+ 		offset += AIROHA_RX_HEADROOM;
+ 		e->buf = page_address(page) + offset;
+ 		e->dma_addr = page_pool_get_dma_addr(page) + offset;
+-		e->dma_len = SKB_WITH_OVERHEAD(AIROHA_RX_LEN(q->buf_size));
++		e->dma_len = airoha_qdma_rx_dma_len(q);
+ 		dma_addr = e->dma_addr;
+ 		if (qdma->eth->soc->has_rx_2b_offset)
+ 			dma_addr -= NET_IP_ALIGN;
+@@ -1140,6 +1151,8 @@
+ 	}
+ 
+ 	q->buf_size = lro_q ? pp_params.max_len : pp_params.max_len / 2;
++	if (!lro_q && qdma->eth->soc->version == 0x7563)
++		q->buf_size = AIROHA_AN7563_RX_BUF_SIZE;
+ 	q->ndesc = ndesc;
+ 	netif_napi_add(eth->napi_dev, &q->napi, airoha_qdma_rx_napi_poll);
+ 
+@@ -2241,6 +2254,14 @@
+ 	}
+ }
+ 
++static int airoha_qdma_max_single_rx_mtu(struct airoha_qdma *qdma)
++{
++	if (qdma->eth->soc->version == 0x7563)
++		return AIROHA_AN7563_MAX_SINGLE_RX_MTU;
++
++	return AIROHA_MAX_SINGLE_RX_MTU;
++}
++
+ static bool airoha_qdma_needs_rx_sg(struct airoha_qdma *qdma,
+ 				    struct net_device *netdev,
+ 				    bool netdev_active)
+@@ -2266,7 +2287,7 @@
+ 			active = iter == netdev ? netdev_active
+ 						: netif_running(iter);
+ 			if (active &&
+-			    READ_ONCE(iter->mtu) > AIROHA_MAX_SINGLE_RX_MTU)
++			    READ_ONCE(iter->mtu) > airoha_qdma_max_single_rx_mtu(qdma))
+ 				return true;
+ 		}
+ 	}
+--- a/drivers/net/ethernet/airoha/airoha_eth.h
++++ b/drivers/net/ethernet/airoha/airoha_eth.h
+@@ -39,6 +39,12 @@
+ #define AIROHA_MAX_SINGLE_RX_MTU		\
+ 	(SKB_WITH_OVERHEAD(AIROHA_RX_LEN(AIROHA_MAX_PACKET_SIZE)) - \
+ 	 VLAN_ETH_HLEN)
++#define AIROHA_AN7563_RX_BUF_SIZE		\
++	(SKB_DATA_ALIGN(AIROHA_RX_HEADROOM + AIROHA_MAX_PACKET_SIZE) + \
++	 SKB_DATA_ALIGN(sizeof(struct skb_shared_info)))
++#define AIROHA_AN7563_RX_DMA_LEN		AIROHA_MAX_PACKET_SIZE
++#define AIROHA_AN7563_MAX_SINGLE_RX_MTU	\
++	(AIROHA_MAX_PACKET_SIZE - ETH_HLEN - MTK_HDR_LEN - ETH_FCS_LEN)
+ #define HW_DSCP_NUM			2048
+ #define IRQ_QUEUE_LEN(_n)		((_n) ? 1024 : 2048)
+ #define TX_DSCP_NUM			1024
