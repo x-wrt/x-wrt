@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+
+/* NPU V2 aliases host DRAM above the first GiB. */
+/ {
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		npu_dma: npu-dma-pool {
+			compatible = "restricted-dma-pool";
+			size = <0x0 0x100000>;
+			alignment = <0x0 0x40000>;
+			alloc-ranges = <0x0 0x80000000 0x0 0x40000000>;
+		};
+
+		/* Coherent rings can exceed SWIOTLB's 256 KiB allocation limit. */
+		npu_coherent: npu-coherent-pool {
+			compatible = "shared-dma-pool";
+			no-map;
+			size = <0x0 0x100000>;
+			alignment = <0x0 0x100000>;
+			alloc-ranges = <0x0 0x80000000 0x0 0x40000000>;
+		};
+	};
+};
