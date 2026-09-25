@@ -19,6 +19,13 @@ define Build/an7563-bl2-bl31-uboot
   truncate -s $$((0x80000)) $@
 endef
 
+define Build/tenda-mkdualimageheader
+	printf '%b' "\x47\x6f\x64\x31\x00\x00\x00\x00" >"$@.new"
+	libdeflate-gzip -c "$@" | tail -c8 >>"$@.new"
+	cat "$@" >>"$@.new"
+	mv "$@.new" "$@"
+endef
+
 define Device/airoha_an7563-evb
   DEVICE_VENDOR := Airoha
   DEVICE_MODEL := AN7563 Evaluation Board
@@ -29,3 +36,21 @@ define Device/airoha_an7563-evb
   ARTIFACTS := preloader.bin bl2-bl31-uboot.bin
 endef
 TARGET_DEVICES += airoha_an7563-evb
+
+define Device/tenda_be6l-pro
+  DEVICE_VENDOR := Tenda
+  DEVICE_MODEL := BE6L Pro
+  DEVICE_DTS := an7563-tenda-be6l-pro
+  DEVICE_PACKAGES := kmod-mt7992-23-firmware kmod-phy-airoha-en8811h \
+	airoha-en8811h-firmware
+  KERNEL_LOADADDR := 0x80088000
+  KERNEL_SIZE := 6144k
+  KERNEL_INITRAMFS := kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 64k
+  BLOCKSIZE := 128k
+  PAGESIZE := 2048
+  UBINIZE_OPTS := -E 5
+  IMAGE/sysupgrade.bin := append-kernel | tenda-mkdualimageheader | \
+	check-size $$$$(KERNEL_SIZE) | sysupgrade-tar kernel=$$$$@ | append-metadata
+endef
+TARGET_DEVICES += tenda_be6l-pro
