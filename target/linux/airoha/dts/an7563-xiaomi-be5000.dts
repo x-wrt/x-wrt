@@ -1,0 +1,281 @@
+// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+/dts-v1/;
+
+/* Bootloader installs ATF here (BL31 resident region, ~256 KiB). */
+/memreserve/ 0x80000000 0x88000;
+
+#include <dt-bindings/leds/common.h>
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+#include "an7563.dtsi"
+
+/ {
+	model = "Xiaomi BE5000";
+	compatible = "xiaomi,be5000", "airoha,an7563", "airoha,en7581";
+
+	aliases {
+		serial0 = &uart1;
+		led-boot = &led_status_orange;
+		led-failsafe = &led_status_orange;
+		led-running = &led_status_blue;
+		led-upgrade = &led_status_orange;
+		label-mac-device = &gdm1;
+	};
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+		bootargs-override = "console=ttyS0,115200n8 earlycon ubi.mtd=ubi";
+	};
+
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x80000000 0x20000000>;
+	};
+
+	gpio-keys {
+		compatible = "gpio-keys";
+
+		reset {
+			label = "reset";
+			linux,code = <KEY_RESTART>;
+			gpios = <&an7563_pinctrl 5 GPIO_ACTIVE_LOW>;
+			debounce-interval = <10>;
+		};
+
+		mesh {
+			label = "mesh";
+			linux,code = <BTN_9>;
+			gpios = <&an7563_pinctrl 12 GPIO_ACTIVE_LOW>;
+			debounce-interval = <10>;
+		};
+	};
+
+	pwm-leds {
+		compatible = "pwm-leds";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pwm_gpio1_pins &pwm_gpio4_pins>;
+
+		led_status_blue: led-blue {
+			color = <LED_COLOR_ID_BLUE>;
+			function = LED_FUNCTION_STATUS;
+			pwms = <&an7563_pwm 4 4000000 0>;
+			max-brightness = <255>;
+		};
+
+		led_status_orange: led-orange {
+			color = <LED_COLOR_ID_ORANGE>;
+			function = LED_FUNCTION_STATUS;
+			pwms = <&an7563_pwm 1 4000000 0>;
+			max-brightness = <255>;
+		};
+	};
+};
+
+&an7563_pinctrl {
+	wifi-reset-hog {
+		gpio-hog;
+		gpios = <6 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "wifi-reset";
+	};
+
+	mdio_pins: mdio-pins {
+		mux {
+			function = "mdio";
+			groups = "mdio";
+		};
+	};
+
+	pcie0_rst_pins: pcie0-rst-pins {
+		conf {
+			pins = "pcie_reset0";
+			drive-open-drain = <1>;
+		};
+	};
+
+	pcie1_rst_pins: pcie1-rst-pins {
+		conf {
+			pins = "pcie_reset1";
+			drive-open-drain = <1>;
+		};
+	};
+
+	pwm_gpio1_pins: pwm-gpio1-pins {
+		function = "pwm";
+		pins = "gpio1";
+		output-enable;
+	};
+
+	pwm_gpio4_pins: pwm-gpio4-pins {
+		function = "pwm";
+		pins = "gpio4";
+		output-enable;
+	};
+};
+
+&eth {
+	status = "okay";
+};
+
+&gdm1 {
+	status = "okay";
+	nvmem-cells = <&macaddr_factory_1ffff4>;
+	nvmem-cell-names = "mac-address";
+};
+
+&gdm2 {
+	phy-mode = "2500base-x";
+	phy-handle = <&phy15>;
+	openwrt,netdev-name = "wan";
+	status = "okay";
+
+	nvmem-cells = <&macaddr_factory_1ffffa>;
+	nvmem-cell-names = "mac-address";
+};
+
+&pon_pcs {
+	status = "okay";
+};
+
+&switch {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&mdio_pins>;
+};
+
+&gsw_port1 {
+	label = "lan3";
+	status = "okay";
+};
+
+&gsw_port2 {
+	label = "lan2";
+	status = "okay";
+};
+
+&gsw_port3 {
+	label = "lan1";
+	status = "okay";
+};
+
+&mdio {
+	phy15: ethernet-phy@f {
+		compatible = "ethernet-phy-ieee802.3-c22";
+		reg = <15>;
+	};
+};
+
+&pcie0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pcie0_rst_pins>;
+	status = "okay";
+
+	pcie@0,0 {
+		reg = <0x0000 0 0 0 0>;
+		device_type = "pci";
+		#address-cells = <3>;
+		#size-cells = <2>;
+		ranges;
+
+		wifi@0,0 {
+			compatible = "mediatek,mt76";
+			reg = <0x0000 0 0 0 0>;
+			nvmem-cells = <&eeprom_factory_0>;
+			nvmem-cell-names = "eeprom";
+		};
+	};
+};
+
+&pcie1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pcie1_rst_pins>;
+	status = "okay";
+};
+
+&snfi {
+	status = "okay";
+};
+
+&i2c0 {
+	status = "okay";
+};
+
+&spi_nand {
+	airoha,bmt;
+
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		partition@0 {
+			label = "Bootloader";
+			reg = <0x00000000 0x00080000>;
+			read-only;
+		};
+
+		partition@80000 {
+			label = "u-boot-env";
+			reg = <0x00080000 0x00080000>;
+		};
+
+		partition@100000 {
+			label = "bdata";
+			reg = <0x00100000 0x00080000>;
+			read-only;
+		};
+
+		partition@180000 {
+			label = "Factory";
+			reg = <0x00180000 0x00400000>;
+			read-only;
+
+			nvmem-layout {
+				compatible = "fixed-layout";
+				#address-cells = <1>;
+				#size-cells = <1>;
+
+				eeprom_factory_0: eeprom@0 {
+					reg = <0x0 0x1e00>;
+				};
+
+				macaddr_factory_1ffff4: macaddr@1ffff4 {
+					reg = <0x1ffff4 0x6>;
+				};
+
+				macaddr_factory_1ffffa: macaddr@1ffffa {
+					reg = <0x1ffffa 0x6>;
+				};
+			};
+		};
+
+		partition@580000 {
+			label = "crash";
+			reg = <0x00580000 0x00040000>;
+			read-only;
+		};
+
+		partition@5c0000 {
+			label = "crash_log";
+			reg = <0x005c0000 0x00040000>;
+			read-only;
+		};
+
+		partition@600000 {
+			label = "kernel";
+			reg = <0x00600000 0x00600000>;
+		};
+
+		/* Remaining tclinux, tclinux_slave and overlay. */
+		partition@c00000 {
+			label = "ubi";
+			reg = <0x00c00000 0x06200000>;
+		};
+
+		partition@6e00000 {
+			label = "art";
+			reg = <0x06e00000 0x00400000>;
+			read-only;
+		};
+	};
+};

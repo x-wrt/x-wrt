@@ -4,7 +4,8 @@ REQUIRE_IMAGE_METADATA=1
 
 platform_check_image() {
 	case "$(board_name)" in
-	tenda,be6l-pro)
+	tenda,be6l-pro|\
+	xiaomi,be5000)
 		nand_do_platform_check "$(board_name)" "$1"
 		;;
 	*)
@@ -15,7 +16,8 @@ platform_check_image() {
 
 platform_do_upgrade() {
 	case "$(board_name)" in
-	tenda,be6l-pro)
+	tenda,be6l-pro|\
+	xiaomi,be5000)
 		CI_KERNPART="kernel"
 		CI_UBIPART="ubi"
 		nand_do_upgrade "$1"
