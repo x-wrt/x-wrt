@@ -1,0 +1,23 @@
+From: X-WRT <dev@x-wrt.com>
+Date: Sun, 20 Sep 2026 00:00:00 +0800
+Subject: [PATCH] dt-bindings: PCI: mediatek: add AN7563 compatible
+
+AN7563 uses the MediaTek Gen2 PCIe controller programming model with
+additional SoC-specific root-complex and coherency setup.  Add a dedicated
+compatible so the driver can select that setup without changing MT7622.
+
+Signed-off-by: X-WRT <dev@x-wrt.com>
+---
+ Documentation/devicetree/bindings/pci/mediatek-pcie.txt | 1 +
+ 1 file changed, 1 insertion(+)
+
+--- a/Documentation/devicetree/bindings/pci/mediatek-pcie.txt
++++ b/Documentation/devicetree/bindings/pci/mediatek-pcie.txt
+@@ -2,6 +2,7 @@ MediaTek Gen2 PCIe controller
+ 
+ Required properties:
+ - compatible: Should contain one of the following strings:
++	"airoha,an7563-pcie"
+ 	"mediatek,mt2701-pcie"
+ 	"mediatek,mt2712-pcie"
+ 	"mediatek,mt7622-pcie"
