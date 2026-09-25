@@ -1,0 +1,45 @@
+From: X-WRT <dev@x-wrt.com>
+Date: Fri, 25 Sep 2026 12:00:00 +0800
+Subject: [PATCH] net: airoha: fix AN7563 RX skb alignment
+
+AN7563 reserves NET_SKB_PAD plus NET_IP_ALIGN bytes before the RX packet
+so that QDMA's two-byte offset mode can place the Ethernet header at the
+expected address.  The queue entry points at that packet address, not at
+the beginning of the page-pool fragment.
+
+Passing the packet address to napi_build_skb() shifts skb_shared_info by
+34 bytes.  Its dataref field is consequently only two-byte aligned on
+32-bit ARM and skb_clone() raises an alignment exception as soon as a
+received packet is cloned.
+
+Build the skb from the original fragment address and reserve the AN7563
+headroom afterwards, matching the page-pool RX layout used by the Airoha
+driver before the unified EN7523 changes.
+
+Signed-off-by: X-WRT <dev@x-wrt.com>
+---
+ drivers/net/ethernet/airoha/airoha_eth.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+--- a/drivers/net/ethernet/airoha/airoha_eth.c
++++ b/drivers/net/ethernet/airoha/airoha_eth.c
+@@ -2364,10 +2364,16 @@ static struct sk_buff *airoha_qdma_build_rx_skb(struct airoha_queue *q,
+ 		u32 desc_ctrl = le32_to_cpu(READ_ONCE(desc->ctrl));
+ 		u32 len = FIELD_GET(QDMA_DESC_LEN_MASK, desc_ctrl);
+ 
+-		skb = napi_build_skb(e->buf, q->buf_size);
++		if (airoha_is(q->qdma->eth, airoha_an7563))
++			skb = napi_build_skb(e->buf - AIROHA_AN7563_RX_HEADROOM,
++					     q->buf_size);
++		else
++			skb = napi_build_skb(e->buf, q->buf_size);
+ 		if (!skb)
+ 			return NULL;
+ 
++		if (airoha_is(q->qdma->eth, airoha_an7563))
++			skb_reserve(skb, AIROHA_AN7563_RX_HEADROOM);
+ 		__skb_put(skb, len);
+ 		if ((netdev->features & NETIF_F_RXCSUM) &&
+ 		    airoha_qdma_rx_checksum_ok(q->qdma->eth, desc))
+-- 
+2.51.0
