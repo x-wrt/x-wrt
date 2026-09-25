@@ -21,6 +21,24 @@
 	#address-cells = <1>;
 	#size-cells = <1>;
 
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		qdma0_buf: qdma0-buf {
+			no-map;
+			size = <0x01000000>;
+			alignment = <0x00010000>;
+		};
+
+		qdma1_buf: qdma1-buf {
+			no-map;
+			size = <0x01000000>;
+			alignment = <0x00010000>;
+		};
+	};
+
 	psci {
 		compatible = "arm,psci-0.2";
 		method = "smc";
@@ -259,12 +277,14 @@
 			compatible = "airoha,an7563-eth";
 			reg = <0x1fb50000 0x2600>,
 			      <0x1fb54000 0x2000>,
-			      <0x1fb56000 0x2000>;
-			reg-names = "fe", "qdma0", "qdma1";
+			      <0x1fb56000 0x2000>,
+			      <0x1fbf9000 0x84>;
+			reg-names = "fe", "qdma0", "qdma1", "gdmp";
 			resets = <&scu EN7581_FE_RST>,
 				 <&scu EN7581_FE_PDMA_RST>,
 				 <&scu EN7581_FE_QDMA_RST>;
 			reset-names = "fe", "pdma", "qdma";
+			airoha,scu = <&scu>;
 			interrupts = <GIC_SPI 37 IRQ_TYPE_LEVEL_HIGH>,
 				     <GIC_SPI 55 IRQ_TYPE_LEVEL_HIGH>,
 				     <GIC_SPI 56 IRQ_TYPE_LEVEL_HIGH>,
@@ -275,6 +295,8 @@
 				     <GIC_SPI 60 IRQ_TYPE_LEVEL_HIGH>,
 				     <GIC_SPI 49 IRQ_TYPE_LEVEL_HIGH>,
 				     <GIC_SPI 64 IRQ_TYPE_LEVEL_HIGH>;
+			memory-region = <&qdma0_buf>, <&qdma1_buf>;
+			memory-region-names = "qdma0-buf", "qdma1-buf";
 			#address-cells = <1>;
 			#size-cells = <0>;
 			status = "disabled";
