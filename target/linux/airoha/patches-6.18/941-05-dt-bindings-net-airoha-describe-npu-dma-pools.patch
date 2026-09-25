@@ -1,0 +1,73 @@
+From: Chen Minqiang <ptpt52@gmail.com>
+Subject: [PATCH] dt-bindings: net: airoha: describe NPU DMA pools
+
+Describe restricted streaming and non-reusable coherent DMA pools after
+the firmware and optional WLAN reservations. The separate coherent pool
+supports contiguous allocations larger than SWIOTLB's per-allocation
+limit. Keep the firmware at index zero and accept its existing binary
+name as well as the documented firmware name.
+
+Also describe the AN7583 compatible, firmware names, Block Ack region
+and SCU phandle used by the existing driver.
+
+Signed-off-by: Chen Minqiang <ptpt52@gmail.com>
+---
+--- a/Documentation/devicetree/bindings/net/airoha,en7581-npu.yaml
++++ b/Documentation/devicetree/bindings/net/airoha,en7581-npu.yaml
+@@ -18,6 +18,7 @@ properties:
+   compatible:
+     enum:
+       - airoha,en7581-npu
++      - airoha,an7583-npu
+ 
+   reg:
+     maxItems: 1
+@@ -44,18 +45,44 @@ properties:
+     oneOf:
+       - items:
+           - description: NPU firmware binary region
++          - description: Restricted DMA pool for streaming packet mappings
++          - description: Non-reusable coherent DMA pool for mailbox and rings
++        minItems: 1
+       - items:
+           - description: NPU firmware binary region
+           - description: NPU wlan offload RX buffers region
+           - description: NPU wlan offload TX buffers region
+           - description: NPU wlan offload TX packet identifiers region
++          - description: NPU wlan Block Ack buffers region
++          - description: Restricted DMA pool for streaming packet mappings
++          - description: Non-reusable coherent DMA pool for mailbox and rings
++        minItems: 4
+ 
+   memory-region-names:
++    oneOf:
++      - items:
++          - enum: [firmware, binary]
++          - const: dma
++          - const: coherent
++        minItems: 1
++      - items:
++          - enum: [firmware, binary]
++          - const: pkt
++          - const: tx-pkt
++          - const: tx-bufid
++          - const: ba
++          - const: dma
++          - const: coherent
++        minItems: 4
++
++  firmware-name:
+     items:
+-      - const: firmware
+-      - const: pkt
+-      - const: tx-pkt
+-      - const: tx-bufid
++      - description: Firmware name of RISC-V core
++      - description: Firmware name of data section
++
++  airoha,scu:
++    $ref: /schemas/types.yaml#/definitions/phandle
++    description: System controller used for SRAM and firmware boot configuration
+ 
+ required:
+   - compatible
