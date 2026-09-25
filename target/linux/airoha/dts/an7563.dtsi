@@ -166,6 +166,11 @@
 					groups = "i2c";
 				};
 			};
+
+			an7563_pwm: pwm {
+				compatible = "airoha,en7581-pwm";
+				#pwm-cells = <3>;
+			};
 		};
 
 		uart1: serial@1fbf0000 {

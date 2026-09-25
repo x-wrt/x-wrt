@@ -16,6 +16,19 @@ tenda,be6l-pro)
 		ucidef_set_label_macaddr "$lan_mac"
 	fi
 	;;
+xiaomi,be5000)
+	ucidef_set_interfaces_lan_wan "lan1 lan2 lan3" "wan"
+
+	lan_mac=$(mtd_get_mac_binary Factory 0x1ffff4)
+	wan_mac=$(mtd_get_mac_binary Factory 0x1ffffa)
+	if [ -n "$lan_mac" ]; then
+		ucidef_set_interface_macaddr "lan" "$lan_mac"
+		ucidef_set_label_macaddr "$lan_mac"
+	fi
+	if [ -n "$wan_mac" ]; then
+		ucidef_set_interface_macaddr "wan" "$wan_mac"
+	fi
+	;;
 esac
 
 board_config_flush
