@@ -8,6 +8,7 @@
 #include <dt-bindings/reset/airoha,an7583-reset.h>
 #include <dt-bindings/leds/common.h>
 #include <dt-bindings/thermal/thermal.h>
+#include "an758x-npu-dma.dtsi"
 
 / {
 	interrupt-parent = <&gic>;
@@ -620,8 +621,9 @@
 				     <GIC_SPI 121 IRQ_TYPE_LEVEL_HIGH>,
 				     <GIC_SPI 122 IRQ_TYPE_LEVEL_HIGH>,
 				     <GIC_SPI 123 IRQ_TYPE_LEVEL_HIGH>;
-			memory-region = <&npu_binary>;
-			memory-region-names = "binary";
+			airoha,scu = <&scuclk>;
+			memory-region = <&npu_binary>, <&npu_dma>, <&npu_coherent>;
+			memory-region-names = "binary", "dma", "coherent";
 
 			status = "disabled";
 		};
