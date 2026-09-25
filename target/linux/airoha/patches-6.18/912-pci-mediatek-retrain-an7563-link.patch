@@ -1,0 +1,84 @@
+From: X-WRT <dev@x-wrt.com>
+Date: Sun, 20 Sep 2026 00:00:00 +0800
+Subject: [PATCH] PCI: mediatek: retrain AN7563 links after enumeration
+
+AN7563 initially trains its PCIe link at 2.5 GT/s even when both sides
+support a higher speed.  The vendor driver retrains the link after PCI bus
+enumeration.  Without that step an MT7992 endpoint remains at Gen1 x1 even
+though the AN7563 Root Port targets 5 GT/s.
+
+After the bus has been enumerated, retrain AN7563 links whose current speed
+is lower than the configured target.  Export the PCI core helper because
+the MediaTek host controller is tristate.  A failed retrain is non-fatal
+because the Gen1 link remains usable.
+
+Signed-off-by: X-WRT <dev@x-wrt.com>
+---
+ drivers/pci/controller/pcie-mediatek.c | 38 ++++++++++++++++++++++++++
+ drivers/pci/pci.c                      |  1 +
+ 2 files changed, 39 insertions(+)
+
+--- a/drivers/pci/controller/pcie-mediatek.c
++++ b/drivers/pci/controller/pcie-mediatek.c
+@@ -1124,6 +1124,41 @@ static int mtk_pcie_setup(struct mtk_pci
+ 	return 0;
+ }
+ 
++static void mtk_pcie_retrain_links(struct mtk_pcie *pcie,
++				   struct pci_bus *bus)
++{
++	struct mtk_pcie_port *port;
++	struct pci_dev *pdev;
++	u16 lnkctl2, lnksta;
++	int err;
++
++	list_for_each_entry(port, &pcie->ports, list) {
++		pdev = pci_get_slot(bus, PCI_DEVFN(port->slot, 0));
++		if (!pdev)
++			continue;
++
++		err = pcie_capability_read_word(pdev, PCI_EXP_LNKCTL2,
++						&lnkctl2);
++		if (err)
++			goto put_dev;
++
++		err = pcie_capability_read_word(pdev, PCI_EXP_LNKSTA, &lnksta);
++		if (err)
++			goto put_dev;
++
++		if (FIELD_GET(PCI_EXP_LNKSTA_CLS, lnksta) >=
++		    FIELD_GET(PCI_EXP_LNKCTL2_TLS, lnkctl2))
++			goto put_dev;
++
++		err = pcie_retrain_link(pdev, true);
++		if (err)
++			pci_warn(pdev, "failed to retrain link: %d\n", err);
++
++put_dev:
++		pci_dev_put(pdev);
++	}
++}
++
+ static int mtk_pcie_probe(struct platform_device *pdev)
+ {
+ 	struct device *dev = &pdev->dev;
+@@ -1154,6 +1189,9 @@ static int mtk_pcie_probe(struct platform
+ 	if (err)
+ 		goto put_resources;
+ 
++	if (pcie->soc->is_an7563)
++		mtk_pcie_retrain_links(pcie, host->bus);
++
+ 	return 0;
+ 
+ put_resources:
+--- a/drivers/pci/pci.c
++++ b/drivers/pci/pci.c
+@@ -4550,6 +4550,7 @@
+ 
+ 	return rc;
+ }
++EXPORT_SYMBOL_GPL(pcie_retrain_link);
+ 
+ /**
+  * pcie_wait_for_link_delay - Wait until link is active or inactive
