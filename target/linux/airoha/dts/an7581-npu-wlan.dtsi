@@ -3,7 +3,7 @@
 /*
  * Memory regions used by the NPU Wi-Fi packet offloading only. Boards that
  * do not run an Airoha-offloaded Wi-Fi chip must not reserve them: the NPU
- * needs the binary region alone to run its firmware and to offload flows.
+ * uses the base firmware and DMA pools without these WLAN reservations.
  */
 
 &{/reserved-memory} {
@@ -32,9 +32,19 @@
 	};
 };
 
+&npu_dma {
+	/* Streaming packet mappings share this pool across mt76 RX/TX queues. */
+	size = <0x0 0x4000000>;
+};
+
+&npu_coherent {
+	/* Includes the MT7992's contiguous 512 KiB descriptor allocations. */
+	size = <0x0 0x800000>;
+};
+
 &npu {
 	memory-region = <&npu_binary>, <&npu_pkt>, <&npu_txpkt>,
-			<&npu_txbufid>, <&npu_ba>;
+			<&npu_txbufid>, <&npu_ba>, <&npu_dma>, <&npu_coherent>;
 	memory-region-names = "binary", "pkt", "tx-pkt",
-			      "tx-bufid", "ba";
+			      "tx-bufid", "ba", "dma", "coherent";
 };
