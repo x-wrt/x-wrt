@@ -1,0 +1,36 @@
+From: X-WRT <dev@x-wrt.com>
+Date: Sat, 26 Sep 2026 18:00:00 +0800
+Subject: [PATCH] net: airoha: restore AN7563 TX completion ordering
+
+The AN7563 driver originally recycled entries in its coherent completion
+queue immediately before acknowledging them through the QDMA MMIO index.
+The ordered MMIO write publishes the preceding coherent-memory updates.
+
+The unified completion path adds an explicit DMA write barrier before
+every acknowledgment batch.  Retain that barrier for the newer SoCs,
+but avoid the redundant barrier on AN7563 to restore its original TX
+completion path.
+
+Signed-off-by: X-WRT <dev@x-wrt.com>
+---
+ drivers/net/ethernet/airoha/airoha_eth.c | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+--- a/drivers/net/ethernet/airoha/airoha_eth.c
++++ b/drivers/net/ethernet/airoha/airoha_eth.c
+@@ -2972,8 +2972,11 @@ static int airoha_qdma_tx_napi_poll
+ 	if (done) {
+ 		int i, len = done >> 7;
+ 
+-		/* Publish empty markers before returning entries to hardware. */
+-		dma_wmb();
++		/* Publish empty markers before returning entries to hardware.
++		 * AN7563 relies on the following ordered MMIO acknowledgment.
++		 */
++		if (!airoha_is(qdma->eth, airoha_an7563))
++			dma_wmb();
+ 
+ 		for (i = 0; i < len; i++)
+ 			airoha_qdma_rmw(qdma, REG_IRQ_CLEAR_LEN(id),
+-- 
+2.51.0
