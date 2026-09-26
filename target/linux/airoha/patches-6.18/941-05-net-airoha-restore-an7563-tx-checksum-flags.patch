@@ -1,0 +1,37 @@
+From: X-WRT <dev@x-wrt.com>
+Date: Sun, 27 Sep 2026 09:30:00 +0800
+Subject: [PATCH] net: airoha: restore AN7563 TX checksum flags
+
+The original AN7563 transmit path enables the IPv4, TCP and UDP checksum
+bits together whenever an skb requests partial checksum offload.  The
+unified path instead parses the packet and enables only the matching
+protocol bits.
+
+Restore the original descriptor flags on AN7563, including for TSO skbs,
+while retaining the protocol-specific handling on the other SoCs.
+
+Signed-off-by: X-WRT <dev@x-wrt.com>
+---
+ drivers/net/ethernet/airoha/airoha_eth.c | 11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+--- a/drivers/net/ethernet/airoha/airoha_eth.c
++++ b/drivers/net/ethernet/airoha/airoha_eth.c
+@@ -7419,6 +7419,13 @@ static netdev_tx_t __airoha_dev_xmit
+ 		       FIELD_PREP(QDMA_ETH_TXMSG_SP_TAG_MASK, tag);
+ 	}
+-	if (!xpon_oam)
+-		msg0 |= airoha_qdma_tx_csum_flags(skb);
++	if (!xpon_oam) {
++		if (airoha_is(qdma->eth, airoha_an7563) &&
++		    skb->ip_summed == CHECKSUM_PARTIAL)
++			msg0 |= QDMA_ETH_TXMSG_TCO_MASK |
++				QDMA_ETH_TXMSG_UCO_MASK |
++				QDMA_ETH_TXMSG_ICO_MASK;
++		else
++			msg0 |= airoha_qdma_tx_csum_flags(skb);
++	}
+ 
+ 	/* TSO: fill MSS info in tcp checksum field */
+-- 
+2.51.0
