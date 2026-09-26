@@ -1,0 +1,46 @@
+From: X-WRT <dev@x-wrt.com>
+Date: Sat, 26 Sep 2026 17:20:00 +0800
+Subject: [PATCH] net: airoha: reduce AN7563 TX completion writes
+
+The AN7563 transmit path overwrites every descriptor word before handing
+the descriptor back to QDMA.  Its original completion path therefore
+clears only the two message words after unmapping a completed fragment.
+
+The unified path additionally clears the control, address, next-index and
+third message words for every completion.  Avoid those redundant coherent
+memory writes on AN7563 while retaining the defensive cleanup for the other
+SoCs.
+
+Signed-off-by: X-WRT <dev@x-wrt.com>
+---
+ drivers/net/ethernet/airoha/airoha_eth.c | 17 +++++++++++------
+ 1 file changed, 11 insertions(+), 6 deletions(-)
+
+--- a/drivers/net/ethernet/airoha/airoha_eth.c
++++ b/drivers/net/ethernet/airoha/airoha_eth.c
+@@ -2935,12 +2935,17 @@ static int airoha_qdma_tx_napi_poll
+ 		e->skb = NULL;
+ 		list_add_tail(&e->list, &q->tx_list);
+ 
+-		WRITE_ONCE(desc->ctrl, 0);
+-		WRITE_ONCE(desc->addr, 0);
+-		WRITE_ONCE(desc->data, 0);
+-		WRITE_ONCE(desc->msg0, 0);
+-		WRITE_ONCE(desc->msg1, 0);
+-		WRITE_ONCE(desc->msg2, 0);
++		if (airoha_is(eth, airoha_an7563)) {
++			WRITE_ONCE(desc->msg0, 0);
++			WRITE_ONCE(desc->msg1, 0);
++		} else {
++			WRITE_ONCE(desc->ctrl, 0);
++			WRITE_ONCE(desc->addr, 0);
++			WRITE_ONCE(desc->data, 0);
++			WRITE_ONCE(desc->msg0, 0);
++			WRITE_ONCE(desc->msg1, 0);
++			WRITE_ONCE(desc->msg2, 0);
++		}
+ 		q->queued--;
+ 
+ 		if (skb) {
+-- 
+2.51.0
