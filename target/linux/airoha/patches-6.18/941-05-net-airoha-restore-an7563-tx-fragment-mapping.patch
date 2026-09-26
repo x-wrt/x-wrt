@@ -1,0 +1,51 @@
+From: X-WRT <dev@x-wrt.com>
+Date: Sun, 27 Sep 2026 10:15:00 +0800
+Subject: [PATCH] net: airoha: restore AN7563 TX fragment mapping
+
+The original AN7563 transmit path maps both the skb head and its page
+fragments with dma_map_single().  The unified path changed fragments to
+skb_frag_dma_map() and consequently unmaps them with dma_unmap_page().
+
+AN7563 runs without high memory and skb_frag_address() is valid for its
+TX fragments.  Restore the original mapping method on AN7563 while
+retaining page-based fragment mapping on the other SoCs.
+
+Signed-off-by: X-WRT <dev@x-wrt.com>
+---
+ drivers/net/ethernet/airoha/airoha_eth.c | 14 ++++++++++----
+ 1 file changed, 10 insertions(+), 4 deletions(-)
+
+--- a/drivers/net/ethernet/airoha/airoha_eth.c
++++ b/drivers/net/ethernet/airoha/airoha_eth.c
+@@ -7483,19 +7483,25 @@ static netdev_tx_t __airoha_dev_xmit
+ 	while (i < nr_frags) {
+ 		struct airoha_qdma_desc *desc = &q->desc[index];
+-		bool map_page = i > 0;
++		bool map_page = i > 0 &&
++				!airoha_is(qdma->eth, airoha_an7563);
+ 		dma_addr_t addr;
+ 		u32 val;
+ 
+-		if (map_page) {
++		if (i > 0) {
+ 			skb_frag_t *frag = &skb_shinfo(skb)->frags[i - 1];
+ 
+ 			len = skb_frag_size(frag);
+-			addr = skb_frag_dma_map(netdev->dev.parent, frag, 0,
+-						len, DMA_TO_DEVICE);
++			if (map_page)
++				addr = skb_frag_dma_map(netdev->dev.parent, frag, 0,
++							len, DMA_TO_DEVICE);
++			else
++				addr = dma_map_single(netdev->dev.parent,
++						      skb_frag_address(frag), len,
++						      DMA_TO_DEVICE);
+ 		} else {
+ 			len = skb_headlen(skb);
+ 			addr = dma_map_single(netdev->dev.parent, skb->data, len,
+ 					      DMA_TO_DEVICE);
+ 		}
+ 		if (unlikely(dma_mapping_error(netdev->dev.parent, addr)))
+ 			goto error_unmap;
+-- 
+2.51.0
