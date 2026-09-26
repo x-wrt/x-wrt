@@ -1,0 +1,33 @@
+From: Chen Minqiang <ptpt52@gmail.com>
+Subject: [PATCH] perf: fix hist_entry__tui_annotate stubs without slang support
+
+When HAVE_SLANG_SUPPORT is not defined, the inline stub functions
+__hist_entry__tui_annotate and hist_entry__tui_annotate had an extra
+al_addr argument that was not present in the prototypes under
+HAVE_SLANG_SUPPORT or the callers.
+
+Fix the stub prototypes so building perf with NO_SLANG=1 succeeds.
+
+Signed-off-by: Chen Minqiang <ptpt52@gmail.com>
+
+--- a/tools/perf/util/hist.h
++++ b/tools/perf/util/hist.h
+@@ -748,16 +748,14 @@
+ static inline int __hist_entry__tui_annotate(struct hist_entry *he __maybe_unused,
+ 					     struct map_symbol *ms __maybe_unused,
+ 					     struct evsel *evsel __maybe_unused,
+-					     struct hist_browser_timer *hbt __maybe_unused,
+-					     u64 al_addr __maybe_unused)
++					     struct hist_browser_timer *hbt __maybe_unused)
+ {
+ 	return 0;
+ }
+ 
+ static inline int hist_entry__tui_annotate(struct hist_entry *he __maybe_unused,
+ 					   struct evsel *evsel __maybe_unused,
+-					   struct hist_browser_timer *hbt __maybe_unused,
+-					   u64 al_addr __maybe_unused)
++					   struct hist_browser_timer *hbt __maybe_unused)
+ {
+ 	return 0;
+ }
