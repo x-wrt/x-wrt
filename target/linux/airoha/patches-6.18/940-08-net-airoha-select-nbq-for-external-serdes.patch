@@ -1,0 +1,27 @@
+From: pbs05 <27010143+pbs05@users.noreply.github.com>
+Subject: [PATCH] net: airoha: select NBQ for external SerDes egress
+
+GDM3 and GDM4 can each connect multiple net devices through an external
+SerDes arbiter.  The QDMA transmit path selects the net device's NBQ, but
+PPE flow entries only carry it for EN7523 GDM3.
+
+Program the net device NBQ for direct GDM3 and GDM4 egress on every SoC.
+Keep the existing GPON T-CONT and DSA port selections at higher priority.
+
+Fixes: 7758cb462ff7 ("net: airoha: Introduce WAN device flag")
+Signed-off-by: pbs05 <27010143+pbs05@users.noreply.github.com>
+---
+--- a/drivers/net/ethernet/airoha/airoha_ppe.c
++++ b/drivers/net/ethernet/airoha/airoha_ppe.c
+@@ -712,9 +712,8 @@ static int airoha_ppe_foe_entry_prepare(
+ 			else if (dsa_port >= 0)
+ 				val |= FIELD_PREP(AIROHA_FOE_IB2_NBQ,
+ 						  dsa_port);
+-			else if (airoha_is(eth, airoha_en7523) &&
+-				 port->id == AIROHA_GDM3_IDX &&
+-				 dev->nbq != 0)
++			else if (port->id == AIROHA_GDM3_IDX ||
++				 port->id == AIROHA_GDM4_IDX)
+ 				val |= FIELD_PREP(AIROHA_FOE_IB2_NBQ, dev->nbq);
+ 
+ 			smac_id = port->id;
