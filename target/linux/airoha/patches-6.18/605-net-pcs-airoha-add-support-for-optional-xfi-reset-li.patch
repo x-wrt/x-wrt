@@ -18,7 +18,7 @@ Signed-off-by: Christian Marangi <ansuelsmth@gmail.com>
 
 --- a/drivers/net/pcs/airoha/pcs-airoha-common.c
 +++ b/drivers/net/pcs/airoha/pcs-airoha-common.c
-@@ -143,6 +143,10 @@ static int airoha_pcs_setup_scu(struct a
+@@ -150,6 +150,10 @@ static int airoha_pcs_setup_scu(struct a
  	const struct airoha_pcs_match_data *data = priv->data;
  	int ret;
  
@@ -29,7 +29,7 @@ Signed-off-by: Christian Marangi <ansuelsmth@gmail.com>
  	switch (data->port_type) {
  	case AIROHA_PCS_ETH:
  		airoha_pcs_setup_scu_eth(priv, interface);
-@@ -160,6 +164,10 @@ static int airoha_pcs_setup_scu(struct a
+@@ -167,6 +171,10 @@ static int airoha_pcs_setup_scu(struct a
  		break;
  	}
  
@@ -37,10 +37,10 @@ Signed-off-by: Christian Marangi <ansuelsmth@gmail.com>
 +	if (ret)
 +		return ret;
 +
- 	/* TODO better handle reset from MAC */
  	ret = reset_control_bulk_assert(ARRAY_SIZE(priv->rsts),
  					priv->rsts);
-@@ -1300,6 +1308,10 @@ static int airoha_pcs_probe(struct platf
+ 	if (ret)
+@@ -1312,6 +1320,10 @@ static int airoha_pcs_probe(struct platf
  	if (ret)
  		return dev_err_probe(dev, ret, "failed to get bulk reset lines\n");
  
@@ -53,7 +53,7 @@ Signed-off-by: Christian Marangi <ansuelsmth@gmail.com>
  	 * any SoC revision before E2.
 --- a/drivers/net/pcs/airoha/pcs-airoha.h
 +++ b/drivers/net/pcs/airoha/pcs-airoha.h
-@@ -1654,6 +1654,7 @@ struct airoha_pcs_priv {
+@@ -1657,6 +1657,7 @@ struct airoha_pcs_priv {
  	struct regmap *pcs_ana;
  	struct regmap_field **pcs_ana_fields[2];
  
