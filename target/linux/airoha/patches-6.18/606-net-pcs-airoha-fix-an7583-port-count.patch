@@ -6,28 +6,17 @@ The AN7583 PCS match data does not initialize num_port. This leaves it at
 zero, so probe allocates a zero-sized ports array and a later PCS lookup
 returns a pointer derived from NULL.
 
-Set the number of ports for each AN7583 PCS instance. Also reject
-out-of-range PCS indices defensively.
+Set the number of ports for each AN7583 PCS instance. The common provider
+already rejects out-of-range PCS indices.
 
 Signed-off-by: Robert Marko <robert.marko@sartura.hr>
 ---
- drivers/net/pcs/airoha/pcs-airoha-common.c | 10 ++++++++++
- 1 file changed, 10 insertions(+)
+ drivers/net/pcs/airoha/pcs-airoha-common.c | 4 ++++
+ 1 file changed, 4 insertions(+)
 
 --- a/drivers/net/pcs/airoha/pcs-airoha-common.c
 +++ b/drivers/net/pcs/airoha/pcs-airoha-common.c
-@@ -1169,6 +1169,10 @@ static struct phylink_pcs *airoha_pcs_ge
- 	if (pcsspec->nargs)
- 		index = pcsspec->args[0];
- 
-+	if (index >= priv->data->num_port)
-+		return dev_err_ptr_probe(dev, -EINVAL,
-+					 "invalid PCS index %d\n", index);
-+
- 	return &priv->ports[index].pcs;
- }
- 
-@@ -1403,6 +1407,7 @@ static const struct airoha_pcs_match_dat
+@@ -1415,6 +1415,7 @@ static const struct airoha_pcs_match_dat
  };
  
  static const struct airoha_pcs_match_data an7583_pcs_eth = {
@@ -35,7 +24,7 @@ Signed-off-by: Robert Marko <robert.marko@sartura.hr>
  	.port_type = AIROHA_PCS_ETH,
  	.usxgmii_rx_gb_out_vld_tweak = true,
  	.usxgmii_xfi_mode_sel = true,
-@@ -1411,6 +1416,7 @@ static const struct airoha_pcs_match_dat
+@@ -1423,6 +1424,7 @@ static const struct airoha_pcs_match_dat
  };
  
  static const struct airoha_pcs_match_data an7583_pcs_pon = {
@@ -43,7 +32,7 @@ Signed-off-by: Robert Marko <robert.marko@sartura.hr>
  	.port_type = AIROHA_PCS_PON,
  	.usxgmii_rx_gb_out_vld_tweak = true,
  	.usxgmii_xfi_mode_sel = true,
-@@ -1419,6 +1425,7 @@ static const struct airoha_pcs_match_dat
+@@ -1431,6 +1433,7 @@ static const struct airoha_pcs_match_dat
  };
  
  static const struct airoha_pcs_match_data an7583_pcs_pcie = {
@@ -51,7 +40,7 @@ Signed-off-by: Robert Marko <robert.marko@sartura.hr>
  	.port_type = AIROHA_PCS_PCIE,
  	.usxgmii_rx_gb_out_vld_tweak = true,
  	.usxgmii_xfi_mode_sel = true,
-@@ -1427,6 +1434,7 @@ static const struct airoha_pcs_match_dat
+@@ -1439,6 +1442,7 @@ static const struct airoha_pcs_match_dat
  };
  
  static const struct airoha_pcs_match_data an7583_pcs_usb = {
