@@ -5,6 +5,9 @@ Subject: [PATCH] net: airoha: extend NPU firmware support
 Add EN7523 firmware data, generation-specific mailbox operations,
 deferred firmware startup, WLAN coordination, and debugfs diagnostics.
 
+Bound mailbox polling to 100 ms so a missing NPU response cannot keep
+bottom halves disabled for 100 seconds.
+
 Retain Linux 6.18.55 managed watchdog-work cancellation on probe
 failure and detach. Restore the driver remove callback for deferred
 firmware-start work and debugfs cleanup.
@@ -48,11 +51,12 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  #define NPU_EN7581_FIRMWARE_DATA		"airoha/en7581_npu_data.bin"
  #define NPU_EN7581_FIRMWARE_RV32		"airoha/en7581_npu_rv32.bin"
  #define NPU_EN7581_7996_FIRMWARE_DATA		"airoha/en7581_MT7996_npu_data.bin"
-@@ -24,23 +33,22 @@
+@@ -24,23 +33,23 @@
  #define NPU_EN7581_FIRMWARE_RV32_MAX_SIZE	0x200000
  #define NPU_EN7581_FIRMWARE_DATA_MAX_SIZE	0x10000
  #define NPU_DUMP_SIZE				512
 +#define NPU_FIRMWARE_RETRY_MS			1000
++#define NPU_MBOX_TIMEOUT_US			(100 * USEC_PER_MSEC)
  /*
   * Mailbox DMA payload size. Covers sizeof(struct ppe_mbox_data) (28) and
   * WLAN TLV messages (header + payload); largest in-tree WLAN payload today
@@ -79,7 +83,7 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  
  #define NPU_MBOX_BASE_ADDR		0x30c000
  
-@@ -60,13 +68,13 @@
+@@ -60,13 +69,13 @@
  
  #define REG_TX_BASE(_n)			(NPU_WLAN_BASE_ADDR + ((_n) << 4) + 0x080)
  #define REG_TX_DSCP_NUM(_n)		(NPU_WLAN_BASE_ADDR + ((_n) << 4) + 0x084)
@@ -97,7 +101,7 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  
  #define NPU_TIMER_BASE_ADDR		0x310100
  #define REG_WDT_TIMER_CTRL(_n)		(NPU_TIMER_BASE_ADDR + ((_n) * 0x100))
-@@ -120,9 +128,43 @@
+@@ -120,10 +129,44 @@ struct airoha_npu_fw {
  };
  
  struct airoha_npu_soc_data {
@@ -114,7 +118,7 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
 +	const u32 wlan_func_set[WLAN_FUNC_SET_WAIT_MAX];
 +	const u32 wlan_func_get[WLAN_FUNC_GET_WAIT_MAX];
  };
-+
+ 
 +struct airoha_npu_priv {
 +	struct airoha_npu npu;
 +	struct reserved_mem *rmem;
@@ -138,10 +142,11 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
 +	       (size && start >= NPU_V2_DRAM_START &&
 +		start <= NPU_V2_DRAM_END && size - 1 <= NPU_V2_DRAM_END - start);
 +}
- 
++
  #define MBOX_MSG_FUNC_ID	GENMASK(14, 11)
  #define MBOX_MSG_STATIC_BUF	BIT(5)
-@@ -167,6 +209,67 @@
+ #define MBOX_MSG_STATUS		GENMASK(4, 2)
+@@ -167,6 +210,67 @@ struct wlan_mbox_data {
  	DECLARE_FLEX_ARRAY(u8, d);
  };
  
@@ -209,23 +214,25 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  static int __airoha_npu_send_msg(struct airoha_npu *npu, int func_id,
  				 const void *data, int len, void *reply,
  				 u16 reply_len)
-@@ -180,6 +283,11 @@
- 
+@@ -181,6 +285,11 @@ static int __airoha_npu_send_msg(struct
  	if (reply && reply_len > len)
  		return -EINVAL;
-+
+ 
 +	if (npu->soc_data->version == NPU_V1 && func_id > NPU_FUNC_TR471)
 +		return -EOPNOTSUPP;
 +
 +	airoha_npu_debugfs_count(npu, AIROHA_NPU_DBG_MBOX_REQUESTS);
- 
++
  	/*
  	 * Mailbox payloads are bidirectional (CPU request, NPU response).
-@@ -204,14 +312,27 @@
+ 	 * On EN7581+MT7996, streaming DMA_BIDIRECTIONAL against the
+@@ -203,9 +312,18 @@ static int __airoha_npu_send_msg(struct
+ 	ret = regmap_read_poll_timeout_atomic(npu->regmap,
  					      REG_CR_MBQ0_CTRL(3) + offset,
  					      val, (val & MBOX_MSG_DONE),
- 					      100, 100 * MSEC_PER_SEC);
+-					      100, 100 * MSEC_PER_SEC);
 -	if (!ret && FIELD_GET(MBOX_MSG_STATUS, val) != NPU_MBOX_SUCCESS)
++					      100, NPU_MBOX_TIMEOUT_US);
 +	if (ret) {
 +		if (ret == -ETIMEDOUT)
 +			airoha_npu_debugfs_count(npu,
@@ -240,17 +247,23 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  
  	/* Copy the trailing reply_len bytes of the response. */
  	if (!ret && reply)
- 		memcpy(reply, core->buf + len - reply_len, reply_len);
+@@ -213,6 +331,15 @@ static int __airoha_npu_send_msg(struct
  
  	spin_unlock_bh(&core->lock);
+ 
++	if (ret == -ETIMEDOUT)
++		dev_err_ratelimited(npu->dev,
++				    "mailbox function %d timed out\n",
++				    func_id);
 +
 +	if (airoha_npu_debugfs_level(npu) >= 2)
 +		dev_dbg(npu->dev, "mbox func=%d size=%d status=%#x ret=%d\n",
 +			func_id, len, val, ret);
- 
++
  	return ret;
  }
-@@ -271,28 +392,23 @@
+ 
+@@ -271,28 +398,23 @@ airoha_npu_load_firmware_from_dts(struct
  }
  
  static int airoha_npu_run_firmware(struct device *dev, void __iomem *base,
@@ -264,11 +277,11 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  	soc = of_device_get_match_data(dev);
  	if (!soc)
  		return -EINVAL;
--
+ 
 -	addr = devm_ioremap_resource(dev, res);
 -	if (IS_ERR(addr))
 -		return PTR_ERR(addr);
- 
+-
  	/* Try to load firmware images using the firmware names provided via
  	 * dts if available.
  	 */
@@ -282,16 +295,16 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  				       soc->fw_rv32.max_size);
  	if (ret)
  		return ret;
-@@ -306,6 +422,8 @@
- static irqreturn_t airoha_npu_mbox_handler(int irq, void *npu_instance)
+@@ -307,6 +429,8 @@ static irqreturn_t airoha_npu_mbox_handl
  {
  	struct airoha_npu *npu = npu_instance;
-+
-+	airoha_npu_debugfs_count(npu, AIROHA_NPU_DBG_MBOX_IRQS);
  
++	airoha_npu_debugfs_count(npu, AIROHA_NPU_DBG_MBOX_IRQS);
++
  	/* clear mbox interrupt status */
  	regmap_write(npu->regmap, REG_CR_MBOX_INT_STATUS,
-@@ -334,7 +452,7 @@
+ 		     MBOX_INT_STATUS_MASK);
+@@ -334,7 +458,7 @@ static void airoha_npu_wdt_work(struct w
  		return;
  
  	c = core - &npu->cores[0];
@@ -300,7 +313,7 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  	snprintf(dump, NPU_DUMP_SIZE, "PC: %08x SP: %08x LR: %08x\n",
  		 val[0], val[1], val[2]);
  
-@@ -348,6 +466,8 @@
+@@ -348,6 +472,8 @@ static irqreturn_t airoha_npu_wdt_handle
  	int c = core - &npu->cores[0];
  	u32 val;
  
@@ -309,38 +322,38 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  	regmap_set_bits(npu->regmap, REG_WDT_TIMER_CTRL(c), WDT_INTR_MASK);
  	if (!regmap_read(npu->regmap, REG_WDT_TIMER_CTRL(c), &val) &&
  	    FIELD_GET(WDT_EN_MASK, val))
-@@ -402,6 +522,10 @@
- {
+@@ -403,6 +529,10 @@ static int airoha_npu_ppe_flush_sram_ent
  	struct ppe_mbox_data *ppe_data;
  	int err;
-+
+ 
 +	if (!airoha_npu_dma_range_valid(npu, foe_addr,
 +					(u64)sram_num_entries * AIROHA_FOE_ENTRY_SIZE))
 +		return -ERANGE;
- 
++
  	ppe_data = kzalloc(sizeof(*ppe_data), GFP_KERNEL);
  	if (!ppe_data)
-@@ -426,6 +550,9 @@
- {
+ 		return -ENOMEM;
+@@ -427,6 +557,9 @@ static int airoha_npu_foe_commit_entry(s
  	struct ppe_mbox_data *ppe_data;
  	int err;
-+
+ 
 +	if (!airoha_npu_dma_range_valid(npu, foe_addr, entry_size))
 +		return -ERANGE;
- 
++
  	ppe_data = kzalloc(sizeof(*ppe_data), GFP_ATOMIC);
  	if (!ppe_data)
-@@ -461,6 +588,9 @@
- {
+ 		return -ENOMEM;
+@@ -462,6 +595,9 @@ static int airoha_npu_ppe_stats_setup(st
  	int err, size = num_stats_entries * sizeof(*npu->stats);
  	struct ppe_mbox_data *ppe_data;
-+
+ 
 +	if (!airoha_npu_dma_range_valid(npu, foe_stats_addr, size))
 +		return -ERANGE;
- 
++
  	ppe_data = kzalloc(sizeof(*ppe_data), GFP_ATOMIC);
  	if (!ppe_data)
-@@ -493,6 +623,12 @@
+ 		return -ENOMEM;
+@@ -493,6 +629,12 @@ static int airoha_npu_wlan_msg_send(stru
  	struct wlan_mbox_data *wlan_data;
  	int err, len;
  
@@ -353,7 +366,7 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  	len = sizeof(*wlan_data) + data_len;
  	wlan_data = kzalloc(len, gfp);
  	if (!wlan_data)
-@@ -516,6 +652,12 @@
+@@ -516,6 +658,12 @@ static int airoha_npu_wlan_msg_get(struc
  	struct wlan_mbox_data *wlan_data;
  	int err, len;
  
@@ -366,7 +379,7 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  	len = sizeof(*wlan_data) + data_len;
  	wlan_data = kzalloc(len, gfp);
  	if (!wlan_data)
-@@ -546,6 +688,10 @@
+@@ -546,6 +694,10 @@ airoha_npu_wlan_set_reserved_memory(stru
  							&res);
  	if (err)
  		return err;
@@ -377,7 +390,7 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  
  	val = res.start;
  	return airoha_npu_wlan_msg_send(npu, ifindex, func_id, &val,
-@@ -554,29 +700,32 @@
+@@ -554,29 +706,32 @@ airoha_npu_wlan_set_reserved_memory(stru
  
  static int airoha_npu_wlan_init_memory(struct airoha_npu *npu)
  {
@@ -390,14 +403,14 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  	err = airoha_npu_wlan_msg_send(npu, 1, cmd, &val, sizeof(val),
  				       GFP_KERNEL);
 -	if (err)
-+	if (err && err != -EOPNOTSUPP) {
-+		dev_err(npu->dev, "error on set NPU_BAND0 value: %d\n", err);
- 		return err;
+-		return err;
 -
 -	cmd = WLAN_FUNC_SET_WAIT_TX_BUF_CHECK_ADDR;
 -	err = airoha_npu_wlan_set_reserved_memory(npu, 0, "tx-bufid", cmd);
 -	if (err)
--		return err;
++	if (err && err != -EOPNOTSUPP) {
++		dev_err(npu->dev, "error on set NPU_BAND0 value: %d\n", err);
+ 		return err;
 +	}
  
  	cmd = WLAN_FUNC_SET_WAIT_PKT_BUF_ADDR;
@@ -406,13 +419,12 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
 +	if (err) {
 +		dev_err(npu->dev, "error on set pkt memory region: %d\n", err);
  		return err;
--
++	}
+ 
 -	cmd = WLAN_FUNC_SET_WAIT_TX_PKT_BUF_ADDR;
 -	err = airoha_npu_wlan_set_reserved_memory(npu, 0, "tx-pkt", cmd);
 -	if (err)
 -		return err;
-+	}
-+
 +	if (of_property_match_string(npu->dev->of_node, "memory-region-names",
 +				     "tx-pkt") >= 0) {
 +		cmd = WLAN_FUNC_SET_WAIT_TX_PKT_BUF_ADDR;
@@ -423,7 +435,7 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  
  	if (of_property_match_string(npu->dev->of_node, "memory-region-names",
  				     "ba") >= 0) {
-@@ -587,8 +736,12 @@
+@@ -587,8 +742,12 @@ static int airoha_npu_wlan_init_memory(s
  	}
  
  	cmd = WLAN_FUNC_SET_WAIT_IS_FORCE_TO_CPU;
@@ -437,11 +449,10 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  }
  
  static u32 airoha_npu_wlan_queue_addr_get(struct airoha_npu *npu, int qid,
-@@ -622,6 +775,645 @@
- {
+@@ -623,6 +782,645 @@ static void airoha_npu_wlan_irq_disable(
  	regmap_clear_bits(npu->regmap, REG_IRQ_RXDONE(q), NPU_IRQ_RX_MASK(q));
  }
-+
+ 
 +
 +#if IS_ENABLED(CONFIG_DEBUG_FS)
 +#define AIROHA_NPU_MIB_COUNT	32
@@ -1080,10 +1091,11 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
 +{
 +}
 +#endif
- 
++
  struct airoha_npu *airoha_npu_get(struct device *dev)
  {
-@@ -650,7 +1442,13 @@
+ 	struct platform_device *pdev;
+@@ -650,7 +1448,13 @@ struct airoha_npu *airoha_npu_get(struct
  
  	npu = platform_get_drvdata(pdev);
  	if (!npu) {
@@ -1098,7 +1110,7 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  		goto error_module_put;
  	}
  
-@@ -680,7 +1478,139 @@
+@@ -680,7 +1484,139 @@ void airoha_npu_put(struct airoha_npu *n
  }
  EXPORT_SYMBOL_GPL(airoha_npu_put);
  
@@ -1238,7 +1250,7 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  	.fw_rv32 = {
  		.name = NPU_EN7581_FIRMWARE_RV32,
  		.max_size = NPU_EN7581_FIRMWARE_RV32_MAX_SIZE,
-@@ -689,9 +1619,63 @@
+@@ -689,9 +1625,63 @@ static const struct airoha_npu_soc_data
  		.name = NPU_EN7581_FIRMWARE_DATA,
  		.max_size = NPU_EN7581_FIRMWARE_DATA_MAX_SIZE,
  	},
@@ -1302,7 +1314,7 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  	.fw_rv32 = {
  		.name = NPU_AN7583_FIRMWARE_RV32,
  		.max_size = NPU_EN7581_FIRMWARE_RV32_MAX_SIZE,
-@@ -700,9 +1684,59 @@
+@@ -700,9 +1690,59 @@ static const struct airoha_npu_soc_data
  		.name = NPU_AN7583_FIRMWARE_DATA,
  		.max_size = NPU_EN7581_FIRMWARE_DATA_MAX_SIZE,
  	},
@@ -1362,7 +1374,7 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  	{ .compatible = "airoha,en7581-npu", .data = &en7581_npu_soc_data },
  	{ .compatible = "airoha,an7583-npu", .data = &an7583_npu_soc_data },
  	{ /* sentinel */ }
-@@ -717,24 +1751,239 @@
+@@ -717,24 +1757,239 @@ static const struct regmap_config regmap
  	.disable_locking	= true,
  };
  
@@ -1606,7 +1618,7 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  	npu->ops.ppe_init = airoha_npu_ppe_init;
  	npu->ops.ppe_deinit = airoha_npu_ppe_deinit;
  	npu->ops.ppe_init_stats = airoha_npu_ppe_stats_setup;
-@@ -753,9 +2002,36 @@
+@@ -753,9 +2008,36 @@ static int airoha_npu_probe(struct platf
  	if (IS_ERR(npu->regmap))
  		return PTR_ERR(npu->regmap);
  
@@ -1646,28 +1658,52 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  
  	irq = platform_get_irq(pdev, 0);
  	if (irq < 0)
-@@ -766,82 +2042,73 @@
+@@ -766,82 +2048,73 @@ static int airoha_npu_probe(struct platf
  	if (err)
  		return err;
  
 -	for (i = 0; i < ARRAY_SIZE(npu->cores); i++) {
+-		struct airoha_npu_core *core = &npu->cores[i];
+-
+-		spin_lock_init(&core->lock);
+-		core->npu = npu;
+-
+-		irq = platform_get_irq(pdev, i + 1);
+-		if (irq < 0)
+-			return irq;
+-
+-		err = devm_work_autocancel(dev, &core->wdt_work,
+-					   airoha_npu_wdt_work);
+-		if (err)
+-			return err;
+-
+-		err = devm_request_irq(dev, irq, airoha_npu_wdt_handler,
+-				       IRQF_SHARED, "airoha-npu-wdt", core);
+-		if (err)
+-			return err;
+-	}
+-
+-	/* wlan IRQ lines */
 +	/* V2 keeps the DT order: mailbox, eight watchdogs, six WLAN IRQs. */
-+	for (i = 0; i < ARRAY_SIZE(npu->irqs); i++) {
+ 	for (i = 0; i < ARRAY_SIZE(npu->irqs); i++) {
+-		irq = platform_get_irq(pdev, i + ARRAY_SIZE(npu->cores) + 1);
 +		int index = i + 1;
 +
 +		if (npu->soc_data->version == NPU_V2)
 +			index += npu->soc_data->max_cores;
 +		irq = platform_get_irq(pdev, index);
-+		if (irq < 0)
-+			return irq;
-+
-+		npu->irqs[i] = irq;
-+	}
-+
+ 		if (irq < 0)
+ 			return irq;
+ 
+ 		npu->irqs[i] = irq;
+ 	}
+ 
+-	err = dma_set_mask_and_coherent(dev, DMA_BIT_MASK(32));
 +	err = airoha_npu_init_dma(npu);
-+	if (err)
-+		return err;
-+
+ 	if (err)
+ 		return err;
+ 
+-	for (i = 0; i < ARRAY_SIZE(npu->cores); i++) {
 +	/*
 +	 * Prepare the coherent mailbox buffers before the delayed firmware start.
 +	 * Only NPU v2 exposes per-core watchdog IRQs.
@@ -1675,56 +1711,17 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
 +	for (i = 0; i < npu->soc_data->max_cores; i++) {
  		struct airoha_npu_core *core = &npu->cores[i];
  
- 		spin_lock_init(&core->lock);
- 		core->npu = npu;
--
--		irq = platform_get_irq(pdev, i + 1);
--		if (irq < 0)
--			return irq;
--
- 		err = devm_work_autocancel(dev, &core->wdt_work,
- 					   airoha_npu_wdt_work);
- 		if (err)
- 			return err;
- 
-+		core->buf = dmam_alloc_coherent(dev, AIROHA_NPU_MBOX_SIZE,
-+						&core->addr, GFP_KERNEL);
-+		if (!core->buf)
-+			return -ENOMEM;
++		spin_lock_init(&core->lock);
++		core->npu = npu;
++		err = devm_work_autocancel(dev, &core->wdt_work,
++					   airoha_npu_wdt_work);
++		if (err)
++			return err;
 +
-+		if (npu->soc_data->version < NPU_V2)
-+			continue;
-+
-+		irq = platform_get_irq(pdev, i + 1);
-+		if (irq < 0)
-+			return irq;
-+
- 		err = devm_request_irq(dev, irq, airoha_npu_wdt_handler,
- 				       IRQF_SHARED, "airoha-npu-wdt", core);
- 		if (err)
- 			return err;
- 	}
- 
--	/* wlan IRQ lines */
--	for (i = 0; i < ARRAY_SIZE(npu->irqs); i++) {
--		irq = platform_get_irq(pdev, i + ARRAY_SIZE(npu->cores) + 1);
--		if (irq < 0)
--			return irq;
--
--		npu->irqs[i] = irq;
--	}
--
--	err = dma_set_mask_and_coherent(dev, DMA_BIT_MASK(32));
--	if (err)
--		return err;
--
--	for (i = 0; i < ARRAY_SIZE(npu->cores); i++) {
--		struct airoha_npu_core *core = &npu->cores[i];
--
--		core->buf = dmam_alloc_coherent(dev, AIROHA_NPU_MBOX_SIZE,
--						&core->addr, GFP_KERNEL);
--		if (!core->buf)
--			return -ENOMEM;
+ 		core->buf = dmam_alloc_coherent(dev, AIROHA_NPU_MBOX_SIZE,
+ 						&core->addr, GFP_KERNEL);
+ 		if (!core->buf)
+ 			return -ENOMEM;
 -	}
 -
 -	err = airoha_npu_run_firmware(dev, base, &res);
@@ -1737,28 +1734,38 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
 -	regmap_write(npu->regmap, REG_CR_NPU_MIB(12), 0);
 -	regmap_write(npu->regmap, REG_CR_NPU_MIB(21), 1);
 -	msleep(100);
--
+ 
 -	/* setting booting address */
 -	for (i = 0; i < NPU_NUM_CORES; i++)
 -		regmap_write(npu->regmap, REG_CR_BOOT_BASE(i), res.start);
 -	usleep_range(1000, 2000);
--
++		if (npu->soc_data->version < NPU_V2)
++			continue;
+ 
 -	/* enable NPU cores */
 -	regmap_write(npu->regmap, REG_CR_BOOT_CONFIG, 0xff);
 -	regmap_write(npu->regmap, REG_CR_BOOT_TRIGGER, 0x1);
 -	msleep(100);
--
++		irq = platform_get_irq(pdev, i + 1);
++		if (irq < 0)
++			return irq;
+ 
 -	if (!airoha_npu_wlan_msg_get(npu, 0, WLAN_FUNC_GET_WAIT_NPU_VERSION,
 -				     &val, sizeof(val), GFP_KERNEL))
 -		dev_info(dev, "NPU fw version: %0d.%d\n",
 -			 (val >> 16) & 0xffff, val & 0xffff);
--
++		err = devm_request_irq(dev, irq, airoha_npu_wdt_handler,
++				       IRQF_SHARED, "airoha-npu-wdt", core);
++		if (err)
++			return err;
++	}
+ 
  	platform_set_drvdata(pdev, npu);
 +	dev_info(dev, "NPU ready; waiting for Ethernet datapath\n");
  
  	return 0;
-+}
-+
+ }
+ 
 +static void airoha_npu_remove(struct platform_device *pdev)
 +{
 +	struct airoha_npu *npu = platform_get_drvdata(pdev);
@@ -1766,15 +1773,15 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
 +
 +	cancel_delayed_work_sync(&priv->start_work);
 +	airoha_npu_debugfs_remove(npu);
- }
- 
++}
++
  static struct platform_driver airoha_npu_driver = {
  	.probe = airoha_npu_probe,
 +	.remove = airoha_npu_remove,
  	.driver = {
  		.name = "airoha-npu",
  		.of_match_table = of_airoha_npu_match,
-@@ -849,6 +2116,8 @@
+@@ -849,6 +2122,8 @@ static struct platform_driver airoha_npu
  };
  module_platform_driver(airoha_npu_driver);
  
