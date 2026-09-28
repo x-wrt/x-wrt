@@ -5,10 +5,11 @@ Subject: [PATCH] net: airoha: extend NPU firmware support
 Add EN7523 firmware data, generation-specific mailbox operations,
 deferred firmware startup, WLAN coordination, and debugfs diagnostics.
 
+Bound mailbox polling to 100 ms so a missing NPU response cannot keep
+bottom halves disabled for 100 seconds.
+
 Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
 ---
-diff --git a/drivers/net/ethernet/airoha/airoha_npu.c b/drivers/net/ethernet/airoha/airoha_npu.c
-index fbf3316..9da3c1f 100644
 --- a/drivers/net/ethernet/airoha/airoha_npu.c
 +++ b/drivers/net/ethernet/airoha/airoha_npu.c
 @@ -4,16 +4,23 @@
@@ -35,15 +36,16 @@ index fbf3316..9da3c1f 100644
  #define NPU_EN7581_FIRMWARE_DATA		"airoha/en7581_npu_data.bin"
  #define NPU_EN7581_FIRMWARE_RV32		"airoha/en7581_npu_rv32.bin"
  #define NPU_EN7581_7996_FIRMWARE_DATA		"airoha/en7581_MT7996_npu_data.bin"
-@@ -23,6 +30,7 @@
+@@ -23,6 +30,8 @@
  #define NPU_EN7581_FIRMWARE_RV32_MAX_SIZE	0x200000
  #define NPU_EN7581_FIRMWARE_DATA_MAX_SIZE	0x10000
  #define NPU_DUMP_SIZE				512
 +#define NPU_FIRMWARE_RETRY_MS			1000
++#define NPU_MBOX_TIMEOUT_US			(100 * USEC_PER_MSEC)
  /*
   * Mailbox DMA payload size. Covers sizeof(struct ppe_mbox_data) (28) and
   * WLAN TLV messages (header + payload); largest in-tree WLAN payload today
-@@ -32,14 +40,10 @@
+@@ -32,14 +41,10 @@
  
  #define REG_NPU_LOCAL_SRAM		0x0
  
@@ -62,7 +64,7 @@ index fbf3316..9da3c1f 100644
  
  #define NPU_MBOX_BASE_ADDR		0x30c000
  
-@@ -59,13 +63,13 @@
+@@ -59,13 +64,13 @@
  
  #define REG_TX_BASE(_n)			(NPU_WLAN_BASE_ADDR + ((_n) << 4) + 0x080)
  #define REG_TX_DSCP_NUM(_n)		(NPU_WLAN_BASE_ADDR + ((_n) << 4) + 0x084)
@@ -80,7 +82,7 @@ index fbf3316..9da3c1f 100644
  
  #define NPU_TIMER_BASE_ADDR		0x310100
  #define REG_WDT_TIMER_CTRL(_n)		(NPU_TIMER_BASE_ADDR + ((_n) * 0x100))
-@@ -119,10 +123,36 @@ struct airoha_npu_fw {
+@@ -119,10 +124,36 @@ struct airoha_npu_fw {
  };
  
  struct airoha_npu_soc_data {
@@ -117,7 +119,7 @@ index fbf3316..9da3c1f 100644
  #define MBOX_MSG_FUNC_ID	GENMASK(14, 11)
  #define MBOX_MSG_STATIC_BUF	BIT(5)
  #define MBOX_MSG_STATUS		GENMASK(4, 2)
-@@ -166,6 +196,67 @@ struct wlan_mbox_data {
+@@ -166,6 +197,67 @@ struct wlan_mbox_data {
  	DECLARE_FLEX_ARRAY(u8, d);
  };
  
@@ -185,7 +187,7 @@ index fbf3316..9da3c1f 100644
  static int __airoha_npu_send_msg(struct airoha_npu *npu, int func_id,
  				 const void *data, int len, void *reply,
  				 u16 reply_len)
-@@ -180,6 +271,11 @@ static int __airoha_npu_send_msg(struct airoha_npu *npu, int func_id,
+@@ -180,6 +272,11 @@ static int __airoha_npu_send_msg(struct
  	if (reply && reply_len > len)
  		return -EINVAL;
  
@@ -197,11 +199,13 @@ index fbf3316..9da3c1f 100644
  	/*
  	 * Mailbox payloads are bidirectional (CPU request, NPU response).
  	 * On EN7581+MT7996, streaming DMA_BIDIRECTIONAL against the
-@@ -203,8 +299,17 @@ static int __airoha_npu_send_msg(struct airoha_npu *npu, int func_id,
+@@ -202,9 +299,18 @@ static int __airoha_npu_send_msg(struct
+ 	ret = regmap_read_poll_timeout_atomic(npu->regmap,
  					      REG_CR_MBQ0_CTRL(3) + offset,
  					      val, (val & MBOX_MSG_DONE),
- 					      100, 100 * MSEC_PER_SEC);
+-					      100, 100 * MSEC_PER_SEC);
 -	if (!ret && FIELD_GET(MBOX_MSG_STATUS, val) != NPU_MBOX_SUCCESS)
++					      100, NPU_MBOX_TIMEOUT_US);
 +	if (ret) {
 +		if (ret == -ETIMEDOUT)
 +			airoha_npu_debugfs_count(npu,
@@ -216,10 +220,15 @@ index fbf3316..9da3c1f 100644
  
  	/* Copy the trailing reply_len bytes of the response. */
  	if (!ret && reply)
-@@ -212,6 +317,10 @@ static int __airoha_npu_send_msg(struct airoha_npu *npu, int func_id,
+@@ -212,6 +318,15 @@ static int __airoha_npu_send_msg(struct
  
  	spin_unlock_bh(&core->lock);
  
++	if (ret == -ETIMEDOUT)
++		dev_err_ratelimited(npu->dev,
++				    "mailbox function %d timed out\n",
++				    func_id);
++
 +	if (airoha_npu_debugfs_level(npu) >= 2)
 +		dev_dbg(npu->dev, "mbox func=%d size=%d status=%#x ret=%d\n",
 +			func_id, len, val, ret);
@@ -227,7 +236,7 @@ index fbf3316..9da3c1f 100644
  	return ret;
  }
  
-@@ -270,28 +379,23 @@ airoha_npu_load_firmware_from_dts(struct device *dev, void __iomem *addr,
+@@ -270,28 +385,23 @@ airoha_npu_load_firmware_from_dts(struct
  }
  
  static int airoha_npu_run_firmware(struct device *dev, void __iomem *base,
@@ -259,7 +268,7 @@ index fbf3316..9da3c1f 100644
  				       soc->fw_rv32.max_size);
  	if (ret)
  		return ret;
-@@ -306,6 +410,8 @@ static irqreturn_t airoha_npu_mbox_handler(int irq, void *npu_instance)
+@@ -306,6 +416,8 @@ static irqreturn_t airoha_npu_mbox_handl
  {
  	struct airoha_npu *npu = npu_instance;
  
@@ -268,7 +277,7 @@ index fbf3316..9da3c1f 100644
  	/* clear mbox interrupt status */
  	regmap_write(npu->regmap, REG_CR_MBOX_INT_STATUS,
  		     MBOX_INT_STATUS_MASK);
-@@ -333,7 +439,7 @@ static void airoha_npu_wdt_work(struct work_struct *work)
+@@ -333,7 +445,7 @@ static void airoha_npu_wdt_work(struct w
  		return;
  
  	c = core - &npu->cores[0];
@@ -277,7 +286,7 @@ index fbf3316..9da3c1f 100644
  	snprintf(dump, NPU_DUMP_SIZE, "PC: %08x SP: %08x LR: %08x\n",
  		 val[0], val[1], val[2]);
  
-@@ -347,6 +453,8 @@ static irqreturn_t airoha_npu_wdt_handler(int irq, void *core_instance)
+@@ -347,6 +459,8 @@ static irqreturn_t airoha_npu_wdt_handle
  	int c = core - &npu->cores[0];
  	u32 val;
  
@@ -286,7 +295,7 @@ index fbf3316..9da3c1f 100644
  	regmap_set_bits(npu->regmap, REG_WDT_TIMER_CTRL(c), WDT_INTR_MASK);
  	if (!regmap_read(npu->regmap, REG_WDT_TIMER_CTRL(c), &val) &&
  	    FIELD_GET(WDT_EN_MASK, val))
-@@ -492,6 +600,12 @@ static int airoha_npu_wlan_msg_send(struct airoha_npu *npu, int ifindex,
+@@ -492,6 +606,12 @@ static int airoha_npu_wlan_msg_send(stru
  	struct wlan_mbox_data *wlan_data;
  	int err, len;
  
@@ -299,7 +308,7 @@ index fbf3316..9da3c1f 100644
  	len = sizeof(*wlan_data) + data_len;
  	wlan_data = kzalloc(len, gfp);
  	if (!wlan_data)
-@@ -515,6 +629,12 @@ static int airoha_npu_wlan_msg_get(struct airoha_npu *npu, int ifindex,
+@@ -515,6 +635,12 @@ static int airoha_npu_wlan_msg_get(struc
  	struct wlan_mbox_data *wlan_data;
  	int err, len;
  
@@ -312,7 +321,7 @@ index fbf3316..9da3c1f 100644
  	len = sizeof(*wlan_data) + data_len;
  	wlan_data = kzalloc(len, gfp);
  	if (!wlan_data)
-@@ -553,29 +673,32 @@ airoha_npu_wlan_set_reserved_memory(struct airoha_npu *npu,
+@@ -553,29 +679,32 @@ airoha_npu_wlan_set_reserved_memory(stru
  
  static int airoha_npu_wlan_init_memory(struct airoha_npu *npu)
  {
@@ -357,7 +366,7 @@ index fbf3316..9da3c1f 100644
  
  	if (of_property_match_string(npu->dev->of_node, "memory-region-names",
  				     "ba") >= 0) {
-@@ -586,8 +709,12 @@ static int airoha_npu_wlan_init_memory(struct airoha_npu *npu)
+@@ -586,8 +715,12 @@ static int airoha_npu_wlan_init_memory(s
  	}
  
  	cmd = WLAN_FUNC_SET_WAIT_IS_FORCE_TO_CPU;
@@ -371,7 +380,7 @@ index fbf3316..9da3c1f 100644
  }
  
  static u32 airoha_npu_wlan_queue_addr_get(struct airoha_npu *npu, int qid,
-@@ -622,6 +749,645 @@ static void airoha_npu_wlan_irq_disable(struct airoha_npu *npu, int q)
+@@ -622,6 +755,645 @@ static void airoha_npu_wlan_irq_disable(
  	regmap_clear_bits(npu->regmap, REG_IRQ_RXDONE(q), NPU_IRQ_RX_MASK(q));
  }
  
@@ -1017,7 +1026,7 @@ index fbf3316..9da3c1f 100644
  struct airoha_npu *airoha_npu_get(struct device *dev)
  {
  	struct platform_device *pdev;
-@@ -649,7 +1415,13 @@ struct airoha_npu *airoha_npu_get(struct device *dev)
+@@ -649,7 +1421,13 @@ struct airoha_npu *airoha_npu_get(struct
  
  	npu = platform_get_drvdata(pdev);
  	if (!npu) {
@@ -1032,7 +1041,7 @@ index fbf3316..9da3c1f 100644
  		goto error_module_put;
  	}
  
-@@ -679,7 +1451,139 @@ void airoha_npu_put(struct airoha_npu *npu)
+@@ -679,7 +1457,139 @@ void airoha_npu_put(struct airoha_npu *n
  }
  EXPORT_SYMBOL_GPL(airoha_npu_put);
  
@@ -1172,7 +1181,7 @@ index fbf3316..9da3c1f 100644
  	.fw_rv32 = {
  		.name = NPU_EN7581_FIRMWARE_RV32,
  		.max_size = NPU_EN7581_FIRMWARE_RV32_MAX_SIZE,
-@@ -688,9 +1592,63 @@ static const struct airoha_npu_soc_data en7581_npu_soc_data = {
+@@ -688,9 +1598,63 @@ static const struct airoha_npu_soc_data
  		.name = NPU_EN7581_FIRMWARE_DATA,
  		.max_size = NPU_EN7581_FIRMWARE_DATA_MAX_SIZE,
  	},
@@ -1236,7 +1245,7 @@ index fbf3316..9da3c1f 100644
  	.fw_rv32 = {
  		.name = NPU_AN7583_FIRMWARE_RV32,
  		.max_size = NPU_EN7581_FIRMWARE_RV32_MAX_SIZE,
-@@ -699,11 +1657,61 @@ static const struct airoha_npu_soc_data an7583_npu_soc_data = {
+@@ -699,11 +1663,61 @@ static const struct airoha_npu_soc_data
  		.name = NPU_AN7583_FIRMWARE_DATA,
  		.max_size = NPU_EN7581_FIRMWARE_DATA_MAX_SIZE,
  	},
@@ -1300,7 +1309,7 @@ index fbf3316..9da3c1f 100644
  	{ /* sentinel */ }
  };
  MODULE_DEVICE_TABLE(of, of_airoha_npu_match);
-@@ -716,23 +1724,159 @@ static const struct regmap_config regmap_config = {
+@@ -716,23 +1730,159 @@ static const struct regmap_config regmap
  	.disable_locking	= true,
  };
  
@@ -1464,7 +1473,7 @@ index fbf3316..9da3c1f 100644
  	npu->dev = dev;
  	npu->ops.ppe_init = airoha_npu_ppe_init;
  	npu->ops.ppe_deinit = airoha_npu_ppe_deinit;
-@@ -752,9 +1896,33 @@ static int airoha_npu_probe(struct platform_device *pdev)
+@@ -752,9 +1902,33 @@ static int airoha_npu_probe(struct platf
  	if (IS_ERR(npu->regmap))
  		return PTR_ERR(npu->regmap);
  
@@ -1501,7 +1510,7 @@ index fbf3316..9da3c1f 100644
  
  	irq = platform_get_irq(pdev, 0);
  	if (irq < 0)
-@@ -765,73 +1933,51 @@ static int airoha_npu_probe(struct platform_device *pdev)
+@@ -765,73 +1939,51 @@ static int airoha_npu_probe(struct platf
  	if (err)
  		return err;
  
@@ -1600,7 +1609,7 @@ index fbf3316..9da3c1f 100644
  
  	return 0;
  }
-@@ -839,9 +1985,13 @@ static int airoha_npu_probe(struct platform_device *pdev)
+@@ -839,9 +1991,13 @@ static int airoha_npu_probe(struct platf
  static void airoha_npu_remove(struct platform_device *pdev)
  {
  	struct airoha_npu *npu = platform_get_drvdata(pdev);
@@ -1615,7 +1624,7 @@ index fbf3316..9da3c1f 100644
  		cancel_work_sync(&npu->cores[i].wdt_work);
  }
  
-@@ -855,6 +2005,8 @@ static struct platform_driver airoha_npu_driver = {
+@@ -855,6 +2011,8 @@ static struct platform_driver airoha_npu
  };
  module_platform_driver(airoha_npu_driver);
  
