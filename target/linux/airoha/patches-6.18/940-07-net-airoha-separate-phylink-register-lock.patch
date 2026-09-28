@@ -1,0 +1,54 @@
+From: PTPT52.AI <ptpt52@gmail.com>
+Subject: [PATCH] net: airoha: separate phylink register locking
+
+MIB collection and phylink currently share the GDM port spinlock even
+though the two paths protect unrelated state.  This unnecessarily couples
+statistics reads to GDM4 fragment-size programming.
+
+Give the phylink callback its own mutex, matching the newer driver layout,
+and leave the port spinlock dedicated to MIB state.
+
+Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
+---
+--- a/drivers/net/ethernet/airoha/airoha_eth.c
++++ b/drivers/net/ethernet/airoha/airoha_eth.c
+@@ -8672,7 +8672,7 @@ static void airoha_mac_link_up(void *pri
+ 		frag_size_rx = 0;
+ 	}
+ 
+-	spin_lock(&port->lock);
++	mutex_lock(&port->link_lock);
+ 
+ 	/* Configure TX/RX frag based on speed */
+ 	if (dev->nbq == 1) {
+@@ -8697,7 +8697,7 @@ static void airoha_mac_link_up(void *pri
+ 	}
+ 	airoha_fe_rmw(eth, REG_FE_GDM4_RMBI_FRAG, mask, val);
+ 
+-	spin_unlock(&port->lock);
++	mutex_unlock(&port->link_lock);
+ }
+ 
+ /* Nothing to do in MAC, everything is handled in PCS. */
+@@ -8946,6 +8946,7 @@ static int airoha_alloc_gdm_port(struct
+ 
+ 	port->id = id;
+ 	spin_lock_init(&port->lock);
++	mutex_init(&port->link_lock);
+ 	eth->ports[p] = port;
+ 
+ 	/* Metadata mux destinations belong to the modern descriptor path.
+--- a/drivers/net/ethernet/airoha/airoha_eth.h
++++ b/drivers/net/ethernet/airoha/airoha_eth.h
+@@ -1084,8 +1084,10 @@ struct airoha_gdm_port {
+ 	int id;
+ 	int users;
+ 
+-	/* protect concurrent hw_stats and frag register accesses */
++	/* Protect concurrent hardware statistics accesses. */
+ 	spinlock_t lock;
++	/* Protect concurrent GDM4 register accesses. */
++	struct mutex link_lock;
+ 
+ 	struct metadata_dst *dsa_meta[AIROHA_MAX_DSA_PORTS];
+ };
