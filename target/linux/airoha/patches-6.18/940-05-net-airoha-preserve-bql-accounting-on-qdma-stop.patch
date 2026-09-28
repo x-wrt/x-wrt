@@ -1,0 +1,79 @@
+From: PTPT52.AI <ptpt52@gmail.com>
+Date: Tue, 29 Sep 2026 01:10:00 +0800
+Subject: [PATCH] net: airoha: preserve BQL accounting on QDMA stop
+
+Multiple netdevs can share a QDMA TX ring. Resetting one netdev's BQL
+state while its skbs remain in hardware makes a later completion subtract
+bytes which are no longer accounted, causing a BQL underflow.
+
+Do not reset BQL when stopping an individual netdev. When the last QDMA
+user stops and pending descriptors are reclaimed, complete BQL accounting
+before freeing their skbs. Apply the same cleanup rule to the EcoNet QDMA
+implementation so an interface restart does not retain stale queued bytes.
+
+Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
+---
+ drivers/net/ethernet/airoha/airoha_eth.c | 22 ++++++++++++++++------
+ 1 file changed, 16 insertions(+), 6 deletions(-)
+
+--- a/drivers/net/ethernet/airoha/airoha_eth.c
++++ b/drivers/net/ethernet/airoha/airoha_eth.c
+@@ -1904,13 +1904,20 @@ static void econet_qdma_cleanup_tx(struc
+ 		guard(spinlock_bh)(&q->lock_bh);
+ 		for (j = 0; j < q->ndesc; j++) {
+ 			struct econet_q_tx_ent *e = &q->entry[j];
++			struct sk_buff *skb = e->skb;
+ 
+ 			if (!e->dma_addr)
+ 				continue;
+ 
+ 			dma_unmap_single(qdma->qdma->eth->dev, e->dma_addr,
+ 					 e->dma_len, DMA_TO_DEVICE);
+-			dev_kfree_skb_any(e->skb);
++			if (skb) {
++				struct netdev_queue *txq;
++
++				txq = skb_get_tx_queue(skb->dev, skb);
++				netdev_tx_completed_queue(txq, 1, skb->len);
++				dev_kfree_skb_any(skb);
++			}
+ 			memset(e, 0, sizeof(*e));
+ 
+ 			e->freelist_next = 0xffff;
+@@ -3056,12 +3063,19 @@ void airoha_qdma_cleanup_tx_queue(struct
+ 	for (i = 0; i < q->ndesc; i++) {
+ 		struct airoha_queue_entry *e = &q->entry[i];
+ 		struct airoha_qdma_desc *desc = &q->desc[i];
++		struct sk_buff *skb = e->skb;
+ 
+ 		if (!e->dma_addr)
+ 			continue;
+ 
+ 		airoha_qdma_unmap_tx_entry(eth, e);
+-		dev_kfree_skb_any(e->skb);
++		if (skb) {
++			struct netdev_queue *txq;
++
++			txq = skb_get_tx_queue(skb->dev, skb);
++			netdev_tx_completed_queue(txq, 1, skb->len);
++			dev_kfree_skb_any(skb);
++		}
+ 		e->skb = NULL;
+ 		list_add_tail(&e->list, &q->tx_list);
+ 
+@@ -6606,15 +6620,11 @@ static int airoha_dev_stop(struct net_de
+ 		airoha_qdma_stop(qdma);
+ 	} else {
+ 		bool xpon_control;
+-		int i;
+ 
+ 		netif_carrier_off(netdev);
+ 		xpon_control = READ_ONCE(dev->xpon_control_started);
+ 		if (!xpon_control)
+ 			airoha_set_vip_for_gdm_port(dev, false);
+-		for (i = 0; i < netdev->num_tx_queues; i++)
+-			netdev_tx_reset_subqueue(netdev, i);
+-
+ 		if (--port->users)
+ 			airoha_ppe_set_mtu(dev);
+ 		else if (!xpon_control)
