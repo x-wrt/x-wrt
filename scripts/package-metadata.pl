@@ -179,6 +179,7 @@ sub mconf_depends {
 			}
 			$depend = $2;
 		}
+		my $select_condition = $condition;
 		if ($flags =~ /\+/) {
 			my $vdep = $vpackage{$depend};
 			if ($vdep) {
@@ -196,9 +197,9 @@ sub mconf_depends {
 				$depend = shift @vdeps;
 
 				if (@vdeps > 1) {
-					$condition = ($condition ? "$condition && " : '') . join("&&", map { "PACKAGE_$_<PACKAGE_$pkgname" } @vdeps);
+					$select_condition = ($select_condition ? "$select_condition && " : '') . join("&&", map { "PACKAGE_$_<PACKAGE_$pkgname" } @vdeps);
 				} elsif (@vdeps > 0) {
-					$condition = ($condition ? "$condition && " : '') . "PACKAGE_${vdeps[0]}<PACKAGE_$pkgname";
+					$select_condition = ($select_condition ? "$select_condition && " : '') . "PACKAGE_${vdeps[0]}<PACKAGE_$pkgname";
 				}
 			}
 
@@ -221,14 +222,14 @@ sub mconf_depends {
 			}
 		}
 
-		if ($condition) {
-			if ($m =~ /select/) {
-				next if $depend eq $condition;
-				$depend = "$depend if $condition";
-			} else {
-				next if $dep->{"$depend if $condition"};
-				$depend = "!($condition) || $depend" unless $dep->{$condition} eq 'select';
+		if ($m =~ /select/) {
+			if ($select_condition) {
+				next if $depend eq $select_condition;
+				$depend = "$depend if $select_condition";
 			}
+		} elsif ($condition) {
+			next if $dep->{"$depend if $condition"};
+			$depend = "!($condition) || $depend" unless $dep->{$condition} eq 'select';
 		}
 		$dep->{$depend} =~ /select/ or $dep->{$depend} = $m;
 	}
