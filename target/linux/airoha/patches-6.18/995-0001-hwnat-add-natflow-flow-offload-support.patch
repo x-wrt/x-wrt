@@ -1,0 +1,1840 @@
+From: PTPT52.AI <ptpt52@gmail.com>
+Subject: [PATCH] net: airoha: add AN7563 natflow hardware offload
+
+Add AN7563 flow programming, accounting, forwarding-path metadata
+and NATflow callbacks. Reserve ownership before SRAM writes and
+treat failed reads as unknown rather than expired.
+
+Quarantine ambiguous writes and failed invalidations or counter
+resets; retry retirement without reusing live resources. Reject
+replacement until retirement succeeds and skip retiring keepalives.
+Disable PPE before cancelling retries and draining ownership.
+
+Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
+---
+--- a/drivers/net/ethernet/airoha/airoha_eth.c
++++ b/drivers/net/ethernet/airoha/airoha_eth.c
+@@ -2419,7 +2419,7 @@ static bool airoha_qdma_should_check_ppe
+ 	if (reason == AIROHA_PPE_CPU_REASON_HIT_UNBIND_RATE_REACHED)
+ 		return true;
+ 
+-	if (!airoha_is(eth, airoha_en7523))
++	if (!airoha_is(eth, airoha_en7523, airoha_an7563))
+ 		return false;
+ 
+ 	return reason == AIROHA_PPE_CPU_REASON_HIT_UNBIND ||
+@@ -2643,6 +2643,14 @@ static int airoha_qdma_rx_process(struct
+ 			skb_set_hash(q->skb, jhash_1word(hash, 0), PKT_HASH_TYPE_L4);
+ 
+ 		if (airoha_qdma_foe_entry_is_valid(eth, hash) &&
++		    airoha_ppe_natflow_rx(eth->ppe, q->skb, hash, reason)) {
++			done++;
++			dev_kfree_skb(q->skb);
++			q->skb = NULL;
++			continue;
++		}
++
++		if (airoha_qdma_foe_entry_is_valid(eth, hash) &&
+ 		    airoha_qdma_should_check_ppe_skb(eth, reason))
+ 			airoha_ppe_check_skb(&eth->ppe->common.dev, q->skb, hash,
+ 					     false);
+@@ -7494,6 +7502,7 @@ static netdev_tx_t __airoha_dev_xmit(str
+ 	struct airoha_xpon_tx_info classified;
+ 	struct airoha_qdma_skb_meta skb_meta;
+ 	bool xpon_oam = xpon && xpon->oam;
++	bool natflow;
+ 	u32 nr_frags, tag = 0, msg0, msg1, len;
+ 	struct airoha_queue_entry *e;
+ 	struct airoha_qdma *qdma;
+@@ -7524,6 +7533,11 @@ static netdev_tx_t __airoha_dev_xmit(str
+ 			goto error;
+ 		xpon = &classified;
+ 	}
++	natflow = !xpon && airoha_is(dev->eth, airoha_an7563) &&
++		  (skb->mark & AN7563_NATFLOW_QUEUE_MAPPING_MAGIC_MASK) ==
++		  AN7563_NATFLOW_QUEUE_MAPPING_MAGIC &&
++		  (skb->hash & AN7563_NATFLOW_QUEUE_MAPPING_MAGIC_MASK) ==
++		  AN7563_NATFLOW_QUEUE_MAPPING_MAGIC;
+ 	queue_mapping = xpon ? xpon->queue : skb_get_queue_mapping(skb);
+ 	qid = airoha_qdma_get_txq(qdma, queue_mapping);
+ 	q = &qdma->q_tx[qid];
+@@ -7602,7 +7616,7 @@ static netdev_tx_t __airoha_dev_xmit(str
+ 		}
+ 	}
+ 
+-	fport = airoha_get_fe_port(dev);
++	fport = natflow ? FE_PSE_PORT_PPE1 : airoha_get_fe_port(dev);
+ 	if (airoha_is(qdma->eth, econet_en7580))
+ 		msg1 = FIELD_PREP(EN7580_QDMA_ETH_TXMSG_NBOQ_MASK,
+ 				  dev->nbq) |
+@@ -8775,6 +8789,22 @@ static const struct net_device_ops airoh
+ 	.ndo_setup_tc		= airoha_gdm_dev_tc_setup,
+ };
+ 
++static const struct net_device_ops airoha_an7563_netdev_ops = {
++	.ndo_init		= airoha_dev_init,
++	.ndo_open		= airoha_dev_open,
++	.ndo_stop		= airoha_dev_stop,
++	.ndo_change_mtu		= airoha_gdm_dev_change_mtu,
++	.ndo_select_queue	= airoha_dev_select_queue,
++	.ndo_fix_features	= airoha_dev_fix_features,
++	.ndo_set_features	= airoha_dev_set_features,
++	.ndo_start_xmit		= airoha_dev_xmit,
++	.ndo_get_stats64	= airoha_gdm_dev_get_stats64,
++	.ndo_set_mac_address	= airoha_gdm_dev_set_macaddr,
++	.ndo_setup_tc		= airoha_gdm_dev_tc_setup,
++	.ndo_flow_offload	= airoha_ppe_natflow_offload,
++	.ndo_flow_offload_check	= airoha_ppe_natflow_offload_check,
++};
++
+ static const struct ethtool_ops airoha_ethtool_ops = {
+ 	.get_drvinfo		= airoha_eth_get_drvinfo,
+ 	.get_eth_mac_stats	= airoha_ethtool_get_mac_stats,
+@@ -9036,7 +9066,8 @@ static int airoha_alloc_gdm_device(struc
+ 		return -ENOMEM;
+ 	}
+ 
+-	netdev->netdev_ops = &airoha_netdev_ops;
++	netdev->netdev_ops = airoha_is(eth, airoha_an7563) ?
++			      &airoha_an7563_netdev_ops : &airoha_netdev_ops;
+ 	netdev->ethtool_ops = &airoha_ethtool_ops;
+ 	if (econet) {
+ 		netdev->max_mtu = SKB_WITH_OVERHEAD(AIROHA_MAX_PACKET_SIZE) -
+--- a/drivers/net/ethernet/airoha/airoha_eth.h
++++ b/drivers/net/ethernet/airoha/airoha_eth.h
+@@ -23,6 +23,7 @@
+ #include <linux/sizes.h>
+ #include <linux/skbuff.h>
+ #include <linux/types.h>
++#include <linux/workqueue.h>
+ #include <linux/soc/airoha/airoha_offload.h>
+ #include <uapi/linux/if_pppox.h>
+ #include <net/dsa.h>
+@@ -338,6 +339,9 @@ enum {
+ 	CRSN_25 = 0x19,
+ };
+ 
++#define AN7563_NATFLOW_QUEUE_MAPPING_MAGIC	0x8000
++#define AN7563_NATFLOW_QUEUE_MAPPING_MAGIC_MASK	0xe000
++
+ enum airoha_gdm_index {
+ 	AIROHA_GDM1_IDX = 1,
+ 	AIROHA_GDM2_IDX = 2,
+@@ -836,6 +840,8 @@ enum airoha_flow_entry_type {
+ 	FLOW_TYPE_L2_SUBFLOW,
+ };
+ 
++struct airoha_natflow_entry;
++
+ struct airoha_flow_table_entry {
+ 	union {
+ 		struct hlist_node list; /* PPE L3 flow entry */
+@@ -853,6 +859,8 @@ struct airoha_flow_table_entry {
+ 
+ 	struct rhash_head node;
+ 	unsigned long cookie;
++	struct airoha_natflow_entry *natflow;
++	u16 natflow_hash;
+ 
+ 	/* FoE v1 binds a software flow to a hardware-created hash bucket on
+ 	 * RX. The same flow object is kept in the global cookie table; this
+@@ -1204,6 +1212,16 @@ struct airoha_ppe {
+ 	 */
+ 	bool offload_setup_done;
+ 
++	/* Protects natflow flows, ownership tables and ACNT0 allocation. */
++	spinlock_t natflow_lock;
++	struct list_head natflow_flows;
++	struct delayed_work natflow_retire_work;
++	bool natflow_stopping;
++	struct airoha_natflow_entry **natflow_hash;
++	struct airoha_flow_table_entry __rcu **natflow_foe;
++	void __rcu *natflow_keepalive;
++	DECLARE_BITMAP(natflow_acnt0[AIROHA_MAX_NUM_QDMA], 63);
++
+ 	struct airoha_ppe_v1 v1;
+ };
+ 
+@@ -1477,6 +1495,13 @@ void airoha_ppe_set_cpu_port(struct airo
+ bool airoha_ppe_is_enabled(struct airoha_eth *eth, int index);
+ void airoha_ppe_check_skb(struct airoha_ppe_dev *dev, struct sk_buff *skb,
+ 			  u16 hash, bool rx_wlan);
++bool airoha_ppe_natflow_rx(struct airoha_ppe *ppe, struct sk_buff *skb,
++			   u16 hash, u8 reason);
++int airoha_ppe_natflow_offload(flow_offload_type_t type,
++			       flow_offload_t *flow,
++			       flow_offload_hw_path_t *src,
++			       flow_offload_hw_path_t *dest);
++int airoha_ppe_natflow_offload_check(flow_offload_hw_path_t *path);
+ int airoha_ppe_setup_tc_block_cb(struct airoha_ppe_dev *dev, void *type_data);
+ int airoha_ppe_init(struct airoha_eth *eth);
+ void airoha_ppe_deinit(struct airoha_eth *eth);
+--- a/drivers/net/ethernet/airoha/airoha_ppe.c
++++ b/drivers/net/ethernet/airoha/airoha_ppe.c
+@@ -13,6 +13,7 @@
+ #include <net/ipv6.h>
+ #include <net/flow_offload.h>
+ #include <net/netlink.h>
++#include <net/netfilter/nf_flow_table.h>
+ #include <net/pkt_cls.h>
+ #include <net/route.h>
+ #include <uapi/linux/ppp_defs.h>
+@@ -26,6 +27,81 @@
+ DEFINE_MUTEX(flow_offload_mutex);
+ static DEFINE_SPINLOCK(ppe_lock);
+ 
++#define AN7563_PPE_GLO_CFG		0x00078743
++#define AN7563_PPE_FLOW_CFG		0x06b97700
++#define AN7563_PPE_IP_PROTO_CHK		0x000f000f
++#define AN7563_PPE_IP_PROTO0		0x04291106
++#define AN7563_PPE_IP_PROTO1		0x00003a01
++#define AN7563_PPE_TB_CFG		0x87c0ffb4
++#define AN7563_PPE_BIND_RATE		0x001e001e
++#define AN7563_PPE_BIND_LIMIT0		0x0fa00fa0
++#define AN7563_PPE_BIND_LIMIT1		0x00011f40
++/* Value 2 targets natflow's two-second hardware statistics window. */
++#define AN7563_PPE_KEEPALIVE_SCANS	2
++#define AN7563_PPE_KEEPALIVE					\
++	(FIELD_PREP(PPE_KEEPALIVE_UDP_MASK, AN7563_PPE_KEEPALIVE_SCANS) | \
++	 FIELD_PREP(PPE_KEEPALIVE_TCP_MASK, AN7563_PPE_KEEPALIVE_SCANS) | \
++	 FIELD_PREP(PPE_KEEPALIVE_NTU_MASK, AN7563_PPE_KEEPALIVE_SCANS))
++#define AN7563_PPE_UNBIND_AGE		0x03e80003
++#define AN7563_PPE_BIND_AGE_UDP		12
++#define AN7563_PPE_BIND_AGE_TCP		7
++#define AN7563_PPE_BIND_AGE_TCP_FIN	1
++#define AN7563_PPE_BIND_AGE_NON_L4	1
++#define AN7563_PPE_BND_AGE0					\
++	(FIELD_PREP(PPE_BIND_AGE0_DELTA_NON_L4, AN7563_PPE_BIND_AGE_NON_L4) | \
++	 FIELD_PREP(PPE_BIND_AGE0_DELTA_UDP, AN7563_PPE_BIND_AGE_UDP))
++#define AN7563_PPE_BND_AGE1					\
++	(FIELD_PREP(PPE_BIND_AGE1_DELTA_TCP_FIN, AN7563_PPE_BIND_AGE_TCP_FIN) | \
++	 FIELD_PREP(PPE_BIND_AGE1_DELTA_TCP, AN7563_PPE_BIND_AGE_TCP))
++#define AN7563_PPE_TB_HASH_CFG		0x31000011
++#define AN7563_PPE_MIRROR		0x00000021
++#define AN7563_PPE_L2B_CFG		0x001d077f
++#define AN7563_PPE_L2B_ETYPE_EN		0x0000001b
++#define AN7563_PPE_L2B_ETYPE0		0x88a88100
++#define AN7563_PPE_L2B_ETYPE1		0x08000000
++#define AN7563_PPE_L2B_ETYPE2		0x000086dd
++#define AN7563_PPE_CRSN_KEEPALIVE_MIN	0x13
++#define AN7563_PPE_CRSN_KEEPALIVE_MAX	0x15
++#define AN7563_PPE_SRAM_ENTRIES		512
++#define AN7563_PPE_SRAM_WAYS		4
++#define AN7563_PPE_ACNT0_ENTRIES	63
++#define AN7563_PPE_ACNT0_DISABLED	0x3f
++#define AN7563_PPE_ACNT1_DISABLED	0x1f
++#define AN7563_PPE_PORT_AG(acnt0)	((AN7563_PPE_ACNT1_DISABLED << 6) | \
++					 (acnt0))
++
++#define AN7563_QDMA_SDN_CNTR_CFG	0x0800
++#define AN7563_QDMA_SDN_CNTR_PARAM	0x0804
++#define AN7563_QDMA_SDN_CNTR_DATA_LO	0x0808
++#define AN7563_QDMA_SDN_CNTR_DATA_HI	0x080c
++#define AN7563_QDMA_SDN_CNTR_EN		BIT(31)
++#define AN7563_QDMA_SDN_CNTR_CPU_RX_EN	BIT(3)
++#define AN7563_QDMA_SDN_CNTR_WRITE	BIT(31)
++#define AN7563_QDMA_SDN_CNTR_DONE	BIT(30)
++#define AN7563_QDMA_SDN_CNTR_PACKET	BIT(16)
++
++typedef int (*airoha_natflow_keepalive_t)(unsigned int hash,
++					  unsigned long bytes,
++					  unsigned long packets,
++					  unsigned int *speed_bytes,
++					  unsigned int *speed_packets,
++					  int hw,
++					  unsigned long current_jiffies);
++
++struct airoha_natflow_entry {
++	struct list_head list;
++	struct rcu_head rcu;
++	struct airoha_flow_table_entry flow[FLOW_OFFLOAD_DIR_MAX];
++	u16 hash[FLOW_OFFLOAD_DIR_MAX];
++	struct airoha_qdma *qdma[FLOW_OFFLOAD_DIR_MAX];
++	u64 bytes[FLOW_OFFLOAD_DIR_MAX];
++	u64 packets[FLOW_OFFLOAD_DIR_MAX];
++	u8 committed;
++	u8 extdev;
++	bool retiring;
++	u8 acnt0[FLOW_OFFLOAD_DIR_MAX];
++};
++
+ static const struct rhashtable_params airoha_flow_table_params = {
+ 	.head_offset = offsetof(struct airoha_flow_table_entry, node),
+ 	.key_offset = offsetof(struct airoha_flow_table_entry, cookie),
+@@ -46,6 +122,15 @@ static int airoha_ppe_v1_flow_offload_de
+ 					       struct flow_cls_offload *f);
+ static int airoha_ppe_v1_flow_offload_stats(struct flow_cls_offload *f);
+ static void airoha_ppe_v1_hw_init(struct airoha_ppe *ppe);
++static struct airoha_ppe *airoha_ppe_from_netdev(struct net_device *netdev);
++static int
++airoha_ppe_natflow_remove_locked(struct airoha_ppe *ppe,
++				 struct airoha_natflow_entry *natflow);
++static int
++airoha_ppe_natflow_acnt_release_locked(struct airoha_ppe *ppe,
++				       struct airoha_natflow_entry *natflow,
++				       int dir);
++static void airoha_ppe_natflow_flush(struct airoha_ppe *ppe);
+ 
+ static int airoha_ppe_get_num_stats_entries(struct airoha_ppe *ppe)
+ {
+@@ -97,7 +182,7 @@ static int airoha_ppe_hw_to_sw_idx(struc
+ 	u32 dram_num_entries = ppe->common.eth->soc->ppe_dram_entries;
+ 	u32 ppe_num_entries = sram_num_entries + dram_num_entries;
+ 
+-	if (!airoha_is(ppe->common.eth, airoha_en7523)) {
++	if (!airoha_is(ppe->common.eth, airoha_en7523, airoha_an7563)) {
+ 		if (hw_idx >= ppe_num_entries)
+ 			return -ERANGE;
+ 
+@@ -123,7 +208,8 @@ static u32 airoha_ppe_sw_to_hw_idx(struc
+ {
+ 	u32 sram_num_entries = airoha_ppe_get_total_sram_num_entries(ppe);
+ 
+-	if (airoha_is(ppe->common.eth, airoha_en7523) && sw_idx >= sram_num_entries)
++	if (airoha_is(ppe->common.eth, airoha_en7523, airoha_an7563) &&
++	    sw_idx >= sram_num_entries)
+ 		return ppe->common.eth->soc->ppe_dram_entries + sw_idx - sram_num_entries;
+ 
+ 	return sw_idx;
+@@ -254,6 +340,56 @@ static void airoha_ppe_hw_init(struct ai
+ 		airoha_fe_wr(eth, REG_PPE_TB_BASE(i),
+ 			     ppe->common.foe_dma + sram_tb_size);
+ 
++		if (airoha_is(eth, airoha_an7563)) {
++			/* Keep TB_BASE dynamic and use the AN7563 SDK setup, but
++			 * leave the DRAM table disabled. Enabling it corrupts system
++			 * RAM under load; the 512-entry SRAM table remains available.
++			 */
++			airoha_fe_wr(eth, REG_PPE_GLO_CFG(i),
++				     AN7563_PPE_GLO_CFG & ~PPE_GLO_CFG_EN_MASK);
++			airoha_fe_wr(eth, REG_PPE_PPE_FLOW_CFG(i),
++				     AN7563_PPE_FLOW_CFG);
++			airoha_fe_wr(eth, REG_PPE_IP_PROTO_CHK(i),
++				     AN7563_PPE_IP_PROTO_CHK);
++			airoha_fe_wr(eth, REG_PPE_IP_PROT(i, 0),
++				     AN7563_PPE_IP_PROTO0);
++			airoha_fe_wr(eth, REG_PPE_IP_PROT(i, 1),
++				     AN7563_PPE_IP_PROTO1);
++			airoha_fe_wr(eth, REG_PPE_TB_CFG(i), AN7563_PPE_TB_CFG);
++			airoha_fe_wr(eth, REG_PPE_BIND_RATE(i),
++				     AN7563_PPE_BIND_RATE);
++			airoha_fe_wr(eth, REG_PPE_BIND_LIMIT0(i),
++				     AN7563_PPE_BIND_LIMIT0);
++			airoha_fe_wr(eth, REG_PPE_BIND_LIMIT1(i),
++				     AN7563_PPE_BIND_LIMIT1);
++			airoha_fe_wr(eth, REG_PPE_KEEPALIVE(i),
++				     AN7563_PPE_KEEPALIVE);
++			airoha_fe_wr(eth, REG_PPE_UNBIND_AGE(i),
++				     AN7563_PPE_UNBIND_AGE);
++			airoha_fe_wr(eth, REG_PPE_BND_AGE0(i),
++				     AN7563_PPE_BND_AGE0);
++			airoha_fe_wr(eth, REG_PPE_BND_AGE1(i),
++				     AN7563_PPE_BND_AGE1);
++			airoha_fe_wr(eth, REG_PPE_HASH_SEED(i), PPE_HASH_SEED);
++			airoha_fe_wr(eth, REG_PPE_TB_HASH_CFG(i),
++				     AN7563_PPE_TB_HASH_CFG);
++			airoha_fe_wr(eth, REG_PPE_GLO_CFG(i) + 0x54,
++				     AN7563_PPE_MIRROR);
++			airoha_fe_wr(eth, REG_PPE_GLO_CFG(i) + 0x88,
++				     AN7563_PPE_L2B_CFG);
++			airoha_fe_wr(eth, REG_PPE_GLO_CFG(i) + 0x8c,
++				     AN7563_PPE_L2B_ETYPE_EN);
++			airoha_fe_wr(eth, REG_PPE_GLO_CFG(i) + 0xd0,
++				     AN7563_PPE_L2B_ETYPE0);
++			airoha_fe_wr(eth, REG_PPE_GLO_CFG(i) + 0xd4,
++				     AN7563_PPE_L2B_ETYPE1);
++			airoha_fe_wr(eth, REG_PPE_GLO_CFG(i) + 0xd8,
++				     AN7563_PPE_L2B_ETYPE2);
++			airoha_fe_set(eth, REG_PPE_GLO_CFG(i),
++				      PPE_GLO_CFG_EN_MASK);
++			continue;
++		}
++
+ 		airoha_fe_rmw(eth, REG_PPE_BND_AGE0(i),
+ 			      PPE_BIND_AGE0_DELTA_NON_L4 |
+ 			      PPE_BIND_AGE0_DELTA_UDP,
+@@ -623,9 +759,12 @@ static int airoha_ppe_foe_entry_prepare(
+ 
+ 	/* EN7523 vendor entries use PORT_AG=0 (account group); mainline's 0x1f
+ 	 * yields ib2=0x3e240 vs the vendor's 0x240 for the same flow.
++	 * AN7563 uses all ones to disable both QDMA accounting groups until a
++	 * natflow entry receives a dynamically allocated ACNT0 counter.
+ 	 */
+ 	val = FIELD_PREP(AIROHA_FOE_IB2_PORT_AG,
+-			 airoha_is(eth, airoha_en7523) ? 0x0 : 0x1f);
++			 airoha_is(eth, airoha_en7523) ? 0x0 :
++			 airoha_is(eth, airoha_an7563) ? 0x7ff : 0x1f);
+ 	if (netdev) {
+ 		struct airoha_wdma_info info = {};
+ 
+@@ -906,12 +1045,12 @@ static u32 airoha_ppe_foe_get_entry_hash
+ 	hash ^= hv1 ^ hv2 ^ hv3;
+ 	hash ^= hash >> 16;
+ 
+-	if (airoha_is(ppe->common.eth, airoha_en7523)) {
++	if (airoha_is(ppe->common.eth, airoha_en7523, airoha_an7563)) {
+ 		u32 dram_entries = ppe->common.eth->soc->ppe_dram_entries;
+ 		u32 sram_entries = airoha_ppe_get_total_sram_num_entries(ppe);
+ 
+-		/* For the EN7523, the hardware maps the main BINDs using a mask on the DRAM.
+-		 * We masked to the DRAM boundaries and adjusted sw_idx to point to the area after the SRAM.
++		/* Split-table SoCs map the main BINDs using a mask on the
++		 * DRAM table, then place the software index after SRAM.
+ 		 */
+ 		hash &= (dram_entries - 1);
+ 		hash += sram_entries;
+@@ -1212,9 +1351,15 @@ static int airoha_ppe_foe_remove_flow(st
+ 		data.ib1 &= ~AIROHA_FOE_IB1_BIND_STATE;
+ 		data.ib1 |= FIELD_PREP(AIROHA_FOE_IB1_BIND_STATE,
+ 				       AIROHA_FOE_STATE_INVALID);
+-		err = airoha_ppe_foe_commit_entry(ppe, &data, e->hash, false);
+-		if (err)
+-			return err;
++		/* Teardown disables the AN7563 PPE before releasing quarantine. */
++		if (!e->natflow || !ppe->natflow_stopping) {
++			err = airoha_ppe_foe_commit_entry(ppe, &data, e->hash, false);
++			if (err)
++				return err;
++		}
++		if (e->natflow &&
++		    rcu_access_pointer(ppe->natflow_foe[e->hash]) == e)
++			RCU_INIT_POINTER(ppe->natflow_foe[e->hash], NULL);
+ 		e->data = data;
+ 		e->hash = 0xffff;
+ 	}
+@@ -1686,9 +1831,9 @@ static void airoha_ppe_foe_insert_entry(
+ 	    PPE_PKT_TYPE_BRIDGE)
+ 		goto l2_lookup;
+ 
+-	if (airoha_is(ppe->common.eth, airoha_en7523)) {
+-		/* On EN7523 the offloaded flows live in ppe->pending_flows (the
+-		 * SW hash does not match the HW hash), so they are matched by
++	if (airoha_is(ppe->common.eth, airoha_en7523, airoha_an7563)) {
++		/* On split-table SoCs offloaded flows live in pending_flows.
++		 * The SW hash does not match the HW hash, so they are matched by
+ 		 * skb tuple rather than via foe_flow[index]. The HW may present
+ 		 * the slot either as INVALID (FOE_UNHIT) or as an auto-created
+ 		 * UNBIND entry (HIT_UNBIND, when SRAM auto-learn is active);
+@@ -1705,6 +1850,8 @@ static void airoha_ppe_foe_insert_entry(
+ 				hlist_add_head(&e->list,
+ 					       &ppe->foe_flow[sw_idx]);
+ 				e->hash = sw_idx;
++				if (e->natflow)
++					rcu_assign_pointer(ppe->natflow_foe[sw_idx], e);
+ 			}
+ 		}
+ 
+@@ -1728,9 +1875,17 @@ static void airoha_ppe_foe_insert_entry(
+ 		if (!airoha_ppe_foe_compare_entry(e, hwe))
+ 			continue;
+ 
+-		airoha_ppe_foe_commit_entry(ppe, &e->data, sw_idx, rx_wlan);
+-		commit_done = true;
+-		e->hash = sw_idx;
++		if (!airoha_ppe_foe_commit_entry(ppe, &e->data, sw_idx,
++						 rx_wlan)) {
++			if (e->natflow && e->hash != 0xffff &&
++			    e->hash != sw_idx &&
++			    rcu_access_pointer(ppe->natflow_foe[e->hash]) == e)
++				RCU_INIT_POINTER(ppe->natflow_foe[e->hash], NULL);
++			commit_done = true;
++			e->hash = sw_idx;
++			if (e->natflow)
++				rcu_assign_pointer(ppe->natflow_foe[sw_idx], e);
++		}
+ 	}
+ 
+ 	if (commit_done)
+@@ -1784,7 +1939,7 @@ static int airoha_ppe_foe_flow_commit_en
+ 	e->hash = 0xffff;
+ 
+ 	spin_lock_bh(&ppe_lock);
+-	if (airoha_is(ppe->common.eth, airoha_en7523))
++	if (airoha_is(ppe->common.eth, airoha_en7523, airoha_an7563))
+ 		hlist_add_head(&e->list, &ppe->pending_flows);
+ 	else
+ 		hlist_add_head(&e->list, &ppe->foe_flow[hash]);
+@@ -2270,7 +2425,8 @@ static int airoha_ppe_offload_setup(stru
+ 		 */
+ 		if (!ppe->offload_setup_done) {
+ 			airoha_ppe_hw_init(ppe);
+-			ppe->offload_setup_done = true;
++			dma_wmb();
++			WRITE_ONCE(ppe->offload_setup_done, true);
+ 			dev_info(eth->dev,
+ 				 "PPE offload setup completed (no NPU, CPU-direct)\n");
+ 		}
+@@ -2315,6 +2471,902 @@ error_npu_put:
+ 	return err;
+ }
+ 
++static bool airoha_ppe_natflow_ready(struct airoha_ppe *ppe)
++{
++	return READ_ONCE(ppe->offload_setup_done) ||
++	       rcu_access_pointer(ppe->common.eth->npu);
++}
++
++static struct net_device *
++airoha_ppe_natflow_output_dev(const flow_offload_hw_path_t *path)
++{
++	struct net_device *dev = path->dev;
++
++	/* Natflow preserves the DSA port in the final path, but replaces the
++	 * user device with its conduit and does not carry the DSA flag forward.
++	 */
++	if (path->dsa_port == 0xffff)
++		return dev;
++
++#if IS_ENABLED(CONFIG_NET_DSA)
++	{
++		struct dsa_port *cpu_dp = dev->dsa_ptr;
++		struct dsa_port *dp;
++
++		if (!cpu_dp || !cpu_dp->tag_ops ||
++		    cpu_dp->tag_ops->proto != DSA_TAG_PROTO_MTK)
++			return ERR_PTR(-EOPNOTSUPP);
++
++		dsa_tree_for_each_user_port(dp, cpu_dp->dst) {
++			if (dp->cpu_dp == cpu_dp && dp->index == path->dsa_port &&
++			    dp->user)
++				return dp->user;
++		}
++	}
++#endif
++
++	return ERR_PTR(-ENODEV);
++}
++
++static struct airoha_qdma *
++airoha_ppe_natflow_output_qdma(struct airoha_ppe *ppe,
++			       struct net_device *netdev)
++{
++	struct airoha_gdm_common *gdm;
++	struct airoha_gdm_dev *dev;
++
++	airoha_get_dsa_port(&netdev);
++	gdm = airoha_gdm_common_from_netdev(netdev);
++	if (!gdm || gdm->family != AIROHA_ETH_FAMILY_AIROHA)
++		return NULL;
++
++	dev = gdm->priv;
++	if (!dev || dev->eth != ppe->common.eth)
++		return NULL;
++
++	return &ppe->common.eth->qdma[!airoha_is_lan_gdm_dev(dev)];
++}
++
++static bool
++airoha_ppe_natflow_is_extdev(const flow_offload_hw_path_t *path)
++{
++	if (path->flags & FLOW_OFFLOAD_PATH_EXTDEV)
++		return true;
++
++	return path->dev->netdev_ops->ndo_flow_offload !=
++	       airoha_ppe_natflow_offload;
++}
++
++static int
++airoha_ppe_natflow_cpu_port(struct airoha_ppe *ppe,
++			    const flow_offload_hw_path_t *src)
++{
++	struct airoha_qdma *qdma;
++	struct net_device *idev;
++
++	idev = airoha_ppe_natflow_output_dev(src);
++	if (IS_ERR(idev))
++		return PTR_ERR(idev);
++
++	qdma = airoha_ppe_natflow_output_qdma(ppe, idev);
++	if (!qdma)
++		return -EOPNOTSUPP;
++
++	return qdma == &ppe->common.eth->qdma[0] ? FE_PSE_PORT_CDM1 :
++						       FE_PSE_PORT_CDM2;
++}
++
++static u32 *
++airoha_ppe_natflow_entry_ib2(struct airoha_foe_entry *entry)
++{
++	int type = FIELD_GET(AIROHA_FOE_IB1_BIND_PACKET_TYPE, entry->ib1);
++
++	if (type == PPE_PKT_TYPE_BRIDGE)
++		return &entry->bridge.ib2;
++	if (type >= PPE_PKT_TYPE_IPV6_ROUTE_3T)
++		return &entry->ipv6.ib2;
++
++	return &entry->ipv4.ib2;
++}
++
++static int
++airoha_ppe_natflow_sdn_cmd(struct airoha_qdma *qdma, u8 acnt0,
++			   bool packets, bool write, u64 *counter)
++{
++	u32 param = acnt0;
++	u32 val;
++	int err;
++
++	if (packets)
++		param |= AN7563_QDMA_SDN_CNTR_PACKET;
++	if (write) {
++		airoha_qdma_wr(qdma, AN7563_QDMA_SDN_CNTR_DATA_LO, 0);
++		airoha_qdma_wr(qdma, AN7563_QDMA_SDN_CNTR_DATA_HI, 0);
++		param |= AN7563_QDMA_SDN_CNTR_WRITE;
++	}
++
++	airoha_qdma_wr(qdma, AN7563_QDMA_SDN_CNTR_PARAM, param);
++	err = read_poll_timeout_atomic(airoha_qdma_rr, val,
++				       val & AN7563_QDMA_SDN_CNTR_DONE,
++				       1, 100, false, qdma,
++				       AN7563_QDMA_SDN_CNTR_PARAM);
++	if (err || !counter)
++		return err;
++
++	val = airoha_qdma_rr(qdma, AN7563_QDMA_SDN_CNTR_DATA_LO);
++	*counter = val;
++	*counter |= (u64)airoha_qdma_rr(qdma,
++					AN7563_QDMA_SDN_CNTR_DATA_HI) << 32;
++
++	return 0;
++}
++
++static int
++airoha_ppe_natflow_qdma_id(struct airoha_ppe *ppe,
++			   struct airoha_qdma *qdma)
++{
++	int id = qdma - &ppe->common.eth->qdma[0];
++
++	return id >= 0 && id < AIROHA_MAX_NUM_QDMA ? id : -EINVAL;
++}
++
++static int
++airoha_ppe_natflow_acnt_clear(struct airoha_qdma *qdma, u8 acnt0)
++{
++	int err, err2;
++
++	err = airoha_ppe_natflow_sdn_cmd(qdma, acnt0, false, true, NULL);
++	err2 = airoha_ppe_natflow_sdn_cmd(qdma, acnt0, true, true, NULL);
++
++	return err ?: err2;
++}
++
++static bool
++airoha_ppe_natflow_entry_bind_expired(struct airoha_ppe *ppe,
++				      struct airoha_flow_table_entry *flow)
++{
++	struct airoha_foe_entry *hwe;
++	u32 age, ib1, state;
++	bool expired = false;
++
++	spin_lock_bh(&ppe_lock);
++	if (flow->hash == 0xffff) {
++		expired = true;
++		goto unlock;
++	}
++
++	hwe = airoha_ppe_foe_get_entry_locked(ppe, flow->hash);
++	if (!hwe)
++		goto unlock;
++
++	ib1 = READ_ONCE(hwe->ib1);
++	state = FIELD_GET(AIROHA_FOE_IB1_BIND_STATE, ib1);
++	if (state != AIROHA_FOE_STATE_BIND ||
++	    !airoha_ppe_foe_compare_entry(flow, hwe)) {
++		expired = true;
++		goto unlock;
++	}
++
++	age = ib1 & AIROHA_FOE_IB1_BIND_UDP ? AN7563_PPE_BIND_AGE_UDP :
++						  AN7563_PPE_BIND_AGE_TCP;
++	if (airoha_ppe_get_entry_idle_time(ppe, ib1) >= age)
++		expired = true;
++unlock:
++	spin_unlock_bh(&ppe_lock);
++
++	return expired;
++}
++
++static bool
++airoha_ppe_natflow_acnt_reclaim_locked(struct airoha_ppe *ppe,
++				       struct airoha_qdma *qdma)
++{
++	struct airoha_natflow_entry *natflow, *tmp;
++	int dir;
++
++	lockdep_assert_held(&ppe->natflow_lock);
++
++	list_for_each_entry_safe(natflow, tmp, &ppe->natflow_flows, list) {
++		for (dir = 0; dir < FLOW_OFFLOAD_DIR_MAX; dir++) {
++			if (natflow->qdma[dir] != qdma ||
++			    natflow->acnt0[dir] == AN7563_PPE_ACNT0_DISABLED)
++				continue;
++			if (!airoha_ppe_natflow_entry_bind_expired(ppe, &natflow->flow[dir]))
++				continue;
++
++			if (natflow->committed & BIT(dir)) {
++				if (airoha_ppe_foe_flow_remove_entry(ppe, &natflow->flow[dir]))
++					return false;
++				natflow->committed &= ~BIT(dir);
++			}
++			if (airoha_ppe_natflow_acnt_release_locked(ppe, natflow, dir))
++				return false;
++			if (ppe->natflow_hash[natflow->hash[dir]] == natflow)
++				ppe->natflow_hash[natflow->hash[dir]] = NULL;
++			if (!natflow->committed)
++				airoha_ppe_natflow_remove_locked(ppe, natflow);
++			return true;
++		}
++	}
++
++	return false;
++}
++
++static void
++airoha_ppe_natflow_acnt_alloc_locked(struct airoha_ppe *ppe,
++				     struct airoha_natflow_entry *natflow,
++				     int dir)
++{
++	struct airoha_qdma *qdma = natflow->qdma[dir];
++	unsigned long acnt0;
++	u32 *ib2;
++	int qdma_id;
++
++	lockdep_assert_held(&ppe->natflow_lock);
++
++	if (!qdma)
++		return;
++
++	qdma_id = airoha_ppe_natflow_qdma_id(ppe, qdma);
++	if (qdma_id < 0)
++		return;
++
++retry:
++	acnt0 = find_first_zero_bit(ppe->natflow_acnt0[qdma_id],
++				    AN7563_PPE_ACNT0_ENTRIES);
++	if (acnt0 >= AN7563_PPE_ACNT0_ENTRIES) {
++		if (!airoha_ppe_natflow_acnt_reclaim_locked(ppe, qdma))
++			return;
++		goto retry;
++	}
++
++	__set_bit(acnt0, ppe->natflow_acnt0[qdma_id]);
++	if (airoha_ppe_natflow_acnt_clear(qdma, acnt0)) {
++		__clear_bit(acnt0, ppe->natflow_acnt0[qdma_id]);
++		dev_warn_ratelimited(ppe->common.eth->dev,
++				     "failed to clear QDMA%d ACNT0 %lu\n",
++				     qdma_id, acnt0);
++		return;
++	}
++
++	natflow->acnt0[dir] = acnt0;
++	ib2 = airoha_ppe_natflow_entry_ib2(&natflow->flow[dir].data);
++	*ib2 &= ~AIROHA_FOE_IB2_PORT_AG;
++	*ib2 |= FIELD_PREP(AIROHA_FOE_IB2_PORT_AG,
++			   AN7563_PPE_PORT_AG(acnt0));
++}
++
++static int
++airoha_ppe_natflow_acnt_release_locked(struct airoha_ppe *ppe,
++				       struct airoha_natflow_entry *natflow,
++				       int dir)
++{
++	struct airoha_qdma *qdma = natflow->qdma[dir];
++	u8 acnt0 = natflow->acnt0[dir];
++	int qdma_id, err;
++
++	lockdep_assert_held(&ppe->natflow_lock);
++
++	if (!qdma || acnt0 == AN7563_PPE_ACNT0_DISABLED)
++		return 0;
++
++	qdma_id = airoha_ppe_natflow_qdma_id(ppe, qdma);
++	if (qdma_id < 0)
++		return qdma_id;
++	if (!ppe->natflow_stopping) {
++		err = airoha_ppe_natflow_acnt_clear(qdma, acnt0);
++		if (err) {
++			dev_warn_ratelimited(ppe->common.eth->dev,
++					     "failed to clear QDMA%d ACNT0 %u\n",
++					     qdma_id, acnt0);
++			return err;
++		}
++	}
++	__clear_bit(acnt0, ppe->natflow_acnt0[qdma_id]);
++
++	natflow->acnt0[dir] = AN7563_PPE_ACNT0_DISABLED;
++
++	return 0;
++}
++
++static int
++airoha_ppe_natflow_acnt_read_locked(struct airoha_ppe *ppe,
++				    struct airoha_natflow_entry *natflow,
++				    int dir, u64 *bytes, u64 *packets)
++{
++	struct airoha_qdma *qdma = natflow->qdma[dir];
++	u64 raw_bytes, total_bytes, total_packets, overhead;
++	u8 acnt0 = natflow->acnt0[dir];
++	int err;
++
++	lockdep_assert_held(&ppe->natflow_lock);
++
++	if (!qdma || acnt0 == AN7563_PPE_ACNT0_DISABLED)
++		return -ENODATA;
++
++	err = airoha_ppe_natflow_sdn_cmd(qdma, acnt0, true, false,
++					 &total_packets);
++	if (err)
++		return err;
++
++	err = airoha_ppe_natflow_sdn_cmd(qdma, acnt0, false, false,
++					 &raw_bytes);
++	if (err)
++		return err;
++
++	overhead = total_packets * 20;
++	total_bytes = raw_bytes >= overhead ? raw_bytes - overhead : 0;
++	*packets = total_packets >= natflow->packets[dir] ?
++		   total_packets - natflow->packets[dir] : total_packets;
++	*bytes = total_bytes >= natflow->bytes[dir] ?
++		 total_bytes - natflow->bytes[dir] : total_bytes;
++	natflow->packets[dir] = total_packets;
++	natflow->bytes[dir] = total_bytes;
++
++	return 0;
++}
++
++static int
++airoha_ppe_natflow_prepare(struct airoha_ppe *ppe,
++			   struct airoha_foe_entry *entry,
++			   const flow_offload_tuple_t *tuple,
++			   const flow_offload_tuple_t *reply,
++			   const flow_offload_hw_path_t *src,
++			   const flow_offload_hw_path_t *dest,
++			   struct airoha_qdma **qdma, bool *extdev)
++{
++	struct airoha_flow_data data = {};
++	struct net_device *odev;
++	int cpu_port = -EINVAL, err, type;
++
++	if (!(dest->flags & FLOW_OFFLOAD_PATH_ETHERNET) ||
++	    dest->flags & (FLOW_OFFLOAD_PATH_STOP | FLOW_OFFLOAD_PATH_DEL))
++		return -EOPNOTSUPP;
++
++	*extdev = airoha_ppe_natflow_is_extdev(dest);
++	if (*extdev) {
++		cpu_port = airoha_ppe_natflow_cpu_port(ppe, src);
++		if (cpu_port < 0)
++			return cpu_port;
++		odev = NULL;
++		*qdma = NULL;
++	} else {
++		odev = airoha_ppe_natflow_output_dev(dest);
++		if (IS_ERR(odev))
++			return PTR_ERR(odev);
++		*qdma = airoha_ppe_natflow_output_qdma(ppe, odev);
++	}
++
++	if (!is_valid_ether_addr(dest->eth_src) ||
++	    !is_valid_ether_addr(dest->eth_dest))
++		return -EINVAL;
++
++	memcpy(data.eth.h_source, dest->eth_src, ETH_ALEN);
++	memcpy(data.eth.h_dest, dest->eth_dest, ETH_ALEN);
++	if (dest->flags & FLOW_OFFLOAD_PATH_VLAN) {
++		if (dest->vlan_proto != htons(ETH_P_8021Q) ||
++		    dest->vlan_id > VLAN_VID_MASK)
++			return -EOPNOTSUPP;
++		data.vlan.hdr[0].id = dest->vlan_id;
++		data.vlan.hdr[0].proto = dest->vlan_proto;
++		data.vlan.num = 1;
++	}
++	if (dest->flags & FLOW_OFFLOAD_PATH_PPPOE) {
++		data.pppoe.sid = dest->pppoe_sid;
++		data.pppoe.num = 1;
++	}
++
++	switch (tuple->l3proto) {
++	case AF_INET:
++		type = PPE_PKT_TYPE_IPV4_HNAPT;
++		break;
++	case AF_INET6:
++		type = PPE_PKT_TYPE_IPV6_ROUTE_5T;
++		break;
++	default:
++		return -EAFNOSUPPORT;
++	}
++
++	err = airoha_ppe_foe_entry_prepare(ppe->common.eth, entry, odev, type,
++					   &data, tuple->l4proto, 0);
++	if (err)
++		return err;
++	if (*extdev) {
++		u32 *ib2 = airoha_ppe_natflow_entry_ib2(entry);
++
++		*ib2 &= ~(AIROHA_FOE_IB2_NBQ | AIROHA_FOE_IB2_PSE_PORT |
++			  AIROHA_FOE_IB2_PSE_QOS | AIROHA_FOE_IB2_FAST_PATH);
++		*ib2 |= FIELD_PREP(AIROHA_FOE_IB2_PSE_PORT, cpu_port);
++	}
++
++	entry->ib1 |= AIROHA_FOE_IB1_BIND_KEEPALIVE;
++	if (dest->flags & FLOW_OFFLOAD_PATH_BRIDGE)
++		entry->ib1 &= ~AIROHA_FOE_IB1_BIND_TTL;
++
++	if (tuple->l3proto == AF_INET) {
++		data.v4.src_addr = tuple->src_v4.s_addr;
++		data.v4.dst_addr = tuple->dst_v4.s_addr;
++		data.src_port = tuple->src_port;
++		data.dst_port = tuple->dst_port;
++		err = airoha_ppe_foe_entry_set_ipv4_tuple(entry, &data, false);
++		if (err)
++			return err;
++
++		data.v4.src_addr = reply->dst_v4.s_addr;
++		data.v4.dst_addr = reply->src_v4.s_addr;
++		data.src_port = reply->dst_port;
++		data.dst_port = reply->src_port;
++		err = airoha_ppe_foe_entry_set_ipv4_tuple(entry, &data, true);
++	} else {
++		data.v6.src_addr = tuple->src_v6;
++		data.v6.dst_addr = tuple->dst_v6;
++		data.src_port = tuple->src_port;
++		data.dst_port = tuple->dst_port;
++		err = airoha_ppe_foe_entry_set_ipv6_tuple(entry, &data);
++	}
++
++	return err;
++}
++
++static u32
++airoha_ppe_natflow_hash(const struct airoha_foe_entry *entry)
++{
++	u32 hash, hv1, hv2, hv3;
++	int type = FIELD_GET(AIROHA_FOE_IB1_BIND_PACKET_TYPE, entry->ib1);
++
++	switch (type) {
++	case PPE_PKT_TYPE_IPV4_HNAPT:
++		hv1 = entry->ipv4.orig_tuple.ports;
++		hv2 = entry->ipv4.orig_tuple.dest_ip;
++		hv3 = entry->ipv4.orig_tuple.src_ip;
++		break;
++	case PPE_PKT_TYPE_IPV6_ROUTE_5T:
++		hv1 = entry->ipv6.src_ip[3] ^ entry->ipv6.dest_ip[3];
++		hv1 ^= entry->ipv6.ports;
++		hv2 = entry->ipv6.src_ip[2] ^ entry->ipv6.dest_ip[2];
++		hv2 ^= entry->ipv6.dest_ip[0];
++		hv3 = entry->ipv6.src_ip[1] ^ entry->ipv6.dest_ip[1];
++		hv3 ^= entry->ipv6.src_ip[0];
++		break;
++	default:
++		return U32_MAX;
++	}
++
++	/* AN7563 SRAM hash mode 1 uses the natflow tuple mixer, then folds
++	 * the 32-bit result into 128 four-way buckets.
++	 */
++	hash = (hv1 & hv2) | ((~hv1) & hv3);
++	hash = (hash >> 24) | (hash << 8);
++	hash ^= hv1 ^ hv2 ^ hv3;
++
++	return ((hash & 0x7f) ^
++		((hash >> 7) & 0x7f) ^
++		((hash >> 14) & 0x7f) ^
++		((hash >> 21) & 0x7f) ^
++		(hash >> 28)) << 2;
++}
++
++static int
++airoha_ppe_natflow_commit_entry(struct airoha_ppe *ppe,
++				struct airoha_flow_table_entry *flow,
++				u16 hash)
++{
++	struct airoha_foe_entry *hwe;
++	u32 state;
++	int err;
++
++	flow->type = FLOW_TYPE_L4;
++
++	spin_lock_bh(&ppe_lock);
++	if (!hlist_empty(&ppe->foe_flow[hash])) {
++		err = -EBUSY;
++		goto unlock;
++	}
++
++	hwe = airoha_ppe_foe_get_entry_locked(ppe, hash);
++	if (!hwe) {
++		err = -EIO;
++		goto unlock;
++	}
++
++	state = FIELD_GET(AIROHA_FOE_IB1_BIND_STATE, hwe->ib1);
++	if (state == AIROHA_FOE_STATE_BIND) {
++		err = -EBUSY;
++		goto unlock;
++	}
++
++	/* A timed-out write may still reach SRAM. Reserve ownership before
++	 * requesting it so rollback can quarantine and invalidate the slot.
++	 */
++	hlist_add_head(&flow->list, &ppe->foe_flow[hash]);
++	flow->hash = hash;
++	rcu_assign_pointer(ppe->natflow_foe[hash], flow);
++	err = airoha_ppe_foe_commit_entry(ppe, &flow->data, hash, false);
++unlock:
++	spin_unlock_bh(&ppe_lock);
++
++	return err;
++}
++
++static int
++airoha_ppe_natflow_remove_locked(struct airoha_ppe *ppe,
++				 struct airoha_natflow_entry *natflow)
++{
++	int i, err = 0, ret;
++
++	lockdep_assert_held(&ppe->natflow_lock);
++
++	if (list_empty(&natflow->list))
++		return 0;
++
++	natflow->retiring = true;
++	for (i = 0; i < FLOW_OFFLOAD_DIR_MAX; i++) {
++		if (natflow->committed & BIT(i)) {
++			ret = airoha_ppe_foe_flow_remove_entry(ppe, &natflow->flow[i]);
++			if (ret) {
++				err = ret;
++				continue;
++			}
++			natflow->committed &= ~BIT(i);
++		}
++		ret = airoha_ppe_natflow_acnt_release_locked(ppe, natflow, i);
++		if (ret)
++			err = ret;
++	}
++	if (err) {
++		if (!ppe->natflow_stopping)
++			mod_delayed_work(system_wq, &ppe->natflow_retire_work, HZ);
++		return err;
++	}
++
++	list_del_init(&natflow->list);
++	for (i = 0; i < FLOW_OFFLOAD_DIR_MAX; i++) {
++		if (ppe->natflow_hash[natflow->hash[i]] == natflow)
++			ppe->natflow_hash[natflow->hash[i]] = NULL;
++	}
++
++	kfree_rcu(natflow, rcu);
++
++	return 0;
++}
++
++static void airoha_ppe_natflow_retire_work(struct work_struct *work)
++{
++	struct airoha_ppe *ppe = container_of(to_delayed_work(work),
++					   struct airoha_ppe, natflow_retire_work);
++	struct airoha_natflow_entry *natflow, *tmp;
++
++	spin_lock_bh(&ppe->natflow_lock);
++	list_for_each_entry_safe(natflow, tmp, &ppe->natflow_flows, list)
++		if (natflow->retiring)
++			airoha_ppe_natflow_remove_locked(ppe, natflow);
++	spin_unlock_bh(&ppe->natflow_lock);
++}
++
++static int airoha_ppe_natflow_delete(struct airoha_ppe *ppe, u16 hash1,
++				     u16 hash2)
++{
++	struct airoha_natflow_entry *natflow;
++	struct airoha_natflow_entry *first;
++	u32 sram_entries = airoha_ppe_get_total_sram_num_entries(ppe);
++	int err = 0, ret;
++
++	if (!ppe->natflow_hash)
++		return 0;
++
++	spin_lock_bh(&ppe->natflow_lock);
++	natflow = hash1 < sram_entries ? ppe->natflow_hash[hash1] : NULL;
++	first = natflow;
++	if (natflow)
++		err = airoha_ppe_natflow_remove_locked(ppe, natflow);
++	natflow = hash2 < sram_entries ? ppe->natflow_hash[hash2] : NULL;
++	if (natflow && natflow != first) {
++		ret = airoha_ppe_natflow_remove_locked(ppe, natflow);
++		if (ret)
++			err = ret;
++	}
++	spin_unlock_bh(&ppe->natflow_lock);
++
++	return err;
++}
++
++static int airoha_ppe_natflow_add(struct airoha_ppe *ppe,
++				  flow_offload_t *offload,
++				  flow_offload_hw_path_t *src,
++				  flow_offload_hw_path_t *dest)
++{
++	const flow_offload_tuple_t *orig, *reply;
++	struct airoha_natflow_entry *natflow;
++	struct airoha_natflow_entry *old;
++	struct airoha_foe_entry entry[FLOW_OFFLOAD_DIR_MAX];
++	struct airoha_qdma *qdma[FLOW_OFFLOAD_DIR_MAX];
++	bool extdev[FLOW_OFFLOAD_DIR_MAX];
++	u16 hash[FLOW_OFFLOAD_DIR_MAX];
++	u32 expected, sram_entries;
++	int err, i;
++
++	if (offload->flags || !offload->priv)
++		return -EINVAL;
++
++	orig = &offload->tuplehash[FLOW_OFFLOAD_DIR_ORIGINAL].tuple;
++	reply = &offload->tuplehash[FLOW_OFFLOAD_DIR_REPLY].tuple;
++	if (orig->l3proto != reply->l3proto ||
++	    orig->l4proto != reply->l4proto ||
++	    (orig->l4proto != IPPROTO_TCP && orig->l4proto != IPPROTO_UDP))
++		return -EINVAL;
++	if (orig->l3proto == AF_INET6 &&
++	    (!ipv6_addr_equal(&orig->src_v6, &reply->dst_v6) ||
++	     !ipv6_addr_equal(&orig->dst_v6, &reply->src_v6) ||
++	     orig->src_port != reply->dst_port ||
++	     orig->dst_port != reply->src_port))
++		return -EOPNOTSUPP;
++
++	err = airoha_ppe_natflow_prepare(ppe, &entry[FLOW_OFFLOAD_DIR_ORIGINAL],
++					 orig, reply, src, dest,
++					 &qdma[FLOW_OFFLOAD_DIR_ORIGINAL],
++					 &extdev[FLOW_OFFLOAD_DIR_ORIGINAL]);
++	if (err)
++		return err;
++	err = airoha_ppe_natflow_prepare(ppe, &entry[FLOW_OFFLOAD_DIR_REPLY],
++					 reply, orig, dest, src,
++					 &qdma[FLOW_OFFLOAD_DIR_REPLY],
++					 &extdev[FLOW_OFFLOAD_DIR_REPLY]);
++	if (err)
++		return err;
++
++	hash[FLOW_OFFLOAD_DIR_ORIGINAL] = offload->timeout >> 16;
++	hash[FLOW_OFFLOAD_DIR_REPLY] = offload->timeout;
++	sram_entries = airoha_ppe_get_total_sram_num_entries(ppe);
++	if (sram_entries != AN7563_PPE_SRAM_ENTRIES ||
++	    hash[FLOW_OFFLOAD_DIR_ORIGINAL] >= sram_entries ||
++	    hash[FLOW_OFFLOAD_DIR_REPLY] >= sram_entries ||
++	    hash[FLOW_OFFLOAD_DIR_ORIGINAL] == hash[FLOW_OFFLOAD_DIR_REPLY])
++		return -EINVAL;
++
++	for (i = 0; i < FLOW_OFFLOAD_DIR_MAX; i++) {
++		expected = airoha_ppe_natflow_hash(&entry[i]);
++		if ((hash[i] & ~(AN7563_PPE_SRAM_WAYS - 1)) != expected) {
++			dev_warn_ratelimited(ppe->common.eth->dev,
++					     "natflow hash mismatch: dir %d slot %#x expected bucket %#x\n",
++					     i, hash[i], expected);
++			return -EINVAL;
++		}
++	}
++
++	natflow = kzalloc(sizeof(*natflow), GFP_ATOMIC);
++	if (!natflow)
++		return -ENOMEM;
++
++	INIT_LIST_HEAD(&natflow->list);
++	for (i = 0; i < FLOW_OFFLOAD_DIR_MAX; i++) {
++		struct airoha_flow_table_entry *flow = &natflow->flow[i];
++
++		natflow->qdma[i] = qdma[i];
++		if (extdev[i])
++			natflow->extdev |= BIT(i);
++		natflow->acnt0[i] = AN7563_PPE_ACNT0_DISABLED;
++		natflow->hash[i] = hash[i];
++		flow->data = entry[i];
++		flow->hash = 0xffff;
++		flow->natflow = natflow;
++		flow->natflow_hash = hash[i];
++		INIT_HLIST_NODE(&flow->list);
++	}
++
++	rcu_assign_pointer(ppe->natflow_keepalive, offload->priv);
++
++	spin_lock_bh(&ppe->natflow_lock);
++	if (ppe->natflow_stopping) {
++		err = -ESHUTDOWN;
++		goto free_entry;
++	}
++	old = ppe->natflow_hash[hash[FLOW_OFFLOAD_DIR_ORIGINAL]];
++	if (old) {
++		err = airoha_ppe_natflow_remove_locked(ppe, old);
++		if (err)
++			goto free_entry;
++	}
++	old = ppe->natflow_hash[hash[FLOW_OFFLOAD_DIR_REPLY]];
++	if (old) {
++		err = airoha_ppe_natflow_remove_locked(ppe, old);
++		if (err)
++			goto free_entry;
++	}
++
++	list_add_tail(&natflow->list, &ppe->natflow_flows);
++	for (i = 0; i < FLOW_OFFLOAD_DIR_MAX; i++)
++		ppe->natflow_hash[hash[i]] = natflow;
++
++	for (i = 0; i < FLOW_OFFLOAD_DIR_MAX; i++) {
++		airoha_ppe_natflow_acnt_alloc_locked(ppe, natflow, i);
++		err = airoha_ppe_natflow_commit_entry(ppe, &natflow->flow[i],
++						      hash[i]);
++		if (natflow->flow[i].hash != 0xffff)
++			natflow->committed |= BIT(i);
++		if (err)
++			goto rollback;
++	}
++
++	spin_unlock_bh(&ppe->natflow_lock);
++
++	return 0;
++
++rollback:
++	airoha_ppe_natflow_remove_locked(ppe, natflow);
++	spin_unlock_bh(&ppe->natflow_lock);
++
++	return err;
++free_entry:
++	spin_unlock_bh(&ppe->natflow_lock);
++	kfree(natflow);
++
++	return err;
++}
++
++int airoha_ppe_natflow_offload(flow_offload_type_t type,
++			       flow_offload_t *flow,
++			       flow_offload_hw_path_t *src,
++			       flow_offload_hw_path_t *dest)
++{
++	struct airoha_ppe *src_ppe = NULL, *dest_ppe = NULL;
++	struct airoha_ppe *ppe;
++
++	if (src->dev->netdev_ops->ndo_flow_offload ==
++	    airoha_ppe_natflow_offload)
++		src_ppe = airoha_ppe_from_netdev(src->dev);
++	if (dest->dev->netdev_ops->ndo_flow_offload ==
++	    airoha_ppe_natflow_offload)
++		dest_ppe = airoha_ppe_from_netdev(dest->dev);
++
++	ppe = src_ppe ?: dest_ppe;
++
++	if (!ppe || (src_ppe && dest_ppe && src_ppe != dest_ppe) ||
++	    !airoha_is(ppe->common.eth, airoha_an7563))
++		return -EOPNOTSUPP;
++
++	if (type == FLOW_OFFLOAD_DEL) {
++		return airoha_ppe_natflow_delete(ppe, flow->timeout >> 16,
++						 flow->timeout);
++	}
++	if (type != FLOW_OFFLOAD_ADD)
++		return -EOPNOTSUPP;
++
++	if (!airoha_ppe_natflow_ready(ppe))
++		return -EAGAIN;
++
++	return airoha_ppe_natflow_add(ppe, flow, src, dest);
++}
++
++int airoha_ppe_natflow_offload_check(flow_offload_hw_path_t *path)
++{
++	struct airoha_ppe *ppe;
++
++	if (!(path->flags & FLOW_OFFLOAD_PATH_ETHERNET))
++		return -EINVAL;
++
++	ppe = airoha_ppe_from_netdev(path->dev);
++	if (!ppe || !airoha_is(ppe->common.eth, airoha_an7563))
++		return -EOPNOTSUPP;
++
++	if (path->flags & FLOW_OFFLOAD_PATH_STOP) {
++		RCU_INIT_POINTER(ppe->natflow_keepalive, NULL);
++		synchronize_rcu();
++	} else if (path->flags & FLOW_OFFLOAD_PATH_DEL) {
++		return airoha_ppe_natflow_delete(ppe, path->vlan_proto,
++						 path->vlan_id);
++	}
++
++	return 0;
++}
++
++bool airoha_ppe_natflow_rx(struct airoha_ppe *ppe, struct sk_buff *skb,
++			   u16 hash, u8 reason)
++{
++	struct airoha_flow_table_entry *flow;
++	struct airoha_natflow_entry *natflow;
++	airoha_natflow_keepalive_t keepalive;
++	bool force_cpu = reason == CRSN_22;
++	u64 bytes = 0, packets = 0;
++	u32 sw_idx;
++	int dir, err;
++
++	if (!ppe || (!force_cpu &&
++	    (reason < AN7563_PPE_CRSN_KEEPALIVE_MIN ||
++	     reason > AN7563_PPE_CRSN_KEEPALIVE_MAX)) || !ppe->natflow_foe)
++		return false;
++	if (airoha_ppe_hw_to_sw_idx(ppe, hash, &sw_idx))
++		return !force_cpu;
++
++	rcu_read_lock();
++	flow = rcu_dereference(ppe->natflow_foe[sw_idx]);
++	keepalive = rcu_dereference(ppe->natflow_keepalive);
++	if (!flow || !flow->natflow || !keepalive)
++		goto out;
++
++	natflow = flow->natflow;
++	if (flow == &natflow->flow[FLOW_OFFLOAD_DIR_ORIGINAL])
++		dir = FLOW_OFFLOAD_DIR_ORIGINAL;
++	else if (flow == &natflow->flow[FLOW_OFFLOAD_DIR_REPLY])
++		dir = FLOW_OFFLOAD_DIR_REPLY;
++	else
++		goto out;
++
++	spin_lock_bh(&ppe->natflow_lock);
++	if (rcu_access_pointer(ppe->natflow_foe[sw_idx]) != flow ||
++	    flow->hash != sw_idx || flow->natflow != natflow ||
++	    !(natflow->committed & BIT(dir)) || natflow->retiring ||
++	    list_empty(&natflow->list)) {
++		spin_unlock_bh(&ppe->natflow_lock);
++		goto out;
++	}
++	if (force_cpu) {
++		bool extdev = natflow->extdev & BIT(dir);
++
++		spin_unlock_bh(&ppe->natflow_lock);
++		if (!extdev)
++			goto out;
++
++		skb_set_hash(skb, AN7563_NATFLOW_QUEUE_MAPPING_MAGIC |
++			     flow->natflow_hash, PKT_HASH_TYPE_L4);
++		skb->vlan_tci |= AN7563_NATFLOW_QUEUE_MAPPING_MAGIC;
++		skb->pkt_type = PACKET_HOST;
++		skb->protocol = eth_hdr(skb)->h_proto;
++		goto out;
++	}
++
++	err = airoha_ppe_natflow_acnt_read_locked(ppe, natflow, dir,
++						  &bytes, &packets);
++	spin_unlock_bh(&ppe->natflow_lock);
++	if (err && err != -ENODATA)
++		dev_warn_ratelimited(ppe->common.eth->dev,
++				     "failed to read natflow ACNT0 for hash %#x\n",
++				     flow->natflow_hash);
++
++	err = keepalive(flow->natflow_hash, (unsigned long)bytes,
++			(unsigned long)packets, NULL, NULL, 2, jiffies);
++	if (err) {
++		spin_lock_bh(&ppe->natflow_lock);
++		if (rcu_access_pointer(ppe->natflow_foe[sw_idx]) == flow &&
++		    flow->hash == sw_idx && flow->natflow == natflow &&
++		    !list_empty(&natflow->list))
++			airoha_ppe_natflow_remove_locked(ppe, natflow);
++		spin_unlock_bh(&ppe->natflow_lock);
++	}
++out:
++	rcu_read_unlock();
++
++	return !force_cpu;
++}
++
++static void airoha_ppe_natflow_flush(struct airoha_ppe *ppe)
++{
++	struct airoha_natflow_entry *natflow;
++
++	if (!ppe->natflow_hash)
++		return;
++
++	spin_lock_bh(&ppe->natflow_lock);
++	ppe->natflow_stopping = true;
++	/* Serialize hardware shutdown with the retirement worker. No netdev
++	 * remains active, and new allocations are rejected once stopping.
++	 */
++	airoha_fe_clear(ppe->common.eth, REG_PPE_GLO_CFG(0), PPE_GLO_CFG_EN_MASK);
++	airoha_fe_rr(ppe->common.eth, REG_PPE_GLO_CFG(0));
++	spin_unlock_bh(&ppe->natflow_lock);
++	cancel_delayed_work_sync(&ppe->natflow_retire_work);
++
++	RCU_INIT_POINTER(ppe->natflow_keepalive, NULL);
++	synchronize_rcu();
++
++	spin_lock_bh(&ppe->natflow_lock);
++	while (!list_empty(&ppe->natflow_flows)) {
++		natflow = list_first_entry(&ppe->natflow_flows,
++					   struct airoha_natflow_entry, list);
++		airoha_ppe_natflow_remove_locked(ppe, natflow);
++	}
++	spin_unlock_bh(&ppe->natflow_lock);
++}
++
+ int airoha_ppe_setup_tc_block_cb(struct airoha_ppe_dev *dev, void *type_data)
+ {
+ 	struct airoha_ppe *ppe = dev->priv;
+@@ -2483,7 +3535,7 @@ static void airoha_ppe_common_disable(st
+ 
+ static int airoha_ppe_datapath_init(struct airoha_eth *eth)
+ {
+-	int foe_size, err, ppe_num_stats_entries;
++	int foe_size, err, i, ppe_num_stats_entries;
+ 	u32 ppe_num_entries;
+ 	struct airoha_ppe *ppe;
+ 
+@@ -2499,6 +3551,9 @@ static int airoha_ppe_datapath_init(stru
+ 	ppe->common.dev.ops.check_skb = airoha_ppe_check_skb;
+ 	INIT_LIST_HEAD(&ppe->block_cb_list);
+ 	INIT_HLIST_HEAD(&ppe->pending_flows);
++	spin_lock_init(&ppe->natflow_lock);
++	INIT_LIST_HEAD(&ppe->natflow_flows);
++	INIT_DELAYED_WORK(&ppe->natflow_retire_work, airoha_ppe_natflow_retire_work);
+ 
+ 	ppe_num_entries = airoha_ppe_get_total_num_entries(ppe);
+ 	foe_size = ppe_num_entries * AIROHA_FOE_ENTRY_SIZE;
+@@ -2513,6 +3568,23 @@ static int airoha_ppe_datapath_init(stru
+ 		dev_err(eth->dev, "OOM allocating FOE flows array\n");
+ 		return -ENOMEM;
+ 	}
++	if (airoha_is(eth, airoha_an7563)) {
++		ppe->natflow_hash = devm_kcalloc(eth->dev,
++						 airoha_ppe_get_total_sram_num_entries(ppe),
++						 sizeof(*ppe->natflow_hash),
++						 GFP_KERNEL);
++		ppe->natflow_foe = devm_kcalloc(eth->dev, ppe_num_entries,
++						sizeof(*ppe->natflow_foe),
++						GFP_KERNEL);
++		if (!ppe->natflow_hash || !ppe->natflow_foe) {
++			dev_err(eth->dev, "OOM allocating natflow ownership tables\n");
++			return -ENOMEM;
++		}
++		for (i = 0; i < AIROHA_MAX_NUM_QDMA; i++)
++			airoha_qdma_set(&eth->qdma[i], AN7563_QDMA_SDN_CNTR_CFG,
++					AN7563_QDMA_SDN_CNTR_EN |
++					AN7563_QDMA_SDN_CNTR_CPU_RX_EN);
++	}
+ 
+ 	ppe_num_stats_entries = airoha_ppe_get_total_num_stats_entries(ppe);
+ 	if (ppe_num_stats_entries > 0) {
+@@ -2558,6 +3630,13 @@ static int airoha_ppe_datapath_init(stru
+ 	}
+ 
+ 	eth->ppe = ppe;
++	if (airoha_is(eth, airoha_an7563)) {
++		airoha_ppe_hw_init(ppe);
++		dma_wmb();
++		WRITE_ONCE(ppe->offload_setup_done, true);
++		dev_info(eth->dev,
++			 "PPE offload setup completed (SRAM-only, CPU-direct)\n");
++	}
+ 	airoha_ppe_common_enable(&ppe->common);
+ 	dev_info(eth->dev, "PPE Initialization completed successfully\n");
+ 	return 0;
+@@ -2573,9 +3652,14 @@ error_flow_table_destroy:
+ static void airoha_ppe_datapath_deinit(struct airoha_eth *eth)
+ {
+ 	struct airoha_npu *npu;
++	struct airoha_ppe *ppe = eth->ppe;
++
++	airoha_ppe_natflow_flush(ppe);
+ 
+ 	mutex_lock(&flow_offload_mutex);
+ 
++	WRITE_ONCE(ppe->offload_setup_done, false);
++
+ 	npu = rcu_replace_pointer(eth->npu, NULL,
+ 				  lockdep_is_held(&flow_offload_mutex));
+ 	if (npu) {
+@@ -2588,8 +3672,8 @@ static void airoha_ppe_datapath_deinit(s
+ 
+ 	mutex_unlock(&flow_offload_mutex);
+ 
+-	airoha_ppe_common_disable(&eth->ppe->common);
+-	rhashtable_destroy(&eth->ppe->l2_flows);
++	airoha_ppe_common_disable(&ppe->common);
++	rhashtable_destroy(&ppe->l2_flows);
+ 	rhashtable_destroy(&eth->flow_table);
+ 	eth->ppe = NULL;
+ }
+--- a/drivers/net/ppp/ppp_generic.c
++++ b/drivers/net/ppp/ppp_generic.c
+@@ -55,6 +55,8 @@
+ #include <net/net_namespace.h>
+ #include <net/netns/generic.h>
+ 
++#include <net/netfilter/nf_flow_table.h>
++
+ #define PPP_VERSION	"2.4.2"
+ 
+ /*
+@@ -1620,6 +1622,35 @@ static int ppp_fill_forward_path(struct
+ 	return chan->ops->fill_forward_path(ctx, path, chan);
+ }
+ 
++static int ppp_flow_offload_check(flow_offload_hw_path_t *path)
++{
++	struct ppp *ppp = netdev_priv(path->dev);
++	struct ppp_channel *chan;
++	struct channel *pch;
++	int ret = -ENODEV;
++
++	if (ppp->flags & SC_MULTILINK)
++		return -EOPNOTSUPP;
++
++	rcu_read_lock();
++	pch = list_first_or_null_rcu(&ppp->channels, struct channel, clist);
++	if (!pch)
++		goto out;
++
++	chan = READ_ONCE(pch->chan);
++	if (!chan)
++		goto out;
++
++	ret = -EOPNOTSUPP;
++	if (!chan->ops->flow_offload_check)
++		goto out;
++
++	ret = chan->ops->flow_offload_check(chan, path);
++out:
++	rcu_read_unlock();
++	return ret;
++}
++
+ static const struct net_device_ops ppp_netdev_ops = {
+ 	.ndo_init	 = ppp_dev_init,
+ 	.ndo_uninit      = ppp_dev_uninit,
+@@ -1627,6 +1658,7 @@ static const struct net_device_ops ppp_n
+ 	.ndo_siocdevprivate = ppp_net_siocdevprivate,
+ 	.ndo_get_stats64 = ppp_get_stats64,
+ 	.ndo_fill_forward_path = ppp_fill_forward_path,
++	.ndo_flow_offload_check = ppp_flow_offload_check,
+ };
+ 
+ static const struct device_type ppp_type = {
+--- a/drivers/net/ppp/pppoe.c
++++ b/drivers/net/ppp/pppoe.c
+@@ -73,6 +73,8 @@
+ #include <linux/proc_fs.h>
+ #include <linux/seq_file.h>
+ 
++#include <net/netfilter/nf_flow_table.h>
++
+ #include <linux/nsproxy.h>
+ #include <net/net_namespace.h>
+ #include <net/netns/generic.h>
+@@ -1007,9 +1009,30 @@ static int pppoe_fill_forward_path(struc
+ 	return 0;
+ }
+ 
++static int pppoe_flow_offload_check(struct ppp_channel *chan,
++				    flow_offload_hw_path_t *path)
++{
++	struct sock *sk = (struct sock *)chan->private;
++	struct pppox_sock *po = pppox_sk(sk);
++	struct net_device *dev = po->pppoe_dev;
++
++	if (sock_flag(sk, SOCK_DEAD) ||
++	    !(sk->sk_state & PPPOX_CONNECTED) || !dev)
++		return -ENODEV;
++
++	path->flags |= FLOW_OFFLOAD_PATH_PPPOE;
++	path->dev = dev;
++
++	if (path->dev->netdev_ops->ndo_flow_offload_check)
++		return path->dev->netdev_ops->ndo_flow_offload_check(path);
++
++	return 0;
++}
++
+ static const struct ppp_channel_ops pppoe_chan_ops = {
+ 	.start_xmit = pppoe_xmit,
+ 	.fill_forward_path = pppoe_fill_forward_path,
++	.flow_offload_check = pppoe_flow_offload_check,
+ };
+ 
+ static int pppoe_recvmsg(struct socket *sock, struct msghdr *m,
+--- a/include/linux/netdevice.h
++++ b/include/linux/netdevice.h
+@@ -92,6 +92,28 @@ void netdev_set_default_ethtool_ops(stru
+ 				    const struct ethtool_ops *ops);
+ void netdev_sw_irq_coalesce_default_on(struct net_device *dev);
+ 
++#define NATFLOW_OFFLOAD_HWNAT_FAKE
++#if defined(CONFIG_SOC_AIROHA_AN7563)
++#define NATFLOW_OFFLOAD_AN7563_SRAM_HASH
++#endif
++struct flow_offload_fake;
++struct flow_offload_tuple_fake;
++struct flow_offload_hw_path_fake;
++enum flow_offload_type_fake {
++	FLOW_OFFLOAD_ADD        = 0,
++	FLOW_OFFLOAD_DEL,
++};
++
++typedef struct flow_offload_fake flow_offload_t;
++typedef struct flow_offload_tuple_fake flow_offload_tuple_t;
++typedef struct flow_offload_hw_path_fake flow_offload_hw_path_t;
++typedef enum flow_offload_type_fake flow_offload_type_t;
++
++extern int (*flow_offload_add_extdev)(flow_offload_type_t type,
++				      flow_offload_t *flow,
++				      flow_offload_hw_path_t *src,
++				      flow_offload_hw_path_t *dest);
++
+ /* Backlog congestion levels */
+ #define NET_RX_SUCCESS		0	/* keep 'em coming, baby */
+ #define NET_RX_DROP		1	/* packet dropped */
+@@ -1611,6 +1633,11 @@ struct net_device_ops {
+ 	int			(*ndo_bridge_dellink)(struct net_device *dev,
+ 						      struct nlmsghdr *nlh,
+ 						      u16 flags);
++	int			(*ndo_flow_offload_check)(flow_offload_hw_path_t *path);
++	int			(*ndo_flow_offload)(flow_offload_type_t type,
++						    flow_offload_t *flow,
++						    flow_offload_hw_path_t *src,
++						    flow_offload_hw_path_t *dest);
+ 	int			(*ndo_change_carrier)(struct net_device *dev,
+ 						      bool new_carrier);
+ 	int			(*ndo_get_phys_port_id)(struct net_device *dev,
+--- a/include/linux/ppp_channel.h
++++ b/include/linux/ppp_channel.h
+@@ -33,6 +33,8 @@ struct ppp_channel_ops {
+ 	int	(*fill_forward_path)(struct net_device_path_ctx *,
+ 				     struct net_device_path *,
+ 				     const struct ppp_channel *);
++	int	(*flow_offload_check)(struct ppp_channel *chan,
++				      flow_offload_hw_path_t *path);
+ };
+ 
+ struct ppp_channel {
+--- a/include/net/netfilter/nf_flow_table.h
++++ b/include/net/netfilter/nf_flow_table.h
+@@ -190,6 +190,63 @@ struct flow_offload {
+ 	struct rcu_head				rcu_head;
+ };
+ 
++#define FLOW_OFFLOAD_PATH_ETHERNET      BIT(0)
++#define FLOW_OFFLOAD_PATH_VLAN          BIT(1)
++#define FLOW_OFFLOAD_PATH_PPPOE         BIT(2)
++#define FLOW_OFFLOAD_PATH_DSA           BIT(3)
++#define FLOW_OFFLOAD_PATH_STOP          BIT(4)
++#define FLOW_OFFLOAD_PATH_EXTDEV        BIT(5)
++#define FLOW_OFFLOAD_PATH_WED_DIS       BIT(6)
++#define FLOW_OFFLOAD_PATH_BRIDGE        BIT(7)
++#define FLOW_OFFLOAD_PATH_DEL           BIT(8)
++
++struct flow_offload_tuple_fake {
++	union {
++		struct in_addr          src_v4;
++		struct in6_addr         src_v6;
++	};
++	union {
++		struct in_addr          dst_v4;
++		struct in6_addr         dst_v6;
++	};
++	struct {
++		__be16                  src_port;
++		__be16                  dst_port;
++	};
++
++	u8                              l3proto;
++	u8                              l4proto;
++};
++
++struct flow_offload_tuple_rhash_fake {
++	struct flow_offload_tuple_fake	tuple;
++};
++
++struct flow_offload_fake {
++	struct flow_offload_tuple_rhash_fake    tuplehash[FLOW_OFFLOAD_DIR_MAX];
++	u32                                     flags;
++	u32                                     timeout;
++	union {
++		/* Your private driver data here. */
++		void *priv;
++	};
++};
++
++struct flow_offload_hw_path_fake {
++	struct net_device *dev;
++	u32 flags;
++
++	u8 eth_src[ETH_ALEN];
++	u8 eth_dest[ETH_ALEN];
++	u16 vlan_proto;
++	u16 vlan_id;
++	u16 pppoe_sid;
++	/* Native MTK port, or ((MxL VID & 0x3ff) << 5) | physical port.
++	 * The conduit identifies the tag protocol; 0xffff means no DSA.
++	 */
++	u16 dsa_port;
++};
++
+ #define NF_FLOW_TIMEOUT (30 * HZ)
+ #define nf_flowtable_time_stamp	(u32)jiffies
+ 
+--- a/net/8021q/vlan_dev.c
++++ b/net/8021q/vlan_dev.c
+@@ -28,6 +28,7 @@
+ #include <net/arp.h>
+ #include <net/macsec.h>
+ #include <net/netdev_lock.h>
++#include <net/netfilter/nf_flow_table.h>
+ 
+ #include "vlan.h"
+ #include "vlanproc.h"
+@@ -981,6 +982,23 @@ static const struct macsec_ops macsec_of
+ 
+ #endif
+ 
++static int vlan_dev_flow_offload_check(flow_offload_hw_path_t *path)
++{
++	struct net_device *dev = path->dev;
++	struct vlan_dev_priv *vlan = vlan_dev_priv(dev);
++
++	if (path->flags & FLOW_OFFLOAD_PATH_VLAN)
++		return -EEXIST;
++
++	path->flags |= FLOW_OFFLOAD_PATH_VLAN;
++	path->dev = vlan->real_dev;
++
++	if (vlan->real_dev->netdev_ops->ndo_flow_offload_check)
++		return vlan->real_dev->netdev_ops->ndo_flow_offload_check(path);
++
++	return 0;
++}
++
+ static const struct ethtool_ops vlan_ethtool_ops = {
+ 	.get_link_ksettings	= vlan_ethtool_get_link_ksettings,
+ 	.get_drvinfo	        = vlan_ethtool_get_drvinfo,
+@@ -1020,6 +1038,7 @@ static const struct net_device_ops vlan_
+ 	.ndo_fix_features	= vlan_dev_fix_features,
+ 	.ndo_get_iflink		= vlan_dev_get_iflink,
+ 	.ndo_fill_forward_path	= vlan_dev_fill_forward_path,
++	.ndo_flow_offload_check = vlan_dev_flow_offload_check,
+ 	.ndo_hwtstamp_get	= vlan_hwtstamp_get,
+ 	.ndo_hwtstamp_set	= vlan_hwtstamp_set,
+ };
+--- a/net/bridge/br_device.c
++++ b/net/bridge/br_device.c
+@@ -14,6 +14,7 @@
+ #include <linux/ethtool.h>
+ #include <linux/list.h>
+ #include <linux/netfilter_bridge.h>
++#include <net/netfilter/nf_flow_table.h>
+ 
+ #include <linux/uaccess.h>
+ #include <net/netdev_lock.h>
+@@ -430,6 +431,26 @@ static int br_fill_forward_path(struct n
+ 	return 0;
+ }
+ 
++static int br_flow_offload_check(flow_offload_hw_path_t *path)
++{
++	struct net_device *dev = path->dev;
++	struct net_bridge *br = netdev_priv(dev);
++	struct net_bridge_fdb_entry *dst;
++
++	if (!(path->flags & FLOW_OFFLOAD_PATH_ETHERNET))
++		return -EINVAL;
++
++	dst = br_fdb_find_rcu(br, path->eth_dest, path->vlan_id);
++	if (!dst || !dst->dst)
++		return -ENOENT;
++
++	path->dev = dst->dst->dev;
++	if (path->dev->netdev_ops->ndo_flow_offload_check)
++		return path->dev->netdev_ops->ndo_flow_offload_check(path);
++
++	return 0;
++}
++
+ static const struct ethtool_ops br_ethtool_ops = {
+ 	.get_drvinfo		 = br_getinfo,
+ 	.get_link		 = ethtool_op_get_link,
+@@ -471,6 +492,7 @@ static const struct net_device_ops br_ne
+ 	.ndo_bridge_dellink	 = br_dellink,
+ 	.ndo_features_check	 = passthru_features_check,
+ 	.ndo_fill_forward_path	 = br_fill_forward_path,
++	.ndo_flow_offload_check  = br_flow_offload_check,
+ };
+ 
+ static const struct device_type br_type = {
+--- a/net/core/dev.c
++++ b/net/core/dev.c
+@@ -442,6 +442,12 @@ static void unlist_netdevice(struct net_
+ 	dev_base_seq_inc(dev_net(dev));
+ }
+ 
++int (*flow_offload_add_extdev)(flow_offload_type_t type,
++			       flow_offload_t *flow,
++			       flow_offload_hw_path_t *src,
++			       flow_offload_hw_path_t *dest) = NULL;
++EXPORT_SYMBOL(flow_offload_add_extdev);
++
+ /*
+  *	Our notifier list
+  */
+--- a/net/dsa/user.c
++++ b/net/dsa/user.c
+@@ -22,6 +22,8 @@
+ #include <net/dcbnl.h>
+ #include <linux/netpoll.h>
+ #include <linux/string.h>
++#include <linux/dsa/8021q.h>
++#include <net/netfilter/nf_flow_table.h>
+ 
+ #include "conduit.h"
+ #include "dsa.h"
+@@ -2601,6 +2603,49 @@ static int dsa_user_hwtstamp_set(struct
+ 	return ds->ops->port_hwtstamp_set(ds, dp->index, cfg, extack);
+ }
+ 
++static int dsa_flow_offload_check(flow_offload_hw_path_t *path)
++{
++	struct net_device *dev = path->dev;
++	struct dsa_port *dp;
++
++	if (!(path->flags & FLOW_OFFLOAD_PATH_ETHERNET))
++		return -EINVAL;
++
++	dp = dsa_user_to_port(dev);
++	/* Validate before changing dev: some callers only inspect the path. */
++	switch (dp->cpu_dp->tag_ops->proto) {
++	case DSA_TAG_PROTO_MXL862_8021Q:
++		if (!dp->index || dp->index > 16)
++			return -EOPNOTSUPP;
++		/* The outer VID's top two bits are always 11. */
++		path->dsa_port = ((dsa_tag_8021q_standalone_vid(dp) & 0x3ff) << 5) |
++				 dp->index;
++		break;
++#if IS_ENABLED(CONFIG_NET_DSA_TAG_YT922X)
++	case DSA_TAG_PROTO_YT922X_4B:
++		/* The software tagger supplies access-port PVIDs. */
++		if (dsa_port_is_vlan_filtering(dp) || dp->index > 8)
++			return -EOPNOTSUPP;
++		path->dsa_port = dp->index;
++		break;
++#endif
++	case DSA_TAG_PROTO_MTK:
++		if (dp->index >= 32)
++			return -EOPNOTSUPP;
++		path->dsa_port = dp->index;
++		break;
++	default:
++		return -EOPNOTSUPP;
++	}
++	path->dev = dsa_user_to_conduit(dev);
++	path->flags |= FLOW_OFFLOAD_PATH_DSA;
++
++	if (path->dev->netdev_ops->ndo_flow_offload_check)
++		return path->dev->netdev_ops->ndo_flow_offload_check(path);
++
++	return 0;
++}
++
+ static const struct net_device_ops dsa_user_netdev_ops = {
+ 	.ndo_open		= dsa_user_open,
+ 	.ndo_stop		= dsa_user_close,
+@@ -2622,6 +2667,7 @@ static const struct net_device_ops dsa_u
+ 	.ndo_vlan_rx_kill_vid	= dsa_user_vlan_rx_kill_vid,
+ 	.ndo_change_mtu		= dsa_user_change_mtu,
+ 	.ndo_fill_forward_path	= dsa_user_fill_forward_path,
++	.ndo_flow_offload_check  = dsa_flow_offload_check,
+ 	.ndo_hwtstamp_get	= dsa_user_hwtstamp_get,
+ 	.ndo_hwtstamp_set	= dsa_user_hwtstamp_set,
+ };
