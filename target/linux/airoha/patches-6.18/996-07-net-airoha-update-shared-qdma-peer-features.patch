@@ -1,0 +1,33 @@
+From: X-Wrt developers
+Subject: [PATCH] net: airoha: update features across all shared QDMA devices
+
+Iterate the actual GDM port array instead of repeatedly visiting the
+caller's port. Update each registered peer on the same QDMA once, including
+peers on other GDM ports, and cache the caller's QDMA pointer for the scan.
+
+---
+--- a/drivers/net/ethernet/airoha/airoha_eth.c
++++ b/drivers/net/ethernet/airoha/airoha_eth.c
+@@ -6509,10 +6509,11 @@
+ static void airoha_update_netdev_features(struct airoha_gdm_dev *dev)
+ {
+ 	struct airoha_eth *eth = dev->eth;
++	struct airoha_qdma *qdma = rcu_access_pointer(dev->qdma);
+ 	int i;
+ 
+ 	for (i = 0; i < eth->soc->max_gdm_ports; i++) {
+-		struct airoha_gdm_port *port = dev->port;
++		struct airoha_gdm_port *port = eth->ports[i];
+ 		int j;
+ 
+ 		if (!port)
+@@ -6525,8 +6526,7 @@
+ 			if (!iter_dev || iter_dev == dev)
+ 				continue;
+ 
+-			if (rcu_access_pointer(iter_dev->qdma) !=
+-			    rcu_access_pointer(dev->qdma))
++			if (rcu_access_pointer(iter_dev->qdma) != qdma)
+ 				continue;
+ 
+ 			netdev = netdev_from_priv(iter_dev);
