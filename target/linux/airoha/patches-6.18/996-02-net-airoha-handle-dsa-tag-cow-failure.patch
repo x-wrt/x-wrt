@@ -1,0 +1,105 @@
+From: X-Wrt developers
+Subject: [PATCH] net: airoha: propagate DSA tag conversion failures
+
+Do not submit a still-tagged skb with cleared descriptor metadata when
+skb_cow_head fails. Return the error and drop the packet at the caller,
+including balancing the TX ring lock acquired before tag conversion.
+
+--- a/drivers/net/ethernet/airoha/airoha_eth.c
++++ b/drivers/net/ethernet/airoha/airoha_eth.c
+@@ -310,7 +310,7 @@
+ 	meta->channel = AIROHA_MTK_INVALID_CHANNEL;
+ }
+ 
+-void airoha_qdma_skb_get_mtk_meta(struct sk_buff *skb,
++int airoha_qdma_skb_get_mtk_meta(struct sk_buff *skb,
+ 				  struct net_device *netdev,
+ 				  enum airoha_mtk_tag_mode mode,
+ 				  struct airoha_qdma_skb_meta *meta)
+@@ -319,13 +319,14 @@
+ 	struct ethhdr *ehdr;
+ 	u8 xmit_tpid;
+ 	u16 tag;
++	int err;
+ 
+ 	airoha_qdma_skb_meta_init(meta);
+ 
+ 	if (!netdev_uses_dsa(netdev) ||
+ 	    netdev->dsa_ptr->tag_ops->proto != DSA_TAG_PROTO_MTK ||
+ 	    skb_headlen(skb) < ETH_HLEN + AIROHA_MTK_HDR_LEN)
+-		return;
++		return 0;
+ 
+ 	tag = get_unaligned_be16(skb->data + 2 * ETH_ALEN);
+ 	meta->has_mtk_tag = true;
+@@ -335,11 +336,12 @@
+ 		meta->channel = __ffs(meta->port_mask);
+ 
+ 	if (mode == AIROHA_MTK_TAG_IN_SKB)
+-		return;
++		return 0;
+ 
+-	if (skb_cow_head(skb, 0)) {
++	err = skb_cow_head(skb, 0);
++	if (err) {
+ 		airoha_qdma_skb_meta_init(meta);
+-		return;
++		return err;
+ 	}
+ 
+ 	ehdr = (struct ethhdr *)skb->data;
+@@ -369,6 +371,7 @@
+ #else
+ 	airoha_qdma_skb_meta_init(meta);
+ #endif
++	return 0;
+ }
+ 
+ /* QDMA datapath. */
+@@ -4049,8 +4052,9 @@
+ 	 * port-mask/channel classification is nevertheless shared.
+ 	 */
+ 	if (!xpon && airoha_is(port->eth, econet_en751221)) {
+-		airoha_qdma_skb_get_mtk_meta(skb, dev, AIROHA_MTK_TAG_IN_SKB,
+-					     &skb_meta);
++		if (airoha_qdma_skb_get_mtk_meta(skb, dev,
++					      AIROHA_MTK_TAG_IN_SKB, &skb_meta))
++			goto drop;
+ 		if (skb_meta.has_mtk_tag &&
+ 		    skb_meta.channel != AIROHA_MTK_INVALID_CHANNEL)
+ 			channel = skb_meta.channel;
+@@ -7556,17 +7560,17 @@
+ 		if (xpon->oam)
+ 			msg0 |= QDMA_ETH_TXMSG_OAM_MASK;
+ 	} else if (airoha_is(qdma->eth, airoha_en7523, econet_en7580)) {
+-		airoha_qdma_skb_get_mtk_meta(skb, netdev,
+-					     AIROHA_MTK_TAG_TO_DESC,
+-					     &skb_meta);
++		if (airoha_qdma_skb_get_mtk_meta(skb, netdev,
++					      AIROHA_MTK_TAG_TO_DESC, &skb_meta))
++			goto error_unlock;
+ 		tag = skb_meta.mtk_tag;
+ 		chn = skb_meta.channel;
+ 		msg0 = FIELD_PREP(QDMA_ETH_TXMSG_CHAN_MASK, chn) |
+ 		       FIELD_PREP(QDMA_ETH_TXMSG_SP_TAG_MASK, tag | 0x8000);
+ 	} else {
+-		airoha_qdma_skb_get_mtk_meta(skb, netdev,
+-					     AIROHA_MTK_TAG_TO_DESC,
+-					     &skb_meta);
++		if (airoha_qdma_skb_get_mtk_meta(skb, netdev,
++					      AIROHA_MTK_TAG_TO_DESC, &skb_meta))
++			goto error_unlock;
+ 		tag = skb_meta.mtk_tag;
+ 		chn = skb_meta.channel;
+ 		if (!airoha_is(qdma->eth, airoha_an7563) ||
+--- a/drivers/net/ethernet/airoha/airoha_eth.h
++++ b/drivers/net/ethernet/airoha/airoha_eth.h
+@@ -88,7 +88,7 @@
+ 	bool has_mtk_tag;
+ };
+ 
+-void airoha_qdma_skb_get_mtk_meta(struct sk_buff *skb,
++int airoha_qdma_skb_get_mtk_meta(struct sk_buff *skb,
+ 				  struct net_device *netdev,
+ 				  enum airoha_mtk_tag_mode mode,
+ 				  struct airoha_qdma_skb_meta *meta);
