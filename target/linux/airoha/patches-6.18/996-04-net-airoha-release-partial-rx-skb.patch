@@ -1,0 +1,25 @@
+From: X-Wrt developers
+Subject: [PATCH] net: airoha: free incomplete RX frames before page pool teardown
+
+A scattered packet can remain in q->skb across NAPI polls. Its pages have
+already left the descriptor ring, so descriptor cleanup alone cannot
+release them. Free the partial skb after NAPI quiescence and clear its
+saved descriptor metadata before destroying the page pool.
+
+--- a/drivers/net/ethernet/airoha/airoha_eth.c
++++ b/drivers/net/ethernet/airoha/airoha_eth.c
+@@ -2776,6 +2776,14 @@
+ 	struct airoha_eth *eth = qdma->eth;
+ 	int qid = q - &qdma->q_rx[0];
+ 
++	/* NAPI is quiesced by the caller. A partial scattered frame owns
++	 * pages that are no longer present in the RX descriptor ring.
++	 */
++	dev_kfree_skb_any(q->skb);
++	q->skb = NULL;
++	q->rx_msg0 = 0;
++	q->rx_msg1 = 0;
++
+ 	while (q->queued) {
+ 		struct airoha_queue_entry *e = &q->entry[q->tail];
+ 		struct airoha_qdma_desc *desc = &q->desc[q->tail];
