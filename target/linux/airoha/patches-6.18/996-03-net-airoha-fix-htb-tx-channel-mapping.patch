@@ -1,0 +1,62 @@
+From: X-Wrt developers
+Subject: [PATCH] net: airoha: decode HTB channels before TX ring mapping
+
+Keep the logical skb queue mapping separate from the hardware ring index.
+HTB queues encode their QoS channel after the normal TX rings; taking the
+ring modulo first loses that channel, and AN7563 DSA must not override it.
+Keep the normal AN7563 DSA destination-channel selection unchanged.
+
+--- a/drivers/net/ethernet/airoha/airoha_eth.c
++++ b/drivers/net/ethernet/airoha/airoha_eth.c
+@@ -7499,7 +7499,7 @@
+ 	struct airoha_queue *q;
+ 	LIST_HEAD(tx_list);
+ 	int i = 0, qid, chn;
+-	u16 index;
++	u16 index, queue_mapping;
+ 	u8 fport;
+ 
+ 	/* The AN7563 vendor active-Ethernet path submits at least 64 bytes to
+@@ -7527,8 +7527,8 @@
+ 		  AN7563_NATFLOW_QUEUE_MAPPING_MAGIC &&
+ 		  (skb->hash & AN7563_NATFLOW_QUEUE_MAPPING_MAGIC_MASK) ==
+ 		  AN7563_NATFLOW_QUEUE_MAPPING_MAGIC;
+-	qid = airoha_qdma_get_txq(qdma, xpon ? xpon->queue :
+-				    skb_get_queue_mapping(skb));
++	queue_mapping = xpon ? xpon->queue : skb_get_queue_mapping(skb);
++	qid = airoha_qdma_get_txq(qdma, queue_mapping);
+ 	q = &qdma->q_tx[qid];
+ 	if (WARN_ON_ONCE(!q->ndesc))
+ 		goto error;
+@@ -7573,9 +7573,10 @@
+ 			goto error_unlock;
+ 		tag = skb_meta.mtk_tag;
+ 		chn = skb_meta.channel;
+-		if (!airoha_is(qdma->eth, airoha_an7563) ||
++		if (queue_mapping >= qdma->eth->soc->tx_ring ||
++		    !airoha_is(qdma->eth, airoha_an7563) ||
+ 		    chn == AIROHA_MTK_INVALID_CHANNEL)
+-			chn = qid / AIROHA_NUM_QOS_QUEUES;
++			chn = airoha_qdma_get_tx_channel(qdma, queue_mapping);
+ 		else
+ 			chn %= AIROHA_NUM_QOS_CHANNELS;
+ 		msg0 = FIELD_PREP(QDMA_ETH_TXMSG_CHAN_MASK,
+--- a/drivers/net/ethernet/airoha/airoha_eth.h
++++ b/drivers/net/ethernet/airoha/airoha_eth.h
+@@ -1364,6 +1364,16 @@
+ 	return qid % qdma->eth->soc->tx_ring;
+ }
+ 
++static inline u16 airoha_qdma_get_tx_channel(struct airoha_qdma *qdma,
++					   u16 queue_mapping)
++{
++	/* HTB queues follow the normal TX rings and select a QoS channel. */
++	if (queue_mapping >= qdma->eth->soc->tx_ring)
++		return queue_mapping - qdma->eth->soc->tx_ring;
++
++	return queue_mapping / AIROHA_NUM_QOS_QUEUES;
++}
++
+ static inline bool airoha_is_lan_gdm_dev(struct airoha_gdm_dev *dev)
+ {
+ 	return !(dev->flags & AIROHA_PRIV_F_WAN);
