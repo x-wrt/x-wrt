@@ -1,0 +1,84 @@
+From: X-Wrt developers
+Subject: [PATCH] net: airoha: check TX ring space before rewriting skb
+
+Keep DSA tag removal and TSO checksum preparation after the locked ring
+capacity check, so NETDEV_TX_BUSY can safely retry the original packet.
+Balance the queue lock on all preparation and DMA mapping failures.
+
+--- a/drivers/net/ethernet/airoha/airoha_eth.c
++++ b/drivers/net/ethernet/airoha/airoha_eth.c
+@@ -7525,9 +7525,29 @@
+ 		  AN7563_NATFLOW_QUEUE_MAPPING_MAGIC;
+ 	qid = airoha_qdma_get_txq(qdma, xpon ? xpon->queue :
+ 				    skb_get_queue_mapping(skb));
++	q = &qdma->q_tx[qid];
++	if (WARN_ON_ONCE(!q->ndesc))
++		goto error;
++
++	spin_lock_bh(&q->lock);
++
++	txq = skb_get_tx_queue(netdev, skb);
++	nr_frags = 1 + skb_shinfo(skb)->nr_frags;
++	if (q->queued + nr_frags >= q->ndesc) {
++		netif_tx_stop_queue(txq);
++		q->txq_stopped = true;
++		spin_unlock_bh(&q->lock);
++		rcu_read_unlock();
++
++		return NETDEV_TX_BUSY;
++	}
++
++	/* Reserve ring space before changing the DSA header or TSO checksum.
++	 * A BUSY return must leave those fields intact for the next attempt.
++	 */
+ 	if (xpon) {
+ 		if (!airoha_is(qdma->eth, airoha_en7523))
+-			goto error;
++			goto error_unlock;
+ 
+ 		msg0 = FIELD_PREP(QDMA_ETH_TXMSG_QUEUE_MASK, xpon->queue) |
+ 		       FIELD_PREP(QDMA_ETH_TXMSG_CHAN_MASK, xpon->tcont) |
+@@ -7566,7 +7586,7 @@
+ 	/* TSO: fill MSS info in tcp checksum field */
+ 	if (!xpon_oam && skb_is_gso(skb)) {
+ 		if (skb_cow_head(skb, 0))
+-			goto error;
++			goto error_unlock;
+ 
+ 		if (skb_shinfo(skb)->gso_type & (SKB_GSO_TCPV4 |
+ 						 SKB_GSO_TCPV6)) {
+@@ -7598,25 +7618,6 @@
+ 	if (xpon_oam)
+ 		msg1 |= QDMA_ETH_TXMSG_NO_DROP;
+ 
+-	q = &qdma->q_tx[qid];
+-	if (WARN_ON_ONCE(!q->ndesc))
+-		goto error;
+-
+-	spin_lock_bh(&q->lock);
+-
+-	txq = skb_get_tx_queue(netdev, skb);
+-	nr_frags = 1 + skb_shinfo(skb)->nr_frags;
+-
+-	if (q->queued + nr_frags >= q->ndesc) {
+-		/* not enough space in the queue */
+-		netif_tx_stop_queue(txq);
+-		q->txq_stopped = true;
+-		spin_unlock_bh(&q->lock);
+-		rcu_read_unlock();
+-
+-		return NETDEV_TX_BUSY;
+-	}
+-
+ 	e = list_first_entry(&q->tx_list, struct airoha_queue_entry,
+ 			     list);
+ 	index = e - q->entry;
+@@ -7701,6 +7702,7 @@
+ 	}
+ 	list_splice(&tx_list, &q->tx_list);
+ 
++error_unlock:
+ 	spin_unlock_bh(&q->lock);
+ error:
+ 	if (xpon_oam) {
+
