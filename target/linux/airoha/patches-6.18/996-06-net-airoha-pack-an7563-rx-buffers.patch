@@ -1,0 +1,75 @@
+From: X-Wrt developers
+Subject: [PATCH] net: airoha: pack AN7563 RX buffers into half-page fragments
+
+Use a 2 KiB total skb buffer instead of adding skb metadata to a 2 KiB
+DMA payload, allowing two fragments per 4 KiB page. Derive the descriptor
+capacity from the remaining space after headroom and aligned shared_info.
+
+Use that DMA capacity to validate every AN7563 RX descriptor, and derive
+the scatter threshold conservatively including DSA, two VLAN tags, PPPoE
+and FCS. Keep jumbo support through the existing scattered-frame path.
+Other SoCs keep their original buffer sizing and validation.
+
+---
+--- a/drivers/net/ethernet/airoha/airoha_eth.c
++++ b/drivers/net/ethernet/airoha/airoha_eth.c
+@@ -2459,8 +2459,11 @@
+ 		len = airoha_is(eth, airoha_en7523, econet_en7580) ?
+ 			FIELD_GET(EN7523_QDMA_DESC_LEN_MASK, desc_ctrl) :
+ 			FIELD_GET(QDMA_DESC_LEN_MASK, desc_ctrl);
+-		data_len = q->skb ? q->buf_size
+-				  : SKB_WITH_OVERHEAD(q->buf_size);
++		if (airoha_is(eth, airoha_an7563))
++			data_len = e->dma_len;
++		else
++			data_len = q->skb ? q->buf_size
++					  : SKB_WITH_OVERHEAD(q->buf_size);
+ 		if (!len || data_len < len)
+ 			goto free_frag;
+ 
+--- a/drivers/net/ethernet/airoha/airoha_eth.h
++++ b/drivers/net/ethernet/airoha/airoha_eth.h
+@@ -11,6 +11,7 @@
+ #include <linux/bitfield.h>
+ #include <linux/debugfs.h>
+ #include <linux/etherdevice.h>
++#include <linux/if_vlan.h>
+ #include <linux/iopoll.h>
+ #include <linux/io.h>
+ #include <linux/kernel.h>
+@@ -19,10 +20,12 @@
+ #include <linux/phylink.h>
+ #include <linux/platform_device.h>
+ #include <linux/reset.h>
++#include <linux/sizes.h>
+ #include <linux/skbuff.h>
+ #include <linux/types.h>
+ #include <linux/workqueue.h>
+ #include <linux/soc/airoha/airoha_offload.h>
++#include <uapi/linux/if_pppox.h>
+ #include <net/dsa.h>
+ 
+ /* Common Ethernet/GDM/QDMA definitions. */
+@@ -194,13 +197,16 @@
+ #define AIROHA_MAX_RX_SIZE		16128
+ #define AIROHA_MAX_PACKET_SIZE		2048
+ #define AIROHA_AN7563_RX_HEADROOM	(NET_SKB_PAD + NET_IP_ALIGN)
+-#define AIROHA_AN7563_RX_BUF_SIZE				\
+-	(SKB_DATA_ALIGN(AIROHA_AN7563_RX_HEADROOM +		\
+-			AIROHA_MAX_PACKET_SIZE) +		\
+-	 SKB_DATA_ALIGN(sizeof(struct skb_shared_info)))
+-#define AIROHA_AN7563_RX_DMA_LEN		AIROHA_MAX_PACKET_SIZE
++/* Two complete skb buffers fit in a 4K page. Keep both headroom and
++ * shared_info outside the descriptor's DMA payload window.
++ */
++#define AIROHA_AN7563_RX_BUF_SIZE		SZ_2K
++#define AIROHA_AN7563_RX_DMA_LEN				\
++	(SKB_WITH_OVERHEAD(AIROHA_AN7563_RX_BUF_SIZE) -	\
++	 AIROHA_AN7563_RX_HEADROOM)
+ #define AIROHA_AN7563_MAX_SINGLE_RX_MTU			\
+-	(AIROHA_MAX_PACKET_SIZE - ETH_HLEN - AIROHA_MTK_HDR_LEN - ETH_FCS_LEN)
++	(AIROHA_AN7563_RX_DMA_LEN - ETH_HLEN - AIROHA_MTK_HDR_LEN - \
++	 2 * VLAN_HLEN - PPPOE_SES_HLEN - ETH_FCS_LEN)
+ #define AIROHA_NUM_QOS_CHANNELS		4
+ #define AIROHA_NUM_QOS_QUEUES		8
+ #define AIROHA_NUM_NETDEV_TX_RINGS(_soc) (_soc->tx_ring + \
