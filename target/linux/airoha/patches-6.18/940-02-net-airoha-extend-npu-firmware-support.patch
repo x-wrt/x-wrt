@@ -12,12 +12,13 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
 ---
 --- a/drivers/net/ethernet/airoha/airoha_npu.c
 +++ b/drivers/net/ethernet/airoha/airoha_npu.c
-@@ -4,16 +4,23 @@
+@@ -4,17 +4,24 @@
   * Author: Lorenzo Bianconi <lorenzo@kernel.org>
   */
  
 +#include <linux/debugfs.h>
  #include <linux/devcoredump.h>
+ #include <linux/devm-helpers.h>
  #include <linux/firmware.h>
 +#include <linux/mfd/syscon.h>
  #include <linux/platform_device.h>
@@ -1510,7 +1511,7 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  
  	irq = platform_get_irq(pdev, 0);
  	if (irq < 0)
-@@ -765,73 +1939,51 @@ static int airoha_npu_probe(struct platf
+@@ -1940,82 +1940,74 @@
  	if (err)
  		return err;
  
@@ -1524,12 +1525,15 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
 -		if (irq < 0)
 -			return irq;
 -
+-		err = devm_work_autocancel(dev, &core->wdt_work,
+-					   airoha_npu_wdt_work);
+-		if (err)
+-			return err;
+-
 -		err = devm_request_irq(dev, irq, airoha_npu_wdt_handler,
 -				       IRQF_SHARED, "airoha-npu-wdt", core);
 -		if (err)
 -			return err;
--
--		INIT_WORK(&core->wdt_work, airoha_npu_wdt_work);
 -	}
 -
 -	/* wlan IRQ lines */
@@ -1560,7 +1564,10 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  
 +		spin_lock_init(&core->lock);
 +		core->npu = npu;
-+		INIT_WORK(&core->wdt_work, airoha_npu_wdt_work);
++		err = devm_work_autocancel(dev, &core->wdt_work,
++					   airoha_npu_wdt_work);
++		if (err)
++			return err;
 +
  		core->buf = dmam_alloc_coherent(dev, AIROHA_NPU_MBOX_SIZE,
  						&core->addr, GFP_KERNEL);
@@ -1571,7 +1578,13 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
 -	err = airoha_npu_run_firmware(dev, base, &res);
 -	if (err)
 -		return err;
--
++		if (npu->soc_data->version < NPU_V2)
++			continue;
++
++		irq = platform_get_irq(pdev, i + npu->soc_data->max_cores + 1);
++		if (irq < 0)
++			return irq;
+ 
 -	regmap_write(npu->regmap, REG_CR_NPU_MIB(10),
 -		     res.start + NPU_EN7581_FIRMWARE_RV32_MAX_SIZE);
 -	regmap_write(npu->regmap, REG_CR_NPU_MIB(11), 0x40000); /* SRAM 256K */
@@ -1583,17 +1596,12 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
 -	for (i = 0; i < NPU_NUM_CORES; i++)
 -		regmap_write(npu->regmap, REG_CR_BOOT_BASE(i), res.start);
 -	usleep_range(1000, 2000);
-+		if (npu->soc_data->version < NPU_V2)
-+			continue;
- 
+-
 -	/* enable NPU cores */
 -	regmap_write(npu->regmap, REG_CR_BOOT_CONFIG, 0xff);
 -	regmap_write(npu->regmap, REG_CR_BOOT_TRIGGER, 0x1);
 -	msleep(100);
-+		irq = platform_get_irq(pdev, i + npu->soc_data->max_cores + 1);
-+		if (irq < 0)
-+			return irq;
- 
+-
 -	if (!airoha_npu_wlan_msg_get(npu, 0, WLAN_FUNC_GET_WAIT_NPU_VERSION,
 -				     &val, sizeof(val), GFP_KERNEL))
 -		dev_info(dev, "NPU fw version: %0d.%d\n",
@@ -1609,27 +1617,33 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  
  	return 0;
  }
-@@ -839,9 +1991,13 @@ static int airoha_npu_probe(struct platf
- static void airoha_npu_remove(struct platform_device *pdev)
- {
- 	struct airoha_npu *npu = platform_get_drvdata(pdev);
-+	struct airoha_npu_priv *priv = airoha_npu_to_priv(npu);
- 	int i;
  
--	for (i = 0; i < ARRAY_SIZE(npu->cores); i++)
++static void airoha_npu_remove(struct platform_device *pdev)
++{
++	struct airoha_npu *npu = platform_get_drvdata(pdev);
++	struct airoha_npu_priv *priv = airoha_npu_to_priv(npu);
++	int i;
++
 +	cancel_delayed_work_sync(&priv->start_work);
 +	airoha_npu_debugfs_remove(npu);
 +
 +	for (i = 0; i < npu->soc_data->max_cores; i++)
- 		cancel_work_sync(&npu->cores[i].wdt_work);
- }
- 
-@@ -855,6 +2011,8 @@ static struct platform_driver airoha_npu
++		cancel_work_sync(&npu->cores[i].wdt_work);
++}
++
+ static struct platform_driver airoha_npu_driver = {
+ 	.probe = airoha_npu_probe,
++	.remove = airoha_npu_remove,
+ 	.driver = {
+ 		.name = "airoha-npu",
+ 		.of_match_table = of_airoha_npu_match,
+@@ -2023,6 +2015,9 @@
  };
  module_platform_driver(airoha_npu_driver);
  
 +MODULE_FIRMWARE(NPU_EN7523_FIRMWARE_DATA);
 +MODULE_FIRMWARE(NPU_EN7523_FIRMWARE_RV32);
++
  MODULE_FIRMWARE(NPU_EN7581_FIRMWARE_DATA);
  MODULE_FIRMWARE(NPU_EN7581_FIRMWARE_RV32);
  MODULE_FIRMWARE(NPU_EN7581_7996_FIRMWARE_DATA);
