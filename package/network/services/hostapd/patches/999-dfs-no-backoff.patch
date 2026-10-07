@@ -1,0 +1,11 @@
+--- a/src/ap/dfs.c
++++ b/src/ap/dfs.c
+@@ -1545,6 +1545,8 @@ int hostapd_dfs_radar_detected(struct ho
+ 
+ 	hostapd_ubus_notify_radar_detected(iface, freq, chan_width, cf1, cf2);
+ 
++	return 0;
++
+ 	iface->radar_detected = true;
+ 
+ 	/* Proceed only if DFS is not offloaded to the driver */
