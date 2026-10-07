@@ -1,0 +1,64 @@
+diff --git a/include/net/cfg80211.h b/include/net/cfg80211.h
+index ada352b..3a65210 100644
+--- a/include/net/cfg80211.h
++++ b/include/net/cfg80211.h
+@@ -160,8 +160,8 @@ enum ieee80211_channel_flags {
+ #define IEEE80211_CHAN_NO_HT40 \
+ 	(IEEE80211_CHAN_NO_HT40PLUS | IEEE80211_CHAN_NO_HT40MINUS)
+ 
+-#define IEEE80211_DFS_MIN_CAC_TIME_MS		60000
+-#define IEEE80211_DFS_MIN_NOP_TIME_MS		(30 * 60 * 1000)
++#define IEEE80211_DFS_MIN_CAC_TIME_MS		10000
++#define IEEE80211_DFS_MIN_NOP_TIME_MS		(1 * 60 * 1000)
+ 
+ /**
+  * struct ieee80211_channel - channel definition
+--- a/net/wireless/reg.c
++++ b/net/wireless/reg.c
+@@ -246,23 +246,19 @@ static const struct ieee80211_regdomain
+ 			NL80211_RRF_NO_OFDM),
+ 		/* IEEE 802.11a, channel 36..48 */
+ 		REG_RULE(5180-10, 5240+10, 80, 6, 20,
+-                        NL80211_RRF_NO_IR |
+                         NL80211_RRF_AUTO_BW),
+ 
+ 		/* IEEE 802.11a, channel 52..64 - DFS required */
+ 		REG_RULE(5260-10, 5320+10, 80, 6, 20,
+-			NL80211_RRF_NO_IR |
+-			NL80211_RRF_AUTO_BW |
+-			NL80211_RRF_DFS),
++			NL80211_RRF_AUTO_BW),
+ 
+ 		/* IEEE 802.11a, channel 100..144 - DFS required */
+ 		REG_RULE(5500-10, 5720+10, 160, 6, 20,
+-			NL80211_RRF_NO_IR |
+-			NL80211_RRF_DFS),
++			0),
+ 
+ 		/* IEEE 802.11a, channel 149..165 */
+ 		REG_RULE(5745-10, 5825+10, 80, 6, 20,
+-			NL80211_RRF_NO_IR),
++			0),
+ 
+ 		/* IEEE 802.11ad (60GHz), channels 1..3 */
+ 		REG_RULE(56160+2160*1-1080, 56160+2160*3+1080, 2160, 0, 0, 0),
+@@ -1558,8 +1554,6 @@ static u32 map_regdom_flags(u32 rd_flags
+ 	u32 channel_flags = 0;
+ 	if (rd_flags & NL80211_RRF_NO_IR_ALL)
+ 		channel_flags |= IEEE80211_CHAN_NO_IR;
+-	if (rd_flags & NL80211_RRF_DFS)
+-		channel_flags |= IEEE80211_CHAN_RADAR;
+ 	if (rd_flags & NL80211_RRF_NO_OFDM)
+ 		channel_flags |= IEEE80211_CHAN_NO_OFDM;
+ 	if (rd_flags & NL80211_RRF_NO_OUTDOOR)
+--- a/net/wireless/mlme.c
++++ b/net/wireless/mlme.c
+@@ -1157,6 +1157,8 @@ void __cfg80211_radar_event(struct wiphy
+ 			    struct cfg80211_chan_def *chandef,
+ 			    bool offchan, gfp_t gfp)
+ {
++	return;
++
+ 	struct cfg80211_registered_device *rdev = wiphy_to_rdev(wiphy);
+ 
+ 	trace_cfg80211_radar_event(wiphy, chandef, offchan);
