@@ -1,16 +1,22 @@
-Remove the NO-IR flag from channels 36-48 on the World domain,
-to make it usable for AP mode.
+Remove NO-IR and DFS flags from 5GHz channels on the World domain,
+to make it usable for AP mode without DFS backoff.
 
 Signed-off-by: Felix Fietkau <nbd@nbd.name>
 ---
 --- a/db.txt
 +++ b/db.txt
-@@ -19,7 +19,7 @@ country 00:
- 	# Channel 14. Only JP enables this and for 802.11b only
- 	(2474 - 2494 @ 20), (20), NO-IR, NO-OFDM
+@@ -21,11 +21,11 @@ country 00:
  	# Channel 36 - 48
 -	(5170 - 5250 @ 80), (20), NO-IR, AUTO-BW
 +	(5170 - 5250 @ 80), (20), AUTO-BW
  	# Channel 52 - 64
- 	(5250 - 5330 @ 80), (20), NO-IR, DFS, AUTO-BW
+-	(5250 - 5330 @ 80), (20), NO-IR, DFS, AUTO-BW
++	(5250 - 5330 @ 80), (20), AUTO-BW
  	# Channel 100 - 144
+-	(5490 - 5730 @ 160), (20), NO-IR, DFS
++	(5490 - 5730 @ 160), (20)
+ 	# Channel 149 - 165
+-	(5735 - 5835 @ 80), (20), NO-IR
++	(5735 - 5835 @ 80), (20)
+ 	# IEEE 802.11ad (60GHz), channels 1..3
+ 	(57240 - 63720 @ 2160), (0)
