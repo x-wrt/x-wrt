@@ -1,0 +1,121 @@
+From: Chen Minqiang <ptpt52@gmail.com>
+Date: Fri, 9 Oct 2026 01:00:16 +0800
+Subject: [PATCH] rtnl: reset and close request socket on error and export rtnl.close()
+
+The rtnl module caches an internal netlink socket across uc_nl_request()
+calls. However, if a request fails or is interrupted (for example, during
+a multi-part link/address dump query that triggers -EBUSY or sequence
+number mismatch), unread packets can remain in the socket's receive
+buffer and kernel dump state remains attached to the socket.
+
+Because the socket was never closed or reset upon error, subsequent
+requests on the same socket read leftover responses from the previous
+transaction, leading to persistent NLE_SEQ_MISMATCH failures.
+
+Fix this by:
+1. Closing and resetting the cached socket whenever connect, setsockopt,
+   send, or receive fails (including STATE_ERROR and interrupted reply
+   states), avoiding caching a broken or half-open socket.
+2. Exporting an explicit rtnl.close() function to allow callers to close
+   and reset the cached request socket at will.
+
+Fixes: #422
+Signed-off-by: Chen Minqiang <ptpt52@gmail.com>
+---
+
+--- a/lib/rtnl.c
++++ b/lib/rtnl.c
+@@ -3422,6 +3422,33 @@ static const struct {
+ 	{ RTM_FAM(RTM_GETNETCONF), &netconf_msg },
+ };
+ 
++static void
++uc_nl_sock_close(void)
++{
++	if (sock) {
++		nl_socket_free(sock);
++		sock = NULL;
++	}
++}
++
++/**
++ * Close the cached request socket.
++ *
++ * Closes and resets the internal netlink socket used by request().
++ * Subsequent calls to request() will open a new socket.
++ *
++ * @function module:rtnl#close
++ *
++ * @returns {boolean} - Always returns true
++ */
++static uc_value_t *
++uc_nl_close(uc_vm_t *vm, size_t nargs)
++{
++	uc_nl_sock_close();
++
++	return ucv_boolean_new(true);
++}
++
+ /**
+  * Send a netlink request.
+  *
+@@ -3483,8 +3510,10 @@ uc_nl_request(uc_vm_t *vm, size_t nargs)
+ 
+ 		err = nl_connect(sock, NETLINK_ROUTE);
+ 
+-		if (err != 0)
++		if (err != 0) {
++			uc_nl_sock_close();
+ 			err_return(err, NULL);
++		}
+ 	}
+ 
+ 	optlen = sizeof(enable);
+@@ -3495,8 +3524,10 @@ uc_nl_request(uc_vm_t *vm, size_t nargs)
+ 	if (!!(flagval & NLM_F_STRICT_CHK) != enable) {
+ 		enable = !!(flagval & NLM_F_STRICT_CHK);
+ 
+-		if (setsockopt(sock->s_fd, SOL_NETLINK, NETLINK_GET_STRICT_CHK, &enable, sizeof(enable)) < 0)
++		if (setsockopt(sock->s_fd, SOL_NETLINK, NETLINK_GET_STRICT_CHK, &enable, sizeof(enable)) < 0) {
++			uc_nl_sock_close();
+ 			err_return(nl_syserr2nlerr(errno), "Unable to toggle NETLINK_GET_STRICT_CHK");
++		}
+ 	}
+ 
+ 	msg = nlmsg_alloc_simple(ucv_int64_get(cmd), NLM_F_REQUEST | (flagval & ~NLM_F_STRICT_CHK));
+@@ -3536,7 +3567,14 @@ uc_nl_request(uc_vm_t *vm, size_t nargs)
+ 	nl_cb_set(cb, NL_CB_ACK, NL_CB_CUSTOM, cb_done, &st);
+ 	nl_cb_err(cb, NL_CB_CUSTOM, cb_error, &st);
+ 
+-	nl_send_auto_complete(sock, msg);
++	err = nl_send_auto_complete(sock, msg);
++
++	if (err < 0) {
++		nlmsg_free(msg);
++		nl_cb_put(cb);
++		uc_nl_sock_close();
++		err_return(err, NULL);
++	}
+ 
+ 	do {
+ 		err = nl_recvmsgs(sock, cb);
+@@ -3560,9 +3598,11 @@ uc_nl_request(uc_vm_t *vm, size_t nargs)
+ 		return ucv_boolean_new(true);
+ 
+ 	case STATE_ERROR:
++		uc_nl_sock_close();
+ 		return ucv_boolean_new(false);
+ 
+ 	default:
++		uc_nl_sock_close();
+ 		set_error(NLE_FAILURE, "Interrupted reply");
+ 
+ 		return ucv_boolean_new(false);
+@@ -4780,6 +4820,7 @@ register_constants(uc_vm_t *vm, uc_value_t *scope)
+ };
+ 
+ static const uc_function_list_t global_fns[] = {
++	{ "close",		uc_nl_close },
+ 	{ "error",		uc_nl_error },
+ 	{ "request",	uc_nl_request },
+ 	{ "listener",	uc_nl_listener },
