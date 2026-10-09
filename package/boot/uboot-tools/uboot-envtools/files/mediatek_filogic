@@ -191,6 +191,13 @@ teltonika,rutc50|\
 alwaylink,m01k43)
 	ubootenv_add_mtd "u-boot-env" "0x0" "0x10000" "0x10000"
 	;;
+tenda,tr9)
+	ubootenv_add_mtd "u-boot-env" "0x0" "0x20000" "0x20000" "1"
+	factory_idx="$(find_mtd_index Factory)"
+	[ -n "$factory_idx" ] && \
+		ubootenv_add_uci_sys_config "/dev/mtd$factory_idx" \
+			"0x300000" "0x20000" "0x20000" "1"
+	;;
 tplink,archer-ax80-v1|\
 tplink,archer-ax80-v1-eu|\
 tplink,be450)
