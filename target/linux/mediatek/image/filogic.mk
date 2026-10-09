@@ -4004,6 +4004,27 @@ define Device/tenda_be12-pro
 endef
 TARGET_DEVICES += tenda_be12-pro
 
+define Device/tenda_tr9
+  DEVICE_VENDOR := Tenda
+  DEVICE_MODEL := TR9
+  DEVICE_DTS := mt7987a-tenda-tr9
+  DEVICE_DTS_DIR := ../dts
+  SUPPORTED_DEVICES := tenda,tr9
+  DEVICE_PACKAGES := mt7987-2p5g-phy-firmware airoha-en8811h-firmware \
+	kmod-phy-airoha-en8811h kmod-mt7990-firmware \
+	kmod-hwmon-pwmfan kmod-usb3 uboot-envtools
+  UBINIZE_OPTS := -E 5
+  BLOCKSIZE := 128k
+  PAGESIZE := 2048
+  IMAGE_SIZE := 65536k
+  KERNEL_IN_UBI := 1
+  KERNEL_LOADADDR := 0x40000000
+  IMAGES += factory.bin
+  IMAGE/factory.bin := append-ubi | check-size $$$$(IMAGE_SIZE)
+  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+endef
+TARGET_DEVICES += tenda_tr9
+
 define Device/teralink_tl3020-256mb
   DEVICE_VENDOR := Teralink
   DEVICE_MODEL := TL3020

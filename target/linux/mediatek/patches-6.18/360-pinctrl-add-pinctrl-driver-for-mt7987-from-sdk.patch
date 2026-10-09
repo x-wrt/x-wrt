@@ -38,7 +38,7 @@ Subject: [PATCH] pinctrl: add pinctrl driver for mt7987 from sdk
  obj-$(CONFIG_PINCTRL_MT8173)		+= pinctrl-mt8173.o
 --- /dev/null
 +++ b/drivers/pinctrl/mediatek/pinctrl-mt7987.c
-@@ -0,0 +1,675 @@
+@@ -0,0 +1,678 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * The MT7987 driver based on Linux generic pinctrl binding.
@@ -509,6 +509,8 @@ Subject: [PATCH] pinctrl: add pinctrl driver for mt7987 from sdk
 +static int mt7987_uart2_0_funcs[] = {2, 2, 2, 2};
 +static int mt7987_uart2_1_pins[] = {25, 26, 27, 28};
 +static int mt7987_uart2_1_funcs[] = {2, 2, 2, 2};
++static int mt7987_uart2_1_2wire_pins[] = {25, 26};
++static int mt7987_uart2_1_2wire_funcs[] = {2, 2};
 +/* pwm */
 +static int mt7987_pwm0_pins[] = {13};
 +static int mt7987_pwm0_funcs[] = {1};
@@ -590,6 +592,7 @@ Subject: [PATCH] pinctrl: add pinctrl driver for mt7987 from sdk
 +	PINCTRL_PIN_GROUP("uart1_2", mt7987_uart1_2),
 +	PINCTRL_PIN_GROUP("uart2_0", mt7987_uart2_0),
 +	PINCTRL_PIN_GROUP("uart2_1", mt7987_uart2_1),
++	PINCTRL_PIN_GROUP("uart2_1_2wire", mt7987_uart2_1_2wire),
 +	PINCTRL_PIN_GROUP("pwm0", mt7987_pwm0),
 +	PINCTRL_PIN_GROUP("pwm1_0", mt7987_pwm1_0),
 +	PINCTRL_PIN_GROUP("pwm1_1", mt7987_pwm1_1),
@@ -627,7 +630,7 @@ Subject: [PATCH] pinctrl: add pinctrl driver for mt7987 from sdk
 +static const char *const mt7987_uart_groups[] = {"uart0", "uart1_0",
 +						 "uart1_0_lite", "uart1_1",
 +						 "uart1_2", "uart2_0",
-+						 "uart2_1",};
++						 "uart2_1", "uart2_1_2wire",};
 +static const char *const mt7987_pwm_groups[] = {"pwm0", "pwm1_0", "pwm1_1", "pwm2_0",
 +					       "pwm2_1",};
 +static const char *const mt7987_usb_groups[] = {"drv_vbus_p1", "drv_vbus",};

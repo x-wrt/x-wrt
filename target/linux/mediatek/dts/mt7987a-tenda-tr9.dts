@@ -1,0 +1,282 @@
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+
+/dts-v1/;
+#include <dt-bindings/input/input.h>
+
+#include "mt7987a.dtsi"
+
+/ {
+	model = "Tenda TR9";
+	compatible = "tenda,tr9", "mediatek,mt7987a", "mediatek,mt7987";
+
+	aliases {
+		serial0 = &uart0;
+		label-mac-device = &gmac0;
+	};
+
+	chosen {
+		bootargs-override = "console=ttyS0,115200n1 loglevel=8 earlycon=uart8250,mmio32,0x11000000 pci=pcie_bus_perf";
+		stdout-path = "serial0:115200n8";
+	};
+
+	reg_fan_power: regulator-fan-power {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpios = <&pio 42 GPIO_ACTIVE_HIGH>;
+		regulator-name = "fan-power";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+	};
+
+	gpio-keys {
+		compatible = "gpio-keys";
+
+		reset {
+			label = "reset";
+			linux,code = <KEY_RESTART>;
+			gpios = <&pio 1 GPIO_ACTIVE_LOW>;
+			debounce-interval = <10>;
+		};
+
+		mode-switch {
+			label = "mode-switch";
+			linux,code = <BTN_0>;
+			linux,input-type = <EV_SW>;
+			gpios = <&pio 0 GPIO_ACTIVE_HIGH>;
+			debounce-interval = <50>;
+		};
+	};
+
+	gpio-export {
+		compatible = "gpio-export";
+
+		usb-power {
+			gpio-export,name = "usb_power";
+			gpio-export,output = <0>;
+			gpios = <&pio 28 GPIO_ACTIVE_HIGH>;
+		};
+	};
+};
+
+&cpu_thermal {
+	cooling-maps {
+		cpu-active-high {
+			cooling-device = <&fan 8 8>;
+		};
+
+		cpu-active-low {
+			cooling-device = <&fan 4 4>;
+		};
+
+		cpu-passive {
+			cooling-device = <&fan 0 0>;
+		};
+	};
+};
+
+&fan {
+	cooling-levels = <0 32 64 96 128 150 192 224 255>;
+	fan-supply = <&reg_fan_power>;
+	interrupt-parent = <&pio>;
+	interrupts = <43 IRQ_TYPE_EDGE_FALLING>;
+	pulses-per-revolution = <2>;
+	pwms = <&pwm 2 50000 0>;
+	status = "okay";
+};
+
+&gmac0 {
+	nvmem-cells = <&macaddr_factory_4 (-2)>;
+	nvmem-cell-names = "mac-address";
+	phy-handle = <&phy11>;
+	phy-mode = "2500base-x";
+	status = "okay";
+};
+
+&gmac1 {
+	nvmem-cells = <&macaddr_factory_4 (-1)>;
+	nvmem-cell-names = "mac-address";
+	phy-handle = <&phy15>;
+	phy-mode = "internal";
+	status = "okay";
+};
+
+&mdio {
+	phy11: ethernet-phy@b {
+		compatible = "ethernet-phy-id03a2.a411";
+		reg = <11>;
+		reset-assert-us = <10000>;
+		reset-deassert-us = <20000>;
+		reset-gpios = <&pio 48 GPIO_ACTIVE_LOW>;
+	};
+
+	phy15: ethernet-phy@f {
+		compatible = "ethernet-phy-ieee802.3-c45";
+		reg = <15>;
+		pinctrl-names = "i2p5gbe-led";
+		pinctrl-0 = <&i2p5gbe_led0_pins>;
+	};
+};
+
+&pcie0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pcie0_pins>;
+	reset-gpios = <&pio 38 GPIO_ACTIVE_HIGH>;
+	status = "okay";
+
+	pcie@0,0 {
+		reg = <0x0000 0 0 0 0>;
+		#address-cells = <3>;
+		#size-cells = <2>;
+
+		wifi@0,0 {
+			compatible = "mediatek,mt76";
+			reg = <0x0000 0 0 0 0>;
+
+			nvmem-cells = <&eeprom_factory_0>;
+			nvmem-cell-names = "eeprom";
+		};
+	};
+};
+
+&pio {
+	fan_pwm2_pins: fan-pwm2-pins {
+		mux {
+			function = "pwm";
+			groups = "pwm2_1";
+		};
+	};
+
+	uart2_pins: uart2-pins {
+		mux {
+			function = "uart";
+			groups = "uart2_1_2wire";
+		};
+	};
+};
+
+&pwm {
+	pinctrl-names = "default";
+	pinctrl-0 = <&fan_pwm2_pins>;
+	status = "okay";
+};
+
+&spi0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&spi0_flash_pins>;
+	status = "okay";
+
+	flash@0 {
+		compatible = "spi-nand";
+		reg = <0>;
+		spi-max-frequency = <52000000>;
+		spi-tx-bus-width = <4>;
+		spi-rx-bus-width = <4>;
+
+		spi-cal-enable;
+		spi-cal-mode = "read-data";
+		spi-cal-datalen = <7>;
+		spi-cal-data = /bits/ 8 <0x53 0x50 0x49 0x4e 0x41 0x4e 0x44>;
+		spi-cal-addrlen = <5>;
+		spi-cal-addr = /bits/ 32 <0x0 0x0 0x0 0x0 0x0>;
+
+		mediatek,nmbm;
+		mediatek,bmt-max-ratio = <1>;
+		mediatek,bmt-max-reserved-blocks = <64>;
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			partition@0 {
+				label = "BL2";
+				reg = <0x0000000 0x0100000>;
+				read-only;
+			};
+
+			partition@100000 {
+				label = "u-boot-env";
+				reg = <0x0100000 0x0080000>;
+			};
+
+			partition@180000 {
+				label = "Factory";
+				reg = <0x0180000 0x0400000>;
+
+				nvmem-layout {
+					compatible = "fixed-layout";
+					#address-cells = <1>;
+					#size-cells = <1>;
+
+					eeprom_factory_0: eeprom@0 {
+						reg = <0x0 0x1e00>;
+					};
+
+					macaddr_factory_4: macaddr@4 {
+						compatible = "mac-base";
+						reg = <0x4 0x6>;
+						#nvmem-cell-cells = <1>;
+					};
+				};
+			};
+
+			partition@580000 {
+				label = "FIP";
+				reg = <0x0580000 0x0200000>;
+				read-only;
+			};
+
+			partition@780000 {
+				label = "Factory_back";
+				reg = <0x0780000 0x0400000>;
+				read-only;
+			};
+
+			partition@b80000 {
+				label = "log";
+				reg = <0x0b80000 0x0480000>;
+			};
+
+			partition@1000000 {
+				label = "recovery";
+				reg = <0x1000000 0x1600000>;
+			};
+
+			partition@2600000 {
+				label = "recovery_config_0";
+				reg = <0x2600000 0x0100000>;
+			};
+
+			partition@2700000 {
+				label = "recovery_config_1";
+				reg = <0x2700000 0x0100000>;
+			};
+
+			partition@2800000 {
+				compatible = "linux,ubi";
+				label = "ubi";
+				reg = <0x2800000 0xc800000>;
+			};
+		};
+	};
+};
+
+&ssusb {
+	status = "okay";
+};
+
+&tphyu3port0 {
+	status = "okay";
+};
+
+&uart0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart0_pins>;
+	status = "okay";
+};
+
+&uart2 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart2_pins>;
+	status = "okay";
+};
