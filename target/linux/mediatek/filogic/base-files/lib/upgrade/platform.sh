@@ -717,6 +717,11 @@ platform_pre_upgrade() {
 	local board=$(board_name)
 
 	case "$board" in
+	tenda,tr9)
+		[ -r /lib/functions/leds.sh ] && . /lib/functions/leds.sh
+		led_off "tr9:red:status"
+		led_timer "tr9:white:status" 200 200
+		;;
 	asus,rt-ax52|\
 	asus,rt-ax57m|\
 	asus,rt-ax59u|\
