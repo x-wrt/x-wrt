@@ -45,6 +45,14 @@ boot() {
 			;;
 		esac
 		;;
+	tenda,tr9)
+		. /lib/upgrade/common.sh
+		[ "$(rootfs_type)" = "tmpfs" ] && \
+			logger "bootcount: initramfs mode detected, exit" && \
+			return 0
+		[ "$(fw_printenv -n tenda_boot_id 2>/dev/null)" = "MT0501" ] && \
+			fw_setenv boot_fail 0
+		;;
 	zyxel,ex5700-telenor)
 		fw_setenv uboot_bootcount 0
 		;;
