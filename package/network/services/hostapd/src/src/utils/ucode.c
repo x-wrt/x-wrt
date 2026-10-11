@@ -128,6 +128,10 @@ uc_value_t *uc_wpa_freq_info(uc_vm_t *vm, size_t nargs)
 
 	if (sec_channel != -1 && sec_channel != 1 && sec_channel != 0)
 		return NULL;
+	if (width && !sec_channel)
+		return NULL;
+	if (width == 3 && (freq_val < 5955 || freq_val > 7055))
+		return NULL;
 
 	switch (width) {
 	case 0:
@@ -173,9 +177,22 @@ uc_value_t *uc_wpa_freq_info(uc_vm_t *vm, size_t nargs)
 	ucv_object_add(ret, "sec_channel", ucv_int64_new(sec_channel));
 	ucv_object_add(ret, "frequency", ucv_int64_new(freq_val));
 	ucv_object_add(ret, "oper_chwidth", ucv_int64_new(chanwidth));
+	ucv_object_add(ret, "center_seg1_idx", ucv_int64_new(0));
+	ucv_object_add(ret, "center_freq2", ucv_int64_new(0));
 
-	if (!sec_channel)
+	if (!sec_channel) {
+		ucv_object_add(ret, "center_seg0_idx", ucv_int64_new(channel));
+		ucv_object_add(ret, "center_freq1", ucv_int64_new(freq_val));
 		return ret;
+	}
+
+	if (!width) {
+		ucv_object_add(ret, "center_seg0_idx", ucv_int64_new(
+			freq_val < 3000 ? 0 : channel + 2 * sec_channel));
+		ucv_object_add(ret, "center_freq1",
+			      ucv_int64_new(freq_val + 10 * sec_channel));
+		return ret;
+	}
 
 	if (freq_val < 3000) {
 		ucv_object_add(ret, "center_seg0_idx", ucv_int64_new(0));
@@ -193,12 +210,14 @@ uc_value_t *uc_wpa_freq_info(uc_vm_t *vm, size_t nargs)
 	tmp_channel = channel - center_ofs;
 	tmp_channel &= ~((8 << width) - 1);
 	center_idx = tmp_channel + center_ofs + (4 << width) - 1;
+	/* The last 6 GHz 320 MHz block overlaps the preceding one. */
+	if (freq_val >= 5900 && width == 3 && center_idx > 191)
+		center_idx = 191;
 
 	ucv_object_add(ret, "center_seg0_idx", ucv_int64_new(center_idx));
 	center_idx = (center_idx - channel) * 5 + freq_val;
 	ucv_object_add(ret, "center_freq1", ucv_int64_new(center_idx));
 
-out:
 	return ret;
 }
 
