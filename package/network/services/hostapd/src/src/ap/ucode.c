@@ -7,6 +7,7 @@
 #include "sta_info.h"
 #include "beacon.h"
 #include "hw_features.h"
+#include "common/hw_features_common.h"
 #include "ap_drv_ops.h"
 #include "dfs.h"
 #include "acs.h"
@@ -734,6 +735,99 @@ uc_hostapd_disable_iface(struct hostapd_iface *iface)
 }
 
 static uc_value_t *
+uc_hostapd_iface_status(uc_vm_t *vm, size_t nargs)
+{
+	struct hostapd_iface *iface = uc_fn_thisval("hostapd.iface");
+	struct hostapd_config *conf;
+	uc_value_t *ret;
+
+	if (!iface)
+		return NULL;
+
+	conf = iface->conf;
+	ret = ucv_object_new(vm);
+	ucv_object_add(ret, "frequency", ucv_int64_new(iface->freq));
+	ucv_object_add(ret, "sec_channel", ucv_int64_new(conf->secondary_channel));
+	ucv_object_add(ret, "oper_chwidth",
+		       ucv_int64_new(hostapd_get_oper_chwidth(conf)));
+	ucv_object_add(ret, "center_seg0_idx",
+		       ucv_int64_new(hostapd_get_oper_centr_freq_seg0_idx(conf)));
+	ucv_object_add(ret, "center_seg1_idx",
+		       ucv_int64_new(hostapd_get_oper_centr_freq_seg1_idx(conf)));
+	ucv_object_add(ret, "beacon", ucv_boolean_new(iface->bss[0]->beacon_set_done));
+
+	return ret;
+}
+
+/* Validate a candidate without changing the running AP configuration. */
+static uc_value_t *
+uc_hostapd_iface_check_freq(uc_vm_t *vm, size_t nargs)
+{
+	struct hostapd_iface *iface = uc_fn_thisval("hostapd.iface");
+	uc_value_t *info = uc_fn_arg(0);
+	struct hostapd_iface test;
+	struct hostapd_config conf;
+	struct hostapd_hw_modes *mode;
+	struct hostapd_freq_params params;
+	int freq, bw, start, i;
+	bool valid = false;
+
+	if (!iface || !iface->current_mode || ucv_type(info) != UC_OBJECT)
+		return ucv_boolean_new(false);
+
+	test = *iface;
+	conf = *iface->conf;
+	test.conf = &conf;
+	mode = iface->current_mode;
+	test.freq = ucv_int64_get(ucv_object_get(info, "frequency", NULL));
+	conf.channel = ucv_int64_get(ucv_object_get(info, "channel", NULL));
+	conf.op_class = ucv_int64_get(ucv_object_get(info, "op_class", NULL));
+	conf.secondary_channel = ucv_int64_get(ucv_object_get(info, "sec_channel", NULL));
+	conf.ht40_plus_minus_allowed = 0;
+	hostapd_set_oper_chwidth(&conf,
+		ucv_int64_get(ucv_object_get(info, "oper_chwidth", NULL)));
+	hostapd_set_oper_centr_freq_seg0_idx(&conf,
+		ucv_int64_get(ucv_object_get(info, "center_seg0_idx", NULL)));
+	hostapd_set_oper_centr_freq_seg1_idx(&conf,
+		ucv_int64_get(ucv_object_get(info, "center_seg1_idx", NULL)));
+
+	if (hostapd_set_freq_params(&params, mode->mode, test.freq, conf.channel,
+		conf.enable_edmg, conf.edmg_channel, conf.ieee80211n,
+		conf.ieee80211ac, conf.ieee80211ax, conf.ieee80211be,
+		conf.secondary_channel, hostapd_get_oper_chwidth(&conf),
+		hostapd_get_oper_centr_freq_seg0_idx(&conf),
+		hostapd_get_oper_centr_freq_seg1_idx(&conf), mode->vht_capab,
+		&mode->he_capab[IEEE80211_MODE_AP],
+		&mode->eht_capab[IEEE80211_MODE_AP], 0))
+		goto out;
+
+	bw = params.bandwidth;
+	start = params.center_freq1 - bw / 2 + 10;
+	for (freq = start; freq < start + bw; freq += 20) {
+		struct hostapd_channel_data *chan = NULL;
+
+		for (i = 0; i < mode->num_channels; i++)
+			if (mode->channels[i].freq == freq) {
+				chan = &mode->channels[i];
+				break;
+			}
+		if (!chan || !chan_bw_allowed(chan, bw,
+			conf.secondary_channel > 0, freq == test.freq))
+			goto out;
+	}
+
+	if (hostapd_is_usable_chans(&test) <= 0)
+		goto out;
+	/* A channel needing CAC cannot be reached while keeping this AP up. */
+	if (hostapd_is_dfs_required(&test) && !hostapd_is_dfs_chan_available(&test))
+		goto out;
+
+	valid = true;
+out:
+	return ucv_boolean_new(valid);
+}
+
+static uc_value_t *
 uc_hostapd_iface_stop(uc_vm_t *vm, size_t nargs)
 {
 	struct hostapd_iface *iface = uc_fn_thisval("hostapd.iface");
@@ -764,6 +858,7 @@ uc_hostapd_iface_start(uc_vm_t *vm, size_t nargs)
 	if (!iface)
 		return NULL;
 
+	conf = iface->conf;
 	if (!info)
 		goto out;
 
@@ -779,7 +874,6 @@ uc_hostapd_iface_start(uc_vm_t *vm, size_t nargs)
 		}								\
 	} while(0)
 
-	conf = iface->conf;
 	UPDATE_VAL(op_class, "op_class");
 	UPDATE_VAL(hw_mode, "hw_mode");
 	UPDATE_VAL(channel, "channel");
@@ -1500,6 +1594,8 @@ int hostapd_ucode_init(struct hapd_interfaces *ifaces)
 	};
 	static const uc_function_list_t iface_fns[] = {
 		{ "state", uc_hostapd_iface_state },
+		{ "status", uc_hostapd_iface_status },
+		{ "check_freq", uc_hostapd_iface_check_freq },
 		{ "set_bss_order", uc_hostapd_iface_set_bss_order },
 		{ "add_bss", uc_hostapd_iface_add_bss },
 		{ "stop", uc_hostapd_iface_stop },

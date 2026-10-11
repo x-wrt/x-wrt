@@ -17,19 +17,43 @@ libubus.guard(ex_handler);
 wpas.data.mld = {};
 wpas.data.config = {};
 wpas.data.iface_phy = {};
+wpas.data.iface_sta = {};
+wpas.data.iface_stopping = {};
 wpas.data.iface_ubus = {};
 wpas.data.dpp_hooks = {};
 
-function iface_stop(iface)
+function iface_hostapd_disabled(ifname)
+{
+	let mld = wpas.data.mld[ifname];
+	if (mld) {
+		for (let i = 0, mask = mld.radio_mask; mask; i++, mask >>= 1)
+			if (mask & 1)
+				ubus.defer('hostapd', 'apsta_state', {
+					phy: mld.phy, radio: i, up: true, sta: true, disabled: true,
+				});
+	} else if (wpas.data.iface_sta[ifname] && wpas.data.iface_phy[ifname]) {
+		ubus.defer('hostapd', 'apsta_state', {
+			phy: wpas.data.iface_phy[ifname], up: true, sta: true, disabled: true,
+		});
+	}
+}
+
+function iface_stop(iface, disabled)
 {
 	let ifname = iface.config.iface;
 
 	if (!iface.running)
 		return;
 
-	delete wpas.data.iface_phy[ifname];
+	// Teardown sets disconnected=1 even for an internal STA recreation.
+	wpas.data.iface_stopping[ifname] = true;
 	wpas.remove_iface(ifname);
 	wdev_remove(ifname);
+	delete wpas.data.iface_stopping[ifname];
+	if (disabled)
+		iface_hostapd_disabled(ifname);
+	delete wpas.data.iface_phy[ifname];
+	delete wpas.data.iface_sta[ifname];
 	iface.running = false;
 }
 
@@ -86,6 +110,7 @@ function iface_start(phydev, iface)
 	}
 
 	wpas.data.iface_phy[ifname] = phy;
+	wpas.data.iface_sta[ifname] = iface.config.mode == 'sta';
 	wpas.add_iface(iface.config);
 	iface.running = true;
 }
@@ -170,7 +195,8 @@ function iface_cb(new_if, old_if)
 		wpas.printf(`Remove interface ${old_if.config.iface}`);
 
 	if (old_if)
-		iface_stop(old_if);
+		iface_stop(old_if, !new_if ||
+			(old_if.config.mode == 'sta' && new_if.config.mode != 'sta'));
 }
 
 function prepare_config(config, radio)
@@ -241,15 +267,19 @@ function mld_freq_list_update(data)
 	data.freq_list = mld_freq_list(data, data.radio_mask_present);
 }
 
-function mld_remove(data)
+function mld_remove(data, disabled)
 {
 	if (!data.radio_mask_up)
 		return;
 
 	let name = data.name;
 	wpas.printf(`Remove MLD interface ${name}`);
+	wpas.data.iface_stopping[name] = true;
 	wpas.remove_iface(name);
 	wdev_remove(name);
+	delete wpas.data.iface_stopping[name];
+	if (disabled)
+		iface_hostapd_disabled(name);
 	data.radio_mask_up = 0;
 	data.radio_mask_kept = 0;
 }
@@ -432,6 +462,10 @@ function mld_set_iface_config(name, data, phy, config)
 
 	wpas.printf(`Set MLD interface ${name} radio ${radio} config: ${keys(config)}`);
 
+	if (data.phy_config[radio] && !config)
+		ubus.defer('hostapd', 'apsta_state', {
+			phy: data.phy, radio, up: true, sta: true, disabled: true,
+		});
 	data.phy_config[radio] = config;
 	if (config && !phy.stopped && (data.radio_mask & (1 << radio)))
 		data.radio_mask_present |= 1 << radio;
@@ -499,7 +533,7 @@ function mld_set_config(config)
 	}
 
 	for (let name, data in prev_mld)
-		mld_remove(data);
+		mld_remove(data, !new_mld[name]);
 
 	wpas.data.mld = new_mld;
 	for (let name in added)
@@ -1016,6 +1050,7 @@ let main_obj = {
 				return libubus.STATUS_INVALID_ARGUMENT;
 
 			wpas.remove_iface(req.args.iface);
+			iface_hostapd_disabled(req.args.iface);
 			return 0;
 		}
 	},
@@ -1135,16 +1170,23 @@ function iface_event(type, name, data) {
 
 function iface_hostapd_notify(ifname, iface, state)
 {
+	if (wpas.data.iface_stopping[ifname])
+		return;
 	let status = iface.status();
 	let ubus = wpas.data.ubus;
 	let msg = {};
 
 	let mld = wpas.data.mld[ifname];
+	let sta = !!mld || !!wpas.data.iface_sta[ifname];
+	if (sta) {
+		msg.sta = true;
+		msg.disabled = !!status.disabled;
+	}
 	switch (state) {
 	case "DISCONNECTED":
 	case "AUTHENTICATING":
 	case "SCANNING":
-		msg.up = false;
+		msg.up = sta;
 		break;
 	case "INTERFACE_DISABLED":
 	case "INACTIVE":
@@ -1187,16 +1229,47 @@ function iface_hostapd_notify(ifname, iface, state)
 		if (state == "COMPLETED") {
 			iface_status_fill_radio(mld, i, radio_msg, status);
 
-			// A station MLD spans every radio it was configured for, but only
-			// drives the channel of the radios it holds a link on. Tell the AP
-			// side which radios are left without one, so they can fall back to
-			// their own channel configuration.
+			// Radios without a current link retain their operating channel.
 			if (!radio_msg.frequency)
 				radio_msg.no_link = true;
 		}
 
 		ubus.call("hostapd", "apsta_state", radio_msg);
 	}
+}
+
+function iface_hostapd_prepare(ifname, bss)
+{
+	let mld = wpas.data.mld[ifname];
+	if (!mld && !wpas.data.iface_sta[ifname])
+		return true;
+
+	if (mld) {
+		let ready = true, radios = {};
+		for (let link in [ bss, ...(bss.links ?? []) ]) {
+			let radio = mld_radio_index(mld, link.freq);
+			if (radio == null || !(mld.radio_mask & (1 << radio)) || radios[radio])
+				continue;
+			radios[radio] = true;
+			let response = ubus.call('hostapd', 'apsta_state', {
+				phy: mld.phy, radio, up: true, sta: true, prepare: true,
+				frequency: link.freq, sec_chan_offset: link.sec_chan_offset,
+			});
+			if (response?.ready == false)
+				ready = false;
+		}
+		return length(radios) > 0 && ready;
+	}
+
+	let phy = wpas.data.iface_phy[ifname];
+	if (!phy)
+		return true;
+	let response = ubus.call('hostapd', 'apsta_state', {
+		phy, up: true, sta: true, prepare: true,
+		frequency: bss.freq, sec_chan_offset: bss.sec_chan_offset,
+	});
+	// Standalone stations also work when there is no hostapd instance.
+	return response?.ready ?? true;
 }
 
 function iface_channel_switch(ifname, iface, info)
@@ -1210,6 +1283,7 @@ function iface_channel_switch(ifname, iface, info)
 	};
 
 	let mld = wpas.data.mld[ifname];
+	msg.sta = !!mld || !!wpas.data.iface_sta[ifname];
 	if (mld) {
 		msg.phy = mld.phy;
 		msg.radio = mld_radio_index(mld, info.frequency);
@@ -1319,6 +1393,7 @@ function iface_ubus_add(ifname)
 }
 
 return {
+	prepare: iface_hostapd_prepare,
 	shutdown: function() {
 		config_clear();
 		wpas.udebug_set(null);
