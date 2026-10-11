@@ -2,6 +2,7 @@
 #include "utils/common.h"
 #include "utils/ucode.h"
 #include "utils/base64.h"
+#include "utils/eloop.h"
 #include "drivers/driver.h"
 #include "ap/hostapd.h"
 #include "common/sae.h"
@@ -11,6 +12,7 @@
 #include "ctrl_iface.h"
 #include "config.h"
 #include "bss.h"
+#include "scan.h"
 #include "ucode.h"
 #include "offchannel.h"
 #ifdef CONFIG_DPP
@@ -23,6 +25,8 @@ static struct wpa_global *wpa_global;
 static uc_resource_type_t *global_type, *iface_type;
 static uc_value_t *global, *iface_registry;
 static uc_vm_t *vm;
+
+static void uc_wpas_iface_status_bss(uc_value_t *ret, struct wpa_bss *bss);
 
 static uc_value_t *
 wpas_ucode_iface_get_uval(struct wpa_supplicant *wpa_s)
@@ -62,6 +66,7 @@ wpas_ucode_bss_get_uval(struct wpa_bss *bss)
 	ucv_object_add(val, "snr", ucv_int64_new(bss->snr));
 	ucv_object_add(val, "signal", ucv_int64_new(bss->level));
 	ucv_object_add(val, "noise", ucv_int64_new(bss->noise));
+	uc_wpas_iface_status_bss(val, bss);
 
 	return val;
 }
@@ -113,6 +118,83 @@ bool wpas_ucode_bss_allowed(struct wpa_supplicant *wpa_s, struct wpa_bss *bss)
 	ucv_put(val);
 
 	return ret;
+}
+
+static void wpas_ucode_channel_retry(void *eloop_ctx, void *timeout_ctx)
+{
+	struct wpa_radio_work *work = timeout_ctx;
+
+	work->cb(work, 0);
+}
+
+void wpas_ucode_cancel_channel(struct wpa_radio_work *work)
+{
+	eloop_cancel_timeout(wpas_ucode_channel_retry, work->wpa_s, work);
+}
+
+/* Keep the radio work alive until the AP has completed its channel switch. */
+bool wpas_ucode_prepare_channel(struct wpa_radio_work *work)
+{
+	struct wpa_supplicant *wpa_s = work->wpa_s;
+	struct wpa_connect_work *cwork = work->ctx;
+	uc_value_t *val;
+	bool pending;
+
+	if (!cwork->bss || cwork->ssid->mode != WPAS_MODE_INFRA ||
+	    wpa_ucode_call_prepare("prepare"))
+		return false;
+
+	val = wpas_ucode_bss_get_uval(cwork->bss);
+#ifdef CONFIG_IEEE80211BE
+	if ((wpa_s->drv_flags2 & WPA_DRIVER_FLAGS2_MLO) && cwork->bss->valid_links) {
+		uc_value_t *links = ucv_array_new(vm);
+		u16 usable = wpa_bss_get_usable_links(wpa_s, cwork->bss, cwork->ssid, NULL);
+		unsigned int i;
+
+		for (i = 0; i < MAX_NUM_MLD_LINKS; i++) {
+			struct mld_link *link = &cwork->bss->mld_links[i];
+			struct wpa_bss *bss;
+			uc_value_t *info;
+
+			if (!(usable & BIT(i)) ||
+			    link->disabled || !link->freq)
+				continue;
+			bss = wpa_bss_get_bssid(wpa_s, link->bssid);
+			info = bss ? wpas_ucode_bss_get_uval(bss) : ucv_object_new(vm);
+			ucv_object_add(info, "freq", ucv_int64_new(link->freq));
+			ucv_array_push(links, info);
+		}
+		ucv_object_add(val, "links", links);
+	}
+#endif /* CONFIG_IEEE80211BE */
+	uc_value_push(ucv_string_new(wpa_s->ifname));
+	uc_value_push(val);
+	val = wpa_ucode_call(2);
+	pending = ucv_type(val) == UC_BOOLEAN && !ucv_boolean_get(val);
+	ucv_put(val);
+	if (!pending)
+		return false;
+
+	/* The old STA link can pin a shared channel context during a roam. */
+	if (wpa_s->wpa_state >= WPA_ASSOCIATED && wpa_s->assoc_freq &&
+	    wpa_s->assoc_freq != cwork->bss->freq) {
+		wpa_supplicant_deauthenticate(wpa_s, WLAN_REASON_DEAUTH_LEAVING);
+		wpa_supplicant_req_scan(wpa_s, 0, 100000);
+		return true;
+	}
+
+	if (++cwork->apsta_retries > 50) {
+		wpa_msg(wpa_s, MSG_INFO, "AP/STA: AP channel switch timed out");
+		wpas_connect_work_done(wpa_s);
+		wpa_supplicant_req_scan(wpa_s, 1, 0);
+		return true;
+	}
+
+	if (eloop_register_timeout(0, 100000, wpas_ucode_channel_retry, wpa_s, work) < 0) {
+		wpas_connect_work_done(wpa_s);
+		wpa_supplicant_req_scan(wpa_s, 1, 0);
+	}
+	return true;
 }
 
 void wpas_ucode_update_state(struct wpa_supplicant *wpa_s)
@@ -660,6 +742,8 @@ uc_wpas_iface_status(uc_vm_t *vm, size_t nargs)
 {
 	struct wpa_supplicant *wpa_s = uc_fn_thisval("wpas.iface");
 	struct wpa_bss *bss;
+	struct wpa_ssid *ssid;
+	bool enabled = false;
 	uc_value_t *ret;
 
 	if (!wpa_s)
@@ -668,6 +752,11 @@ uc_wpas_iface_status(uc_vm_t *vm, size_t nargs)
 	ret = ucv_object_new(vm);
 
 	ucv_object_add(ret, "state", ucv_string_new(wpa_supplicant_state_txt(wpa_s->wpa_state)));
+	for (ssid = wpa_s->conf->ssid; ssid; ssid = ssid->next)
+		if (!ssid->disabled)
+			enabled = true;
+	ucv_object_add(ret, "disabled", ucv_boolean_new(wpa_s->disconnected ||
+		wpa_s->wpa_state == WPA_INTERFACE_DISABLED || !enabled));
 
 	bss = wpa_s->current_bss;
 	if (bss)
