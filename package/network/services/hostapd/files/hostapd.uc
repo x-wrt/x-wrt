@@ -17,6 +17,8 @@ libubus.guard(ex_handler);
 hostapd.data.config = {};
 hostapd.data.pending_config = {};
 hostapd.data.apsta_freq = {};
+hostapd.data.apsta_default = {};
+hostapd.data.apsta_pending = {};
 
 hostapd.data.file_fields = {
 	vlan_file: true,
@@ -103,45 +105,198 @@ start_disabled=1
 	return str;
 }
 
-function iface_freq_info(iface, config, params)
+function iface_freq_info(iface, config, params, max_width)
 {
 	let freq = params.frequency;
 	if (!freq)
 		return null;
 
-	let sec_offset = params.sec_chan_offset;
-	if (sec_offset != -1 && sec_offset != 1)
-		sec_offset = 0;
-
 	let width = 0;
+	let ht40 = false;
 	for (let line in config.radio.data) {
-		if (!sec_offset && match(line, /^ht_capab=.*HT40/)) {
-			sec_offset = null; // auto-detect
+		if (match(line, /^ht_capab=.*HT40/) || line == 'op_class=132') {
+			ht40 = true;
 			continue;
 		}
 
-		let val = match(line, /^(vht_oper_chwidth|he_oper_chwidth)=(\d+)/);
+		let val = match(line, /^(vht_oper_chwidth|he_oper_chwidth|eht_oper_chwidth)=(\d+)/);
 		if (!val)
 			continue;
 
 		val = int(val[2]);
+		if (val == 9)
+			val = 3; // 320 MHz
+		else if (val == 3)
+			val = 1; // use the contiguous primary segment of 80+80
 		if (val > width)
 			width = val;
 	}
 
+	ht40 ||= width > 0;
+	if (max_width != null)
+		width = min(width, max_width);
 	if (freq < 4000)
 		width = 0;
 
-	/*
-	 * 6 GHz has no HT Operation IE, so the secondary channel offset cannot
-	 * be derived the usual way. For wide channels pass a null offset so the
-	 * C helper auto-derives it and computes the segment centre frequency; a
-	 * 0 offset would make it skip the centre calculation.
-	 */
-	if (freq > 5925 && width > 0 && sec_offset == 0)
+	let sec_offset = params.sec_chan_offset;
+	if (params.ht20 || (!ht40 && !width))
+		sec_offset = 0;
+	else if (sec_offset != -1 && sec_offset != 1)
 		sec_offset = null;
 
 	return hostapd.freq_info(freq, sec_offset, width);
+}
+
+function iface_apsta_cancel(name)
+{
+	let pending = hostapd.data.apsta_pending[name];
+	if (pending?.timer)
+		pending.timer.cancel();
+	delete hostapd.data.apsta_pending[name];
+}
+
+function iface_apsta_matches(status, info)
+{
+	return status.beacon &&
+		status.frequency == info.frequency &&
+		status.sec_channel == info.sec_channel &&
+		status.oper_chwidth == info.oper_chwidth &&
+		(!info.oper_chwidth || status.center_seg0_idx == info.center_seg0_idx) &&
+		status.center_seg1_idx == info.center_seg1_idx;
+}
+
+function iface_apsta_candidates(iface, config, args)
+{
+	let candidates = [];
+	// Try the configured ceiling, then progressively narrower channels.
+	for (let width = 3; width >= 0; width--) {
+		let info = iface_freq_info(iface, config, args, width);
+		if (!info)
+			continue;
+		push(candidates, info);
+		if (info.oper_chwidth != 9)
+			continue;
+		// 6 GHz has overlapping 320 MHz placements. Try both before narrowing.
+		for (let center = 31; center <= 191; center += 32)
+			if (center != info.center_seg0_idx &&
+			    info.channel >= center - 30 && info.channel <= center + 30)
+				push(candidates, { ...info,
+					center_seg0_idx: center, center_freq1: 5950 + center * 5,
+				});
+	}
+	push(candidates, iface_freq_info(iface, config, { ...args, ht20: true }, 0));
+	return candidates;
+}
+
+function iface_apsta_apply(name, args)
+{
+	let config = hostapd.data.config[name];
+	if (!config || !length(config.bss))
+		return true;
+	let iface = hostapd.interfaces[name];
+	if (!iface || iface.state() != 'ENABLED' || iface.csa_in_progress())
+		return false;
+
+	let status = iface.status();
+	if (!hostapd.data.apsta_default[name]) {
+		let width = status.oper_chwidth == 9 ? 3 : min(status.oper_chwidth, 2);
+		let initial = hostapd.freq_info(status.frequency, status.sec_channel, width);
+		if (initial) {
+			initial = { ...initial, ...status };
+			if (status.center_seg0_idx)
+				initial.center_freq1 = status.frequency +
+					5 * (status.center_seg0_idx - initial.channel);
+			hostapd.data.apsta_default[name] = initial;
+		}
+	}
+
+	let candidates = [];
+	if (args.disabled) {
+		if (config.radio.frequency) {
+			let sec;
+			for (let line in config.radio.data) {
+				if (match(line, /^ht_capab=.*\[HT40\+\]/))
+					sec = 1;
+				else if (match(line, /^ht_capab=.*\[HT40-\]/))
+					sec = -1;
+			}
+			let info = iface_freq_info(iface, config, {
+				frequency: config.radio.frequency, sec_chan_offset: sec,
+			});
+			if (info?.oper_chwidth)
+				for (let line in config.radio.data) {
+					let center = match(line, /^(vht|he|eht)_oper_centr_freq_seg0_idx=(\d+)/);
+					if (center && int(center[2])) {
+						info.center_seg0_idx = int(center[2]);
+						info.center_freq1 = info.frequency +
+							5 * (info.center_seg0_idx - info.channel);
+					}
+				}
+			push(candidates, info);
+		} else {
+			// For channel=auto, restore the channel selected at AP startup.
+			push(candidates, hostapd.data.apsta_default[name]);
+		}
+	} else {
+		candidates = iface_apsta_candidates(iface, config, args);
+	}
+
+	for (let info in candidates) {
+		if (!info)
+			continue;
+		if (iface_apsta_matches(status, info)) {
+			if (!args.disabled)
+				hostapd.data.apsta_freq[name] = info.frequency;
+			return true;
+		}
+		if (!iface.check_freq(info))
+			continue;
+		info.csa_count = args.csa_count ?? 3;
+		if (!iface.switch_channel(info)) {
+			// Some BSSes may already have accepted the switch.
+			if (iface.csa_in_progress())
+				return false;
+			continue;
+		}
+		if (!args.disabled)
+			hostapd.data.apsta_freq[name] = info.frequency;
+		return false;
+	}
+
+	return false;
+}
+
+function iface_apsta_request(name, args)
+{
+	// Loss of the uplink does not release the AP's operating channel.
+	if (!args.frequency && !args.disabled)
+		return true;
+
+	iface_apsta_cancel(name);
+	if (args.disabled)
+		delete hostapd.data.apsta_freq[name];
+	let ready = iface_apsta_apply(name, args);
+	if (ready || args.prepare)
+		return ready;
+
+	let pending = { args: { ...args }, retries: 50 };
+	hostapd.data.apsta_pending[name] = pending;
+	function retry() {
+		if (hostapd.data.apsta_pending[name] != pending)
+			return;
+		if (iface_apsta_apply(name, pending.args)) {
+			iface_apsta_cancel(name);
+			return;
+		}
+		if (!--pending.retries) {
+			hostapd.printf(`AP/STA channel update on phy ${name} failed; keeping the AP running`);
+			iface_apsta_cancel(name);
+			return;
+		}
+		pending.timer = uloop.timer(100, retry);
+	}
+	pending.timer = uloop.timer(100, retry);
+	return false;
 }
 
 function iface_add(phy, config, phy_status)
@@ -160,9 +315,14 @@ function iface_add(phy, config, phy_status)
 	if (!iface)
 		return false;
 
-	let freq_info = iface_freq_info(iface, config, phy_status);
-
-	return iface.start(freq_info) >= 0;
+	// An already connected STA can also require a narrower AP width at startup.
+	for (let info in iface_apsta_candidates(iface, config, phy_status))
+		if (info && iface.check_freq(info)) {
+			iface.start(info);
+			return true;
+		}
+	hostapd.remove_iface(phy);
+	return false;
 }
 
 function bss_macaddr_name(group, bss)
@@ -409,6 +569,8 @@ function iface_restart(phydev, config, old_config)
 	let pending = hostapd.data.pending_config[phy];
 
 	csa_timer_cancel(phy);
+	iface_apsta_cancel(phy);
+	delete hostapd.data.apsta_default[phy];
 
 	if (pending)
 		pending.abort();
@@ -659,9 +821,10 @@ function radio_line_is_chan(line)
 // The HT40+/- direction in ht_capab is channel-derived and re-applied through
 // the CSA secondary-channel offset, so strip it when comparing the base config;
 // the remaining ht_capab bits are device capabilities that require a restart.
-function radio_base(radio)
+function radio_base(radio, ignore_noscan)
 {
-	return map(filter(radio.data, (line) => !radio_line_is_chan(line)), (line) => {
+	return map(filter(radio.data, (line) => !radio_line_is_chan(line) &&
+		(!ignore_noscan || !match(line, /^noscan=/))), (line) => {
 		if (substr(line, 0, 9) != "ht_capab=")
 			return line;
 		return replace(replace(line, "[HT40+]", ""), "[HT40-]", "");
@@ -673,13 +836,12 @@ function radio_reload_class(old_radio, new_radio)
 	if (is_equal(old_radio, new_radio))
 		return "same";
 
-	// anything beyond channel/width, or the channel-follow flag flipping,
-	// needs a full restart
-	if (!is_equal(radio_base(old_radio), radio_base(new_radio)) ||
-	    (!old_radio.channel_follow) != (!new_radio.channel_follow))
+	// STA presence changes channel_follow/noscan, not the AP configuration.
+	let ignore_noscan = !!old_radio.channel_follow != !!new_radio.channel_follow;
+	if (!is_equal(radio_base(old_radio, ignore_noscan), radio_base(new_radio, ignore_noscan)))
 		return "restart";
 
-	// base identical and apsta flag unchanged: only treat this as a channel
+	// With an identical base, only treat this as a channel
 	// switch if the channel or its derived width lines actually differ (the
 	// derived frequency field alone appearing is not a real change)
 	if (old_radio.channel == new_radio.channel &&
@@ -1207,6 +1369,8 @@ function iface_config_remove(name, old_config)
 		pending.abort();
 
 	delete hostapd.data.apsta_freq[name];
+	delete hostapd.data.apsta_default[name];
+	iface_apsta_cancel(name);
 	hostapd.remove_iface(name);
 	return iface_remove(old_config);
 }
@@ -1799,11 +1963,19 @@ let main_obj = {
 			csa: true,
 			csa_count: 0,
 			no_link: true,
+			sta: true,
+			disabled: true,
+			prepare: true,
 		},
 		call: function(req) {
 			let phy = phy_name(req.args.phy, req.args.radio);
 			if (req.args.up == null || !phy)
 				return libubus.STATUS_INVALID_ARGUMENT;
+
+			if (req.args.sta) {
+				let ready = iface_apsta_request(phy, req.args);
+				return req.args.prepare ? { ready } : 0;
+			}
 
 			let config = hostapd.data.config[phy];
 			if (!config || !config.bss || !config.bss[0] || !config.bss[0].ifname)
