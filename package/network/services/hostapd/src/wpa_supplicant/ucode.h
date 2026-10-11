@@ -9,6 +9,7 @@ struct wpa_bss;
 struct wpa_global;
 union wpa_event_data;
 struct wpa_supplicant;
+struct wpa_radio_work;
 struct wps_credential;
 
 struct wpas_ucode_bss {
@@ -26,6 +27,8 @@ void wpas_ucode_update_state(struct wpa_supplicant *wpa_s);
 void wpas_ucode_event(struct wpa_supplicant *wpa_s, int event, union wpa_event_data *data);
 void wpas_ucode_ctrl_event(struct wpa_supplicant *wpa_s, const char *str, size_t len);
 bool wpas_ucode_bss_allowed(struct wpa_supplicant *wpa_s, struct wpa_bss *bss);
+bool wpas_ucode_prepare_channel(struct wpa_radio_work *work);
+void wpas_ucode_cancel_channel(struct wpa_radio_work *work);
 void wpas_ucode_wps_complete(struct wpa_supplicant *wpa_s,
 			     const struct wps_credential *cred);
 int wpas_ucode_wps_m8_rx(struct wpa_supplicant *wpa_s,
@@ -83,6 +86,15 @@ static inline void wpas_ucode_ctrl_event(struct wpa_supplicant *wpa_s, const cha
 static inline bool wpas_ucode_bss_allowed(struct wpa_supplicant *wpa_s, struct wpa_bss *bss)
 {
 	return true;
+}
+
+static inline bool wpas_ucode_prepare_channel(struct wpa_radio_work *work)
+{
+	return false;
+}
+
+static inline void wpas_ucode_cancel_channel(struct wpa_radio_work *work)
+{
 }
 
 static inline void wpas_ucode_wps_complete(struct wpa_supplicant *wpa_s, const struct wps_credential *cred)
