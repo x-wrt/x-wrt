@@ -1,0 +1,79 @@
+Subject: [PATCH] wpa_supplicant: wait for AP channel switch before connecting
+
+Keep connection work pending while hostapd moves an active AP to the
+selected BSS channel. Cancel the retry timer on every work teardown.
+Notify administrative network disable even without a state transition.
+
+diff --git a/wpa_supplicant/wpa_supplicant.c b/wpa_supplicant/wpa_supplicant.c
+index b40bd456b91..92175ac2c36 100644
+--- a/wpa_supplicant/wpa_supplicant.c
++++ b/wpa_supplicant/wpa_supplicant.c
+@@ -2646,6 +2646,7 @@ void wpas_connect_work_done(struct wpa_supplicant *wpa_s)
+ 		return;
+ 
+ 	wpa_s->connect_work = NULL;
++	wpas_ucode_cancel_channel(work);
+ 	cwork = work->ctx;
+ 	work->ctx = NULL;
+ 	wpas_connect_work_free(cwork);
+@@ -4752,6 +4753,7 @@ static void wpas_start_assoc_cb(struct wpa_radio_work *work, int deinit)
+ 	wpa_s->no_suitable_network = 0;
+ 
+ 	if (deinit) {
++		wpas_ucode_cancel_channel(work);
+ 		if (work->started) {
+ 			wpa_s->connect_work = NULL;
+ 
+@@ -4772,6 +4774,9 @@ static void wpas_start_assoc_cb(struct wpa_radio_work *work, int deinit)
+ 		return;
+ 	}
+ 
++	if (wpas_ucode_prepare_channel(work))
++		return;
++
+ 	/*
+ 	 * Set the current AP's BSSID (for non-MLO connection) or MLD address
+ 	 * (for MLO connection) as the previous BSSID for reassociation requests
+@@ -5622,6 +5627,8 @@ void wpa_supplicant_disable_network(struct wpa_supplicant *wpa_s,
+ 			}
+ 		}
+ 	}
++	/* DISABLE_NETWORK can change policy without a state transition. */
++	wpas_ucode_update_state(wpa_s);
+ }
+ 
+ 
+diff --git a/wpa_supplicant/wpa_supplicant_i.h b/wpa_supplicant/wpa_supplicant_i.h
+index c44c96e202f..d7015d2e8e1 100644
+--- a/wpa_supplicant/wpa_supplicant_i.h
++++ b/wpa_supplicant/wpa_supplicant_i.h
+@@ -411,6 +411,7 @@ radio_work_pending(struct wpa_supplicant *wpa_s, const char *type);
+ struct wpa_connect_work {
+ 	unsigned int sme:1;
+ 	unsigned int bss_removed:1;
++	unsigned int apsta_retries;
+ 	struct wpa_bss *bss;
+ 	struct wpa_ssid *ssid;
+ };
+diff --git a/wpa_supplicant/sme.c b/wpa_supplicant/sme.c
+index 459b0a8b371..eeb4e30debd 100644
+--- a/wpa_supplicant/sme.c
++++ b/wpa_supplicant/sme.c
+@@ -1970,6 +1970,7 @@ static void sme_auth_start_cb(struct wpa_radio_work *work, int deinit)
+ #endif /* CONFIG_WNM */
+ 
+ 	if (deinit) {
++		wpas_ucode_cancel_channel(work);
+ 		if (work->started)
+ 			wpa_s->connect_work = NULL;
+ 
+@@ -1987,6 +1988,9 @@ static void sme_auth_start_cb(struct wpa_radio_work *work, int deinit)
+ 		return;
+ 	}
+ 
++	if (wpas_ucode_prepare_channel(work))
++		return;
++
+ 	/* Starting new connection, so clear the possibly used WPA IE from the
+ 	 * previous association. */
+ 	wpa_sm_set_assoc_wpa_ie(wpa_s->wpa, NULL, 0);
