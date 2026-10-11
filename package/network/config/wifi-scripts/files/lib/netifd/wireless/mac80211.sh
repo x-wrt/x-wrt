@@ -552,6 +552,8 @@ ${tx_burst:+tx_queue_data2_burst=$tx_burst}
 ${multiple_bssid:+mbssid=$multiple_bssid}
 #num_global_macaddr=$num_global_macaddr
 #macaddr_base=$macaddr_base
+${freq:+#frequency=$freq}
+${channel_follow:+#channel_follow=1}
 $base_cfg
 
 EOF
@@ -1139,6 +1141,7 @@ chan_is_dfs() {
 
 mac80211_set_noscan() {
 	hostapd_noscan=1
+	channel_follow=1
 }
 
 drv_mac80211_cleanup() {
@@ -1233,6 +1236,7 @@ drv_mac80211_setup() {
 	hostapd_ctrl=
 	ap_ifname=
 	hostapd_noscan=
+	channel_follow=
 	wpa_supp_init=
 	for_each_interface "ap" mac80211_check_ap
 
