@@ -228,6 +228,86 @@ endef
 TARGET_DEVICES += gemtek_xg2010g
 
 
+define Device/fiberhome_hg5382a
+  $(call Device/FitImageLzma)
+  DEVICE_VENDOR := FiberHome
+  DEVICE_MODEL := HG5382A
+  DEVICE_DTS := an7581-fiberhome-hg5382a
+  KERNEL_LOADADDR := 0x8c000000
+  BLOCKSIZE := 128k
+  PAGESIZE := 2048
+  UBOOTENV_IN_UBI := 1
+  KERNEL_IN_UBI := 1
+  KERNEL := kernel-bin | gzip
+  KERNEL_INITRAMFS := kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(DEVICE_DTS).dtb with-initrd | pad-to 128k
+  KERNEL_INITRAMFS_SUFFIX := -recovery.itb
+  IMAGES := sysupgrade.itb
+  IMAGE/sysupgrade.itb := append-kernel | \
+	fit gzip $$(KDIR)/image-$$(DEVICE_DTS).dtb external-static-with-rootfs | \
+	append-metadata
+  # The external 2.5G copper port uses MaxLinear GPY211.
+  DEVICE_PACKAGES := kmod-gpio-button-hotplug kmod-leds-gpio kmod-phy-maxlinear \
+    kmod-airoha-paged-bosa kmod-airoha-xpon airoha-ponctl airoha-pond \
+    fitblk nand-utils ubi-utils
+  DEVICE_PACKAGES += airoha-pon-board-data kmod-crypto-ecb
+endef
+TARGET_DEVICES += fiberhome_hg5382a
+
+
+define Device/fiberhome_hg5585f-common
+  $(call Device/FitImageLzma)
+  DEVICE_VENDOR := FiberHome
+  KERNEL_LOADADDR := 0x8a000000
+  BLOCKSIZE := 128k
+  PAGESIZE := 2048
+  UBOOTENV_IN_UBI := 1
+  KERNEL_IN_UBI := 1
+  KERNEL := kernel-bin | gzip
+  KERNEL_INITRAMFS_SUFFIX := -recovery.itb
+  IMAGES := sysupgrade.itb
+  # PON and MT7916D read per-device calibration from factory UBI NVMEM cells.
+  DEVICE_PACKAGES := kmod-gpio-button-hotplug kmod-leds-gpio kmod-usb3 \
+    kmod-usb-ledtrig-usbport \
+    kmod-airoha-paged-bosa kmod-airoha-xpon airoha-ponctl airoha-pond \
+	 kmod-mt7915e kmod-mt7916-firmware \
+	 fitblk nand-utils ubi-utils $(AIROHA_USB_STORAGE_PACKAGES)
+  DEVICE_PACKAGES += airoha-pon-board-data kmod-crypto-ecb
+endef
+
+
+define Device/fiberhome_hg5585f-images
+  KERNEL_INITRAMFS := kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(DEVICE_DTS).dtb with-initrd | pad-to 128k
+  IMAGE/sysupgrade.itb := append-kernel | \
+	fit gzip $$(KDIR)/image-$$(DEVICE_DTS).dtb external-static-with-rootfs | \
+	append-metadata
+endef
+
+
+define Device/fiberhome_hg5585f-ct
+  $(call Device/fiberhome_hg5585f-common)
+  DEVICE_MODEL := HG5585F
+  DEVICE_VARIANT := CT
+  DEVICE_DTS := an7581-fiberhome-hg5585f-ct
+  DEVICE_PACKAGES += kmod-phy-maxlinear
+  SUPPORTED_DEVICES += fiberhome,hg5585f-ct-usb-sfp
+  $(call Device/fiberhome_hg5585f-images)
+endef
+TARGET_DEVICES += fiberhome_hg5585f-ct
+
+
+define Device/fiberhome_hg5585f-cu
+  $(call Device/fiberhome_hg5585f-common)
+  DEVICE_MODEL := HG5585F
+  DEVICE_VARIANT := CU
+  DEVICE_DTS := an7581-fiberhome-hg5585f-cu
+  SUPPORTED_DEVICES += fiberhome,hg5585f-cu-usb-sfp
+  $(call Device/fiberhome_hg5585f-images)
+endef
+TARGET_DEVICES += fiberhome_hg5585f-cu
+
+
 define Device/nokia_xg-040g-md-ubi-images
   UBOOTENV_IN_UBI := 1
   KERNEL_IN_UBI := 1
