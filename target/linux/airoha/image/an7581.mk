@@ -154,7 +154,7 @@ define Device/nokia_xg-040g-md-common
 	kmod-phy-airoha-en8811h kmod-regulator-userspace-consumer \
 	kmod-usb-ledtrig-usbport kmod-usb3
   DEVICE_PACKAGES += kmod-airoha-en7572 kmod-airoha-xpon \
-	airoha-ponctl airoha-pond airoha-pon-board-data kmod-crypto-aes kmod-crypto-ecb
+	airoha-ponctl airoha-pond airoha-pon-board-data kmod-crypto-ecb
 endef
 
 define Device/nokia_xg-040g-md
@@ -221,3 +221,255 @@ define Device/quantum_q1000k-ubi
   SOC := an7581
 endef
 TARGET_DEVICES += quantum_q1000k-ubi
+
+
+define Device/gemtek_xg2010g
+  DEVICE_VENDOR := Gemtek
+  DEVICE_MODEL := XG2010G
+  DEVICE_DTS := an7581-gemtek-xg2010g
+  KERNEL_LOADADDR := 0x8a000000
+  BLOCKSIZE := 128k
+  PAGESIZE := 2048
+  UBOOTENV_IN_UBI := 1
+  KERNEL_IN_UBI := 1
+  UBINIZE_OPTS := -E 5
+  KERNEL := kernel-bin | gzip
+  KERNEL_INITRAMFS := kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 128k
+  KERNEL_INITRAMFS_SUFFIX := -recovery.itb
+  IMAGES := sysupgrade.itb
+  IMAGE/sysupgrade.itb := append-kernel | \
+	fit gzip $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb external-static-with-rootfs | \
+	append-metadata
+  DEVICE_PACKAGES := kmod-gpio-button-hotplug kmod-leds-gpio \
+	kmod-phy-airoha-en8811h kmod-phy-realtek rtl826x-firmware \
+	kmod-airoha-en7572 kmod-airoha-xpon airoha-ponctl airoha-pond \
+	fitblk nand-utils ubi-utils
+  DEVICE_PACKAGES += airoha-pon-board-data kmod-crypto-ecb
+endef
+TARGET_DEVICES += gemtek_xg2010g
+
+
+define Device/fiberhome_hg5382a
+  $(call Device/FitImageLzma)
+  DEVICE_VENDOR := FiberHome
+  DEVICE_MODEL := HG5382A
+  DEVICE_DTS := an7581-fiberhome-hg5382a
+  KERNEL_LOADADDR := 0x8c000000
+  BLOCKSIZE := 128k
+  PAGESIZE := 2048
+  UBOOTENV_IN_UBI := 1
+  KERNEL_IN_UBI := 1
+  KERNEL := kernel-bin | gzip
+  KERNEL_INITRAMFS := kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(DEVICE_DTS).dtb with-initrd | pad-to 128k
+  KERNEL_INITRAMFS_SUFFIX := -recovery.itb
+  IMAGES := sysupgrade.itb
+  IMAGE/sysupgrade.itb := append-kernel | \
+	fit gzip $$(KDIR)/image-$$(DEVICE_DTS).dtb external-static-with-rootfs | \
+	append-metadata
+  # The external 2.5G copper port uses MaxLinear GPY211.
+  DEVICE_PACKAGES := kmod-gpio-button-hotplug kmod-leds-gpio kmod-phy-maxlinear \
+    kmod-airoha-paged-bosa kmod-airoha-xpon airoha-ponctl airoha-pond \
+    fitblk nand-utils ubi-utils
+  DEVICE_PACKAGES += airoha-pon-board-data kmod-crypto-ecb
+endef
+TARGET_DEVICES += fiberhome_hg5382a
+
+
+define Device/fiberhome_hg5585f-common
+  $(call Device/FitImageLzma)
+  DEVICE_VENDOR := FiberHome
+  KERNEL_LOADADDR := 0x8a000000
+  BLOCKSIZE := 128k
+  PAGESIZE := 2048
+  UBOOTENV_IN_UBI := 1
+  KERNEL_IN_UBI := 1
+  KERNEL := kernel-bin | gzip
+  KERNEL_INITRAMFS_SUFFIX := -recovery.itb
+  IMAGES := sysupgrade.itb
+  # PON and MT7916D read per-device calibration from factory UBI NVMEM cells.
+  DEVICE_PACKAGES := kmod-gpio-button-hotplug kmod-leds-gpio kmod-usb3 \
+    kmod-airoha-paged-bosa kmod-airoha-xpon airoha-ponctl airoha-pond \
+	 kmod-mt7915e kmod-mt7916-firmware \
+	 fitblk nand-utils ubi-utils $(AIROHA_USB_STORAGE_PACKAGES)
+  DEVICE_PACKAGES += airoha-pon-board-data kmod-crypto-ecb
+endef
+
+
+define Device/fiberhome_hg5585f-images
+  KERNEL_INITRAMFS := kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(DEVICE_DTS).dtb with-initrd | pad-to 128k
+  IMAGE/sysupgrade.itb := append-kernel | \
+	fit gzip $$(KDIR)/image-$$(DEVICE_DTS).dtb external-static-with-rootfs | \
+	append-metadata
+endef
+
+
+define Device/fiberhome_hg5585f-ct
+  $(call Device/fiberhome_hg5585f-common)
+  DEVICE_MODEL := HG5585F
+  DEVICE_VARIANT := CT
+  DEVICE_DTS := an7581-fiberhome-hg5585f-ct
+  DEVICE_PACKAGES += kmod-phy-maxlinear
+  SUPPORTED_DEVICES += fiberhome,hg5585f-ct-usb-sfp
+  $(call Device/fiberhome_hg5585f-images)
+endef
+TARGET_DEVICES += fiberhome_hg5585f-ct
+
+
+define Device/fiberhome_hg5585f-cu
+  $(call Device/fiberhome_hg5585f-common)
+  DEVICE_MODEL := HG5585F
+  DEVICE_VARIANT := CU
+  DEVICE_DTS := an7581-fiberhome-hg5585f-cu
+  SUPPORTED_DEVICES += fiberhome,hg5585f-cu-usb-sfp
+  $(call Device/fiberhome_hg5585f-images)
+endef
+TARGET_DEVICES += fiberhome_hg5585f-cu
+
+
+define Device/znxt_zn50xg-d-common
+  DEVICE_VENDOR := ZNXT
+  DEVICE_VARIANT := (UBI)
+  # 0x8a000000 follows NPU/QDMA reserved memory and holds recovery decompression.
+  KERNEL_LOADADDR := 0x8a000000
+  BLOCKSIZE := 128k
+  PAGESIZE := 2048
+  UBOOTENV_IN_UBI := 1
+  KERNEL_IN_UBI := 1
+  KERNEL := kernel-bin | gzip
+  KERNEL_INITRAMFS = kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(DEVICE_DTS).dtb with-initrd | pad-to 128k
+  KERNEL_INITRAMFS_SUFFIX := -recovery.itb
+  IMAGES := sysupgrade.itb
+  IMAGE/sysupgrade.itb = append-kernel | \
+	fit gzip $$(KDIR)/image-$$(DEVICE_DTS).dtb external-static-with-rootfs | \
+	append-metadata
+endef
+
+
+define Device/znxt_zn515xg-d
+  $(call Device/znxt_zn50xg-d-common)
+  DEVICE_MODEL := ZN515XG-D
+  DEVICE_DTS := an7581-znxt-zn515xg-d
+  DEVICE_PACKAGES := kmod-gpio-button-hotplug kmod-leds-gpio \
+    kmod-usb3 kmod-usb-ledtrig-usbport kmod-phy-airoha-en8811h \
+    kmod-airoha-en7572 kmod-airoha-xpon airoha-ponctl airoha-pond \
+    kmod-mt7915e kmod-mt7916-firmware znxt-zn515-mt7916-eeprom \
+    nand-utils ubi-utils $(AIROHA_USB_STORAGE_PACKAGES)
+  DEVICE_PACKAGES += fitblk
+  DEVICE_PACKAGES += airoha-pon-board-data kmod-crypto-ecb
+endef
+TARGET_DEVICES += znxt_zn515xg-d
+
+
+define Device/znxt_zn504xg-d
+  $(call Device/znxt_zn50xg-d-common)
+  DEVICE_MODEL := ZN504XG-D
+  DEVICE_DTS := an7581-znxt-zn504xg-d
+  DEVICE_PACKAGES := kmod-gpio-button-hotplug kmod-leds-gpio \
+    kmod-phy-airoha-en8811h kmod-airoha-en7572 kmod-airoha-xpon \
+    airoha-ponctl airoha-pond nand-utils ubi-utils
+  DEVICE_PACKAGES += fitblk
+  DEVICE_PACKAGES += airoha-pon-board-data kmod-crypto-ecb
+endef
+TARGET_DEVICES += znxt_zn504xg-d
+
+
+define Device/unionman_ung00a
+  $(call Device/FitImageLzma)
+  DEVICE_VENDOR := Unionman
+  DEVICE_MODEL := UNG00A
+  DEVICE_DTS := an7581-unionman-ung00a
+  KERNEL_LOADADDR := 0x8a000000
+  BLOCKSIZE := 128k
+  PAGESIZE := 2048
+  UBOOTENV_IN_UBI := 1
+  KERNEL_IN_UBI := 1
+  KERNEL := kernel-bin | gzip
+  KERNEL_INITRAMFS = kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(DEVICE_DTS).dtb with-initrd | pad-to 128k
+  KERNEL_INITRAMFS_SUFFIX := -recovery.itb
+  IMAGES := sysupgrade.itb
+  IMAGE/sysupgrade.itb = append-kernel | \
+	fit gzip $$(KDIR)/image-$$(DEVICE_DTS).dtb external-static-with-rootfs | \
+	append-metadata
+  DEVICE_PACKAGES := kmod-gpio-button-hotplug kmod-leds-gpio \
+	 kmod-phy-airoha-en8811h kmod-airoha-en7572 kmod-airoha-xpon \
+	 airoha-ponctl airoha-pond fitblk nand-utils ubi-utils
+  DEVICE_PACKAGES += airoha-pon-board-data kmod-crypto-ecb
+endef
+TARGET_DEVICES += unionman_ung00a
+
+
+define Device/h3c_hm2004-du
+  $(call Device/FitImageLzma)
+  DEVICE_VENDOR := H3C
+  DEVICE_MODEL := HM2004-DU
+  DEVICE_DTS := an7581-h3c-hm2004-du
+  KERNEL_LOADADDR := 0x8a000000
+  BLOCKSIZE := 128k
+  PAGESIZE := 2048
+  UBOOTENV_IN_UBI := 1
+  KERNEL_IN_UBI := 1
+  KERNEL := kernel-bin | gzip
+  KERNEL_INITRAMFS = kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(DEVICE_DTS).dtb with-initrd | pad-to 128k
+  KERNEL_INITRAMFS_SUFFIX := -recovery.itb
+  IMAGES := sysupgrade.itb
+  IMAGE/sysupgrade.itb = append-kernel | \
+	fit gzip $$(KDIR)/image-$$(DEVICE_DTS).dtb external-static-with-rootfs | \
+	append-metadata
+  DEVICE_PACKAGES := kmod-gpio-button-hotplug kmod-leds-gpio \
+	 kmod-usb3 kmod-usb-ledtrig-usbport \
+	 kmod-phy-airoha-en8811h kmod-airoha-en7572 kmod-airoha-xpon \
+	 airoha-ponctl airoha-pond \
+	 kmod-mt7915e kmod-mt7916-firmware \
+	 fitblk nand-utils ubi-utils $(AIROHA_USB_STORAGE_PACKAGES)
+  DEVICE_PACKAGES += airoha-pon-board-data kmod-crypto-ecb
+endef
+TARGET_DEVICES += h3c_hm2004-du
+
+
+define Device/nokia_xg-040g-tf-common
+  $(call Device/nokia_xg-040g-md-common)
+  DEVICE_MODEL := XG-040G-TF
+  DEVICE_PACKAGES += -kmod-regulator-userspace-consumer \
+    -kmod-usb-ledtrig-usbport -kmod-usb3 \
+    $(addprefix -,$(AIROHA_USB_STORAGE_PACKAGES))
+endef
+
+
+define Device/nokia_xg-040g-md-ubi-images
+  UBOOTENV_IN_UBI := 1
+  KERNEL_IN_UBI := 1
+  KERNEL := kernel-bin | gzip
+  KERNEL_INITRAMFS := kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(DEVICE_DTS).dtb with-initrd | pad-to 128k
+  KERNEL_INITRAMFS_SUFFIX := -recovery.itb
+  IMAGES := sysupgrade.itb
+  IMAGE/sysupgrade.itb := append-kernel | \
+	fit gzip $$(KDIR)/image-$$(DEVICE_DTS).dtb external-static-with-rootfs | \
+	append-metadata
+  DEVICE_PACKAGES += fitblk
+endef
+
+
+define Device/nokia_xg-040g-tf-ubi
+  $(call Device/nokia_xg-040g-tf-common)
+  DEVICE_VARIANT := (UBI)
+  DEVICE_DTS := an7581-nokia_xg-040g-tf-ubi
+  UBOOTENV_IN_UBI := 1
+  KERNEL_IN_UBI := 1
+  KERNEL := kernel-bin | gzip
+  KERNEL_INITRAMFS := kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 128k
+  KERNEL_INITRAMFS_SUFFIX := -recovery.itb
+  IMAGES := sysupgrade.itb
+  IMAGE/sysupgrade.itb := append-kernel | \
+	fit gzip $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb external-static-with-rootfs | \
+	append-metadata
+  DEVICE_PACKAGES += fitblk
+endef
+TARGET_DEVICES += nokia_xg-040g-tf-ubi

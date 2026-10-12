@@ -9,6 +9,7 @@
 an7581_setup_interfaces()
 {
 	local board="$1"
+	local VARIANT=standard
 
 	case "$board" in
 	airoha,an7581-evb)
@@ -17,12 +18,65 @@ an7581_setup_interfaces()
 	gemtek,w1700k-ubi)
 		ucidef_set_interfaces_lan_wan "lan2 lan3 lan4" "wan"
 		;;
+	gemtek,xg2010g)
+		# Panel order is two RTL8261N 10G ports, EN8811H 2.5G, then switch 1G.
+		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4" "pon0"
+		;;
+	fiberhome,hg5382a|\
+	fiberhome,hg5585f-ct)
+		case "$VARIANT" in
+			usb-sfp)
+				# lan1 uses external GPY211; lan2 through lan4 use the integrated switch; lan5 uses usb.
+				ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4 lan5" "pon0"
+				;;
+			*)
+				# lan1 uses external GPY211; lan2 through lan4 use the integrated switch.
+				ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4" "pon0"
+				;;
+		esac
+		;;
+	fiberhome,hg5585f-cu)
+		case "$VARIANT" in
+			usb-sfp)
+				# lan1 through lan4 use the integrated switch. lan5 uses gdm4 usxgmii. lan6 uses usb.
+				ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4 lan5 lan6" "pon0"
+				;;
+			*)
+				# The integrated switch provides all four panel ports.
+				ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4" "pon0"
+				;;
+		esac
+		;;
+	unionman,ung00a)
+		# The board exposes one 2.5G and three 1G ports with PON as the uplink.
+		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4" "pon0"
+		;;
+	znxt,zn504xg-d|\
+	znxt,zn515xg-d)
+		# Panel numbering starts at the 2.5G port and continues through lan4.
+		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4" "pon0"
+		;;
+	h3c,hm2004-du)
+		# One EN8811H 2.5GE port plus three GSW ports; PON is the uplink.
+		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4" "pon0"
+		;;
 	nokia,valyrian)
 		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 10g" "wan"
 		;;
 	nokia,xg-040g-md |\
 	nokia,xg-040g-md-ubi)
 		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4" "pon0"
+		;;
+	nokia,xg-040g-tf-ubi)
+		# netifd opens pon0 when the wan interface starts.
+		case "$VARIANT" in
+			usb-sfp)
+				ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4 lan5" "pon0"
+				;;
+			*)
+				ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4" "pon0"
+				;;
+		esac
 		;;
 	quantum,q1000k-ubi)
 		# Both copper ports are LAN; the upstream connection is PON.
