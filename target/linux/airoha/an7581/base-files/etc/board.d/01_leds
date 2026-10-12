@@ -13,6 +13,24 @@ airoha,an7581-evb)
 	ucidef_set_led_usbport "usb1" "USB 1" "green:usb-1" "usb1-port1" "usb2-port1"
 	ucidef_set_led_usbport "usb2" "USB 2" "green:usb-2" "usb3-port1" "usb4-port1"
 	;;
+fiberhome,hg5382a)
+	ucidef_set_led_netdev "lan1" "lan1" "mt7530-0:07:blue:lan-1" "lan1" "link tx rx"
+	ucidef_set_led_netdev "lan2" "lan2" "mt7530-0:0a:blue:lan-2" "lan2" "link tx rx"
+	ucidef_set_led_netdev "lan3" "lan3" "mt7530-0:0b:blue:lan-3" "lan3" "link tx rx"
+	ucidef_set_led_netdev "lan4" "lan4" "mt7530-0:0c:blue:lan-4" "lan4" "link tx rx"
+	;;
+fiberhome,hg5585f-ct)
+	ucidef_set_led_usbport "usb1" "USB 1" "blue:usb-1" "usb3-port1" "usb4-port1"
+	;;
+fiberhome,hg5585f-cu)
+	ucidef_set_led_netdev "lan1" "lan1" "blue:lan-1" "lan1" "link tx rx"
+	ucidef_set_led_netdev "lan2" "lan2" "blue:lan-2" "lan2" "link tx rx"
+	ucidef_set_led_netdev "lan3" "lan3" "blue:lan-3" "lan3" "link tx rx"
+	ucidef_set_led_netdev "lan4" "lan4" "blue:lan-4" "lan4" "link tx rx"
+	# USB1 is the USB2 port; USB2 is the USB3 port.
+	ucidef_set_led_usbport "usb1" "USB 1" "blue:usb-1" "usb3-port1" "usb4-port1"
+	ucidef_set_led_usbport "usb2" "USB 2" "blue:usb-2" "usb1-port1" "usb2-port1"
+	;;
 gemtek,xg2010g)
 	ucidef_set_led_netdev "lan4-yellow" "lan4" "yellow:lan-4" "lan4" "link_10 link_100"
 	ucidef_set_led_netdev "lan4-green" "lan4" "green:lan-4" "lan4" "link_1000 tx rx"
