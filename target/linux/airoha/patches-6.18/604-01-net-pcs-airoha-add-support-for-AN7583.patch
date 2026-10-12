@@ -969,8 +969,8 @@ Signed-off-by: Christian Marangi <ansuelsmth@gmail.com>
  #define AIROHA_PCS_PMA_DIG_RESERVE_29		0x910
  #define   AIROHA_PCS_PMA_2L_TX_RATE_CTRL	GENMASK(1, 0)
  #define   AIROHA_PCS_PMA_2L_RX_RATE_CTRL	GENMASK(5, 4)
-@@ -1205,6 +1610,19 @@
- #define AIROHA_PCS_MAX_CALIBRATION_TRY		50
+@@ -1209,6 +1614,19 @@
+ #define AIROHA_PCS_MAX_RX_SIGDET_PRESENCE_CNT	4
  #define AIROHA_PCS_MAX_NUM_RSTS			2
  
 +enum pon_eo_buf_vals {
