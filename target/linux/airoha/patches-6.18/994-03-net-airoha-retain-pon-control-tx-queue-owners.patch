@@ -1,0 +1,67 @@
+From: Chen Minqiang <ptpt52@gmail.com>
+Subject: [PATCH] net: airoha: retain PON control queue owners until TX completion
+
+A control netdev can be removed while another GDM still uses the shared
+QDMA. Keep its BQL queue owner alive until completion or ring cleanup.
+Acquire the reference after DMA mapping succeeds, once per control skb.
+
+Signed-off-by: Chen Minqiang <ptpt52@gmail.com>
+---
+--- a/drivers/net/ethernet/airoha/airoha_eth.c
++++ b/drivers/net/ethernet/airoha/airoha_eth.c
+@@ -2998,6 +2998,14 @@ static void airoha_qdma_wake_netdev_txqs
+ 	q->txq_stopped = false;
+ }
+ 
++static void airoha_qdma_put_tx_owner(struct airoha_queue_entry *e)
++{
++	if (!e->tx_owner)
++		return;
++	dev_put(e->tx_owner);
++	e->tx_owner = NULL;
++}
++
+ void
+ airoha_qdma_unmap_tx_entry(struct airoha_eth *eth,
+ 			   struct airoha_queue_entry *e)
+@@ -3132,6 +3140,7 @@ static int airoha_qdma_tx_napi_poll(stru
+ 			airoha_qdma_complete_tx(e, skb);
+ 			dev_kfree_skb_any(skb);
+ 		}
++		airoha_qdma_put_tx_owner(e);
+ 
+ 		if (q->txq_stopped && q->ndesc - q->queued >= q->free_thr) {
+ 			/* Since multiple net_device TX queues can share the
+@@ -3288,6 +3297,7 @@ void airoha_qdma_cleanup_tx_queue(struct
+ 			airoha_qdma_complete_tx(e, skb);
+ 			dev_kfree_skb_any(skb);
+ 		}
++		airoha_qdma_put_tx_owner(e);
+ 		e->skb = NULL;
+ 		list_add_tail(&e->list, &q->tx_list);
+ 
+@@ -7945,6 +7955,14 @@ static netdev_tx_t __airoha_dev_xmit(str
+ 		i++;
+ 	}
+ 	q->queued += i;
++	if (ctrl) {
++		list_for_each_entry(e, &tx_list, list) {
++			if (!e->skb)
++				continue;
++			dev_hold(netdev);
++			e->tx_owner = netdev;
++		}
++	}
+ 	if (pon_data) {
+ 		u8 channel = FIELD_GET(QDMA_ETH_TXMSG_CHAN_MASK, msg0);
+ 
+--- a/drivers/net/ethernet/airoha/airoha_eth.h
++++ b/drivers/net/ethernet/airoha/airoha_eth.h
+@@ -414,6 +414,7 @@ struct airoha_queue_entry {
+ 		struct {
+ 			struct list_head list;
+ 			struct sk_buff *skb;
++			struct net_device *tx_owner;
+ 			spinlock_t *txq_lock;
+ 		};
+ 	};
