@@ -1,0 +1,513 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+
+. /lib/functions.sh
+
+STATE_DIR="/tmp/airoha-pon-debug"
+CAPTURE_DIR="$STATE_DIR/capture"
+WORK_DIR="$STATE_DIR/bundle"
+BUNDLE_PATH="/tmp/pon-debug.tar.gz"
+RESTART_LOG="$STATE_DIR/restart.log"
+PRE_RESTART_DIR="$STATE_DIR/pre-restart"
+RESTART_FAILED=0
+STATE_LOG_BYTES=1048576
+CAPTURE_LOG_BYTES=65536
+CAPTURE_READY_SECONDS=10
+CAPTURE_PID=
+CAPTURE_LOG=
+CAPTURE_RUN=0
+DEBUG_VALUE=0
+
+safe_name() {
+	printf '%s' "$1" | tr -c 'A-Za-z0-9_.-' '_'
+}
+
+line_uses_epon() {
+	local line="$1"
+	local mode
+
+	config_get mode "$line" mode
+	case "$mode" in
+	epon-*) return 0 ;;
+	*) return 1 ;;
+	esac
+}
+
+write_command() {
+	local output="$1"
+	shift
+
+	{
+		printf '# command:'
+		printf ' %s' "$@"
+		printf '\n'
+		"$@"
+	} > "$output" 2>&1
+}
+
+write_shell_command() {
+	local output="$1"
+	local command="$2"
+
+	{
+		printf '# command: %s\n' "$command"
+		sh -c "$command"
+	} > "$output" 2>&1
+}
+
+capture_line_state() {
+	local section="$1"
+	local device name directory debug_dir debug_file child child_name
+
+	config_get device "$section" device
+	[ -n "$device" ] || return 0
+	name="$(safe_name "$section")"
+	directory="$WORK_DIR/line-$name"
+	mkdir -p "$directory"
+
+	write_command "$directory/status.json" /usr/sbin/ponctl --device "$device" status --json
+	write_command "$directory/data-path.txt" /usr/sbin/ponctl --device "$device" data-path show
+	write_command "$directory/control.txt" /usr/sbin/ponctl --device "$device" control
+	write_command "$directory/mode.txt" /usr/sbin/ponctl --device "$device" mode show
+	write_command "$directory/identity.txt" /usr/sbin/ponctl --device "$device" identity show
+	write_command "$directory/link.txt" ip -s -d link show dev "$device"
+	write_command "$directory/features.txt" ethtool -k "$device"
+	write_command "$directory/network-device.json" \
+		ubus call network.device status "{\"name\":\"$device\"}"
+	for child in /sys/class/net/"$device".*; do
+		[ -e "$child" ] || continue
+		child="${child##*/}"
+		child_name="$(safe_name "$child")"
+		write_command "$directory/network-device-$child_name.json" \
+			ubus call network.device status "{\"name\":\"$child\"}"
+	done
+	debug_dir="/sys/kernel/debug/airoha-xpon-$device"
+	for debug_file in line frontend pcs mac crypto registration datapath; do
+		[ -r "$debug_dir/$debug_file" ] || continue
+		write_command "$directory/debug-$debug_file.txt" cat "$debug_dir/$debug_file"
+	done
+}
+
+capture_npu_state() {
+	local directory="$WORK_DIR/npu"
+
+	mkdir -p "$directory"
+	write_shell_command "$directory/driver.txt" \
+		"ls -l /sys/bus/platform/drivers/airoha-npu"
+	write_shell_command "$directory/firmware.txt" \
+		"tr '\\0' '\\n' < /proc/device-tree/soc/npu@1e900000/firmware-name"
+	write_command "$directory/clock.txt" cat /sys/kernel/debug/clk/npu/clk_rate
+	write_command "$directory/ppe-config.txt" cat /sys/kernel/debug/ppe/config
+	write_command "$directory/ppe-bind.txt" cat /sys/kernel/debug/ppe/bind
+	write_command "$directory/ppe-entries.txt" cat /sys/kernel/debug/ppe/entries
+	write_shell_command "$directory/ppe-summary.txt" \
+		"awk '/^[0-9a-fA-F]+ / { count[\$2]++ } END { printf \"UNB=%u\\nBND=%u\\nFIN=%u\\nTOTAL=%u\\n\", count[\"UNB\"], count[\"BND\"], count[\"FIN\"], count[\"UNB\"] + count[\"BND\"] + count[\"FIN\"] }' /sys/kernel/debug/ppe/entries"
+	write_command "$directory/flowtable.txt" nft list flowtable inet fw4 ft
+	write_shell_command "$directory/kernel-log.txt" \
+		"dmesg | grep -Ei 'airoha-npu|mailbox|ppe'"
+}
+
+capture_omci_state() {
+	local section="$1"
+	local line name directory
+
+	config_get line "$section" line
+	[ -n "$line" ] || return 0
+	line_uses_epon "$line" && return 0
+	name="$(safe_name "$section")"
+	directory="$WORK_DIR/omci-$name"
+	mkdir -p "$directory"
+	write_command "$directory/status.json" /usr/bin/pondctl status --line "$line"
+	write_command "$directory/datapath.json" /usr/bin/pondctl datapath --line "$line"
+	write_command "$directory/events.jsonl" /usr/bin/pondctl events --line "$line" --after 0
+}
+
+capture_oam_state() {
+	local section="$1"
+	local line name directory
+
+	config_get line "$section" line
+	[ -n "$line" ] || return 0
+	line_uses_epon "$line" || return 0
+	name="$(safe_name "$section")"
+	directory="$WORK_DIR/oam-$name"
+	mkdir -p "$directory"
+	write_command "$directory/status.json" /usr/bin/pondctl status --line "$line"
+	write_command "$directory/events.jsonl" /usr/bin/pondctl events --line "$line" --after 0
+}
+
+capture_bridge_state() {
+	local bridge name directory attribute
+
+	directory="$WORK_DIR/bridge"
+	mkdir -p "$directory"
+	for bridge in /sys/class/net/*/bridge; do
+		[ -d "$bridge" ] || continue
+		name="$(safe_name "$(basename "$(dirname "$bridge")")")"
+		for attribute in multicast_snooping multicast_querier multicast_router multicast_vlan_snooping; do
+			[ -r "$bridge/$attribute" ] || continue
+			cat "$bridge/$attribute" > "$directory/$name-$attribute.txt" 2>&1
+		done
+	done
+}
+
+copy_config() {
+	local name
+
+	mkdir -p "$WORK_DIR/config"
+	for name in pon airoha-pon-debug network firewall dhcp iptv rtp2httpd; do
+		[ -r "/etc/config/$name" ] || continue
+		cp "/etc/config/$name" "$WORK_DIR/config/$name"
+	done
+}
+
+collect_bundle() {
+	local size result
+
+	# Stopping tcpdump flushes libpcap buffers before the bundle is compressed.
+	/etc/init.d/airoha-pon-debug stop >/dev/null 2>&1 || true
+	# procd returns before the capture helpers forward SIGTERM to tcpdump.
+	sleep 1
+	rm -rf "$WORK_DIR"
+	rm -f "$BUNDLE_PATH"
+	mkdir -p "$WORK_DIR"
+	chmod 0700 "$STATE_DIR" "$WORK_DIR"
+
+	{
+		date '+captured_at=%Y-%m-%dT%H:%M:%S%z'
+		uname -a
+		printf 'model='
+		cat /tmp/sysinfo/model 2>/dev/null || true
+	} > "$WORK_DIR/system.txt"
+	apk info -v > "$WORK_DIR/packages.txt" 2>&1 || true
+	[ ! -r "$RESTART_LOG" ] || cp "$RESTART_LOG" "$WORK_DIR/pon-restart.log"
+	[ ! -d "$PRE_RESTART_DIR" ] || cp -a "$PRE_RESTART_DIR" "$WORK_DIR/pre-restart"
+	copy_config
+
+	config_load pon
+	config_foreach capture_line_state xpon
+	config_foreach capture_omci_state omci
+	config_foreach capture_oam_state oam
+	capture_npu_state
+
+	write_command "$WORK_DIR/ip-link.txt" ip -s -d link show
+	write_command "$WORK_DIR/ip-address.txt" ip -s address show
+	write_command "$WORK_DIR/ip-route.txt" ip -s route show table all
+	write_command "$WORK_DIR/ip-neighbour.txt" ip -s neighbour show
+	write_command "$WORK_DIR/bridge-vlan.txt" bridge vlan show
+	write_command "$WORK_DIR/bridge-mdb.txt" bridge mdb show
+	write_command "$WORK_DIR/network-runtime.json" ubus call network.interface dump
+	write_command "$WORK_DIR/processes.txt" ps w
+	write_command "$WORK_DIR/nft-ruleset.txt" nft list ruleset
+	write_shell_command "$WORK_DIR/proc-interrupts.txt" \
+		"grep -Ei 'pon|xgpon|epon|airoha' /proc/interrupts || true"
+	write_command "$WORK_DIR/dmesg.txt" dmesg
+	write_command "$WORK_DIR/logread.txt" logread
+	capture_bridge_state
+
+	if [ -d "$CAPTURE_DIR" ]; then
+		mkdir -p "$WORK_DIR/pcap"
+		cp -a "$CAPTURE_DIR"/. "$WORK_DIR/pcap/" 2>/dev/null || true
+	fi
+	if [ -d /sys/fs/pstore ]; then
+		mkdir -p "$WORK_DIR/pstore"
+		cp -a /sys/fs/pstore/. "$WORK_DIR/pstore/" 2>/dev/null || true
+	fi
+
+	result=0
+	tar -C "$STATE_DIR" -czf "$BUNDLE_PATH" "$(basename "$WORK_DIR")" || result=$?
+	/etc/init.d/airoha-pon-debug start >/dev/null 2>&1 || true
+	[ "$result" -eq 0 ] || return "$result"
+
+	chmod 0600 "$BUNDLE_PATH"
+	size="$(wc -c < "$BUNDLE_PATH")"
+	printf '{"path":"%s","size":%u}\n' "$BUNDLE_PATH" "$size"
+}
+
+sample_frontend() {
+	local name="$1"
+	local device="$2"
+	local output="$CAPTURE_DIR/state-$name.log"
+	local child child_path delay=1 network_interval=1 samples=0 size
+
+	mkdir -p "$CAPTURE_DIR"
+	while true; do
+		if [ -r "$output" ]; then
+			size="$(wc -c < "$output")"
+			if [ "$size" -ge "$STATE_LOG_BYTES" ]; then
+				mv -f "$output" "$output.1"
+			fi
+		fi
+		{
+			date '+sample_at=%Y-%m-%dT%H:%M:%S%z'
+			printf 'protocol_status_begin\n'
+			/usr/sbin/ponctl --device "$device" status --json
+			printf 'protocol_status_end\n'
+			if [ $((samples % network_interval)) -eq 0 ]; then
+				printf 'network_snapshot_begin\n'
+				ip -s -d link show dev "$device"
+				for child_path in /sys/class/net/"$device".*; do
+					[ -e "$child_path" ] || continue
+					child="${child_path##*/}"
+					ip -s -d link show dev "$child"
+				done
+				ubus call network.interface dump
+				printf 'network_snapshot_end\n'
+			fi
+			printf '\n'
+		} >> "$output" 2>&1
+		if [ "$samples" -lt 15 ]; then
+			delay=1
+			network_interval=1
+		elif [ "$samples" -lt 120 ]; then
+			delay=1
+			network_interval=5
+		else
+			delay=5
+			network_interval=2
+		fi
+		samples=$((samples + 1))
+		sleep "$delay"
+	done
+}
+
+interface_is_up() {
+	local flags
+
+	flags="$(cat "/sys/class/net/$1/flags" 2>/dev/null)" || return 1
+	[ $((flags & 1)) -eq 1 ]
+}
+
+trim_capture_output() {
+	local output="$1"
+	local limit_kb="$2"
+	local oldest size_kb
+
+	while true; do
+		size_kb="$(du -ck "$CAPTURE_DIR/$output"-*.pcap* 2>/dev/null | awk 'END { print $1 }')"
+		[ "${size_kb:-0}" -le "$limit_kb" ] && break
+		oldest="$(ls -1tr "$CAPTURE_DIR/$output"-*.pcap* 2>/dev/null | head -n 1)"
+		[ -n "$oldest" ] || break
+		rm -f "$oldest"
+	done
+}
+
+stop_capture() {
+	if [ -n "$CAPTURE_PID" ]; then
+		kill "$CAPTURE_PID" 2>/dev/null
+		wait
+		# Service stops would otherwise leave rings without an end marker.
+		date "+capture_stop=%Y-%m-%dT%H:%M:%S%z run=$CAPTURE_RUN status=stopped" >> "$CAPTURE_LOG"
+	fi
+	exit 0
+}
+
+capture_interface() {
+	local device="$1"
+	local output="$2"
+	local size_mb="$3"
+	local files="$4"
+	local size status
+	shift 4
+
+	CAPTURE_LOG="$CAPTURE_DIR/$output.log"
+	mkdir -p "$CAPTURE_DIR"
+	# procd signals only this shell; tcpdump must exit to flush its ring.
+	trap stop_capture INT TERM
+	while true; do
+		# tcpdump cannot open a down interface. An open capture survives later
+		# down/up cycles and exits only when the netdev is unregistered.
+		if ! interface_is_up "$device"; then
+			sleep 1
+			continue
+		fi
+		CAPTURE_RUN=$((CAPTURE_RUN + 1))
+		# Earlier rings of this output keep at most one ring of history.
+		trim_capture_output "$output" $((size_mb * files * 1024))
+		if [ -r "$CAPTURE_LOG" ]; then
+			size="$(wc -c < "$CAPTURE_LOG")"
+			[ "$size" -lt "$CAPTURE_LOG_BYTES" ] || mv -f "$CAPTURE_LOG" "$CAPTURE_LOG.1"
+		fi
+		date "+capture_start=%Y-%m-%dT%H:%M:%S%z run=$CAPTURE_RUN" >> "$CAPTURE_LOG"
+		/usr/bin/tcpdump -i "$device" -n -s 0 -U -C "$size_mb" -W "$files" \
+			-w "$CAPTURE_DIR/$output-$(date +%Y%m%d-%H%M%S)-$$-$CAPTURE_RUN.pcap" \
+			"$@" >> "$CAPTURE_LOG" 2>&1 &
+		CAPTURE_PID=$!
+		wait "$CAPTURE_PID"
+		status=$?
+		CAPTURE_PID=
+		date "+capture_stop=%Y-%m-%dT%H:%M:%S%z run=$CAPTURE_RUN status=$status" >> "$CAPTURE_LOG"
+		sleep 1
+	done
+}
+
+load_debug_value() {
+	config_load airoha-pon-debug
+	config_get_bool DEBUG_VALUE capture enabled 0
+}
+
+set_line_debug() {
+	uci set "airoha-pon-debug.capture.enabled=$DEBUG_VALUE"
+}
+
+set_debug() {
+	DEBUG_VALUE="$1"
+	set_line_debug
+	uci commit airoha-pon-debug
+	/etc/init.d/airoha-pon-debug reload
+	show_status
+}
+
+show_line_status() {
+	local section="$1"
+	local device
+
+	config_get device "$section" device
+	printf 'line=%s device=%s enabled=%s\n' "$section" "$device" "$DEBUG_VALUE"
+}
+
+show_status() {
+	local bytes=0
+
+	load_debug_value
+	config_load pon
+	config_foreach show_line_status xpon
+	[ ! -d "$CAPTURE_DIR" ] || bytes="$(du -sk "$CAPTURE_DIR" | awk '{ print $1 * 1024 }')"
+	printf 'capture_bytes=%s\nbundle=%s\n' "$bytes" "$BUNDLE_PATH"
+}
+
+line_down() {
+	local section="$1"
+	local device
+
+	config_get device "$section" device
+	[ -n "$device" ] || return 0
+	ip link set dev "$device" down || RESTART_FAILED=1
+}
+
+line_up() {
+	local section="$1"
+	local device
+
+	config_get device "$section" device
+	[ -n "$device" ] || return 0
+	ip link set dev "$device" up || RESTART_FAILED=1
+}
+
+snapshot_before_restart() {
+	local WORK_DIR="$PRE_RESTART_DIR"
+
+	# pond keeps OMCI/OAM events in memory, so stopping it discards them.
+	rm -rf "$WORK_DIR"
+	mkdir -p "$WORK_DIR"
+	chmod 0700 "$STATE_DIR" "$WORK_DIR"
+	date '+captured_at=%Y-%m-%dT%H:%M:%S%z' > "$WORK_DIR/system.txt"
+	config_load pon
+	config_foreach capture_line_state xpon
+	config_foreach capture_omci_state omci
+	config_foreach capture_oam_state oam
+	write_command "$WORK_DIR/dmesg.txt" dmesg
+}
+
+add_control_capture() {
+	local section="$1"
+	local kind="$2"
+	local device
+
+	# Mirrors the init script, which only captures existing control netdevs.
+	config_get device "$section" device
+	[ -n "$device" ] && [ -e "/sys/class/net/$device" ] || return 0
+	CAPTURE_OUTPUTS="$CAPTURE_OUTPUTS $kind-$(safe_name "$section")"
+}
+
+add_omci_capture() {
+	local line
+
+	config_get line "$1" line
+	line_uses_epon "$line" && return 0
+	add_control_capture "$1" omci
+}
+
+add_oam_capture() {
+	local line
+
+	config_get line "$1" line
+	line_uses_epon "$line" || return 0
+	add_control_capture "$1" oam
+}
+
+wait_control_captures() {
+	local output deadline ready
+
+	[ -n "$CAPTURE_OUTPUTS" ] || return 0
+	deadline=$(($(date +%s) + CAPTURE_READY_SECONDS))
+	while true; do
+		ready=1
+		for output in $CAPTURE_OUTPUTS; do
+			# tcpdump's banner stays the last log line while its ring is attached.
+			tail -n 1 "$CAPTURE_DIR/$output.log" 2>/dev/null |
+				grep -q 'listening on' || ready=0
+		done
+		[ "$ready" -eq 1 ] && return 0
+		if [ "$(date +%s)" -ge "$deadline" ]; then
+			echo "control capture not attached after ${CAPTURE_READY_SECONDS}s:$CAPTURE_OUTPUTS"
+			return 1
+		fi
+		sleep 1
+	done
+}
+
+restart_pon() {
+	RESTART_FAILED=0
+	CAPTURE_OUTPUTS=
+	logger -t airoha-pon-debug "PON line restart requested"
+	mkdir -p "$STATE_DIR"
+	: > "$RESTART_LOG"
+
+	# LuCI expects a single JSON result, so service output goes to the restart log.
+	{
+		snapshot_before_restart
+		/etc/init.d/airoha-pond stop || RESTART_FAILED=1
+
+		config_load pon
+		config_foreach line_down xpon
+		sleep 1
+		/etc/init.d/pon restart || RESTART_FAILED=1
+
+		# pond raises the control netdevs; OMCI must be captured before PLOAM ranging.
+		load_debug_value
+		config_load pon
+		if [ "$DEBUG_VALUE" -eq 1 ]; then
+			config_foreach add_omci_capture omci
+			config_foreach add_oam_capture oam
+		fi
+		/etc/init.d/airoha-pond start || RESTART_FAILED=1
+		wait_control_captures
+		config_foreach line_up xpon
+	} >> "$RESTART_LOG" 2>&1
+
+	if [ "$RESTART_FAILED" -ne 0 ]; then
+		logger -t airoha-pon-debug "PON line restart failed"
+		printf '{"ok":false}\n'
+		return 1
+	fi
+	logger -t airoha-pon-debug "PON line restart complete"
+	printf '{"ok":true}\n'
+}
+
+case "$1" in
+enable) set_debug 1 ;;
+disable) set_debug 0 ;;
+status) show_status ;;
+collect) collect_bundle ;;
+restart) restart_pon ;;
+sample) sample_frontend "$2" "$3" ;;
+capture)
+	shift
+	capture_interface "$@"
+	;;
+*)
+	printf 'usage: %s enable|disable|status|collect|restart\n' "$0" >&2
+	exit 2
+	;;
+esac
