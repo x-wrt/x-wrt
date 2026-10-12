@@ -45,6 +45,26 @@
 	status = "okay";
 };
 
+&xpon_mac {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pon_pins>;
+	optical-front-end = <&en7572>;
+	nvmem-cells = <&pon_serial>;
+	nvmem-cell-names = "pon-serial";
+	/* data-path references the GDM carrying service GEM traffic. */
+	data-path = <&gdm2>;
+	status = "okay";
+};
+
+&gdm2 {
+	/* GDM2 carries the PON GEM data plane on AN7581 and AN7583. */
+	airoha,pon-data-path;
+	/* WAN uses the eth0 MAC stored at RI offset 0x3e. */
+	nvmem-cell-names = "mac-address";
+	nvmem-cells = <&macaddr_factory_3e 0>;
+	status = "okay";
+};
+
 &snfi {
 	status = "okay";
 };
@@ -69,5 +89,5 @@
 	status = "okay";
 
 	nvmem-cell-names = "mac-address";
-	nvmem-cells = <&macaddr_factory_3e (0)>;
+	nvmem-cells = <&macaddr_factory_3e 1>;
 };

@@ -445,6 +445,25 @@
 			status = "disabled";
 		};
 
+		xpon_mac: ethernet@1fb64000 {
+			compatible = "airoha,an7581-xpon-mac";
+			reg = <0x0 0x1fb64000 0x0 0x3e8>,
+			      <0x0 0x1fb65000 0x0 0xff8>,
+			      <0x0 0x1fb66000 0x0 0x1000>,
+			      <0x0 0x1faf0000 0x0 0x2000>;
+			reg-names = "gpon", "xgpon", "epon", "pon-phy";
+
+			interrupts = <GIC_SPI 42 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 43 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "mac", "phy";
+
+			/* The PCS provider owns line rate, CDR, and PMA calibration. */
+			pcs-handle = <&pon_pcs>;
+			airoha,scu = <&scuclk>;
+
+			status = "disabled";
+		};
+
 		pon_pcs: pcs@1fa08000 {
 			compatible = "airoha,an7581-pcs-pon";
 			reg = <0x0 0x1fa08000 0x0 0x1000>,
