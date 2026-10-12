@@ -13,6 +13,10 @@ airoha,an7581-evb)
 	ucidef_set_led_usbport "usb1" "USB 1" "green:usb-1" "usb1-port1" "usb2-port1"
 	ucidef_set_led_usbport "usb2" "USB 2" "green:usb-2" "usb3-port1" "usb4-port1"
 	;;
+gemtek,xg2010g)
+	ucidef_set_led_netdev "lan4-yellow" "lan4" "yellow:lan-4" "lan4" "link_10 link_100"
+	ucidef_set_led_netdev "lan4-green" "lan4" "green:lan-4" "lan4" "link_1000 tx rx"
+	;;
 gemtek,w1700k-ubi)
 	ucidef_set_led_netdev "wan-yellow" "wan" "mt7530-0:08:yellow:wan" "wan" "link_10 link_100 link_10000"
 	ucidef_set_led_netdev "wan-green" "wan" "mt7530-0:08:green:wan" "wan" "link_1000 link_2500 link_5000 link_10000 tx rx"
