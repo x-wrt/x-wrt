@@ -44,6 +44,7 @@ platform_check_image() {
 		nand_do_platform_check "$board" "$1"
 		return $?
 		;;
+	gemtek,xg2010g|\
 	nokia,xg-040g-md-ubi|\
 	quantum,q1000k-ubi)
 		fit_check_image "$1"
@@ -61,6 +62,9 @@ platform_do_upgrade() {
 		gemtek,w1700k-ubi|\
 		quantum,q1000k-ubi)
 			fit_do_upgrade "$1"
+			;;
+		gemtek,xg2010g)
+			airoha_require_ubi_layout factory && fit_do_upgrade "$1"
 			;;
 		nokia,xg-040g-md-ubi)
 			airoha_require_ubi_layout bosa ri && fit_do_upgrade "$1"
