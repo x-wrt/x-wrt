@@ -1,0 +1,7 @@
+config iptv 'config'
+	option enabled '0'
+	option lan_port ''
+	option uplink 'pon0'
+	option service_vlan ''
+	option multicast_vlan ''
+	option igmp_vlan ''
