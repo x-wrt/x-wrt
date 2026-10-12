@@ -732,6 +732,36 @@
 			};
 		};
 
+		pnand: nand-controller@1fa11000 {
+			compatible = "airoha,en7581-nfc";
+			reg = <0x0 0x1fa11000 0x0 0x580>;
+
+			clocks = <&scuclk EN7523_CLK_SPI>;
+			clock-names = "nfi_clk";
+			ecc-engine = <&pnand_ecc>;
+
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			/*
+			 * SNFI and parallel NAND share the NFI registers and package pins.
+			 * Board DTS selects the matching pinmux and controller for the
+			 * active boot strap.
+			 */
+			status = "disabled";
+		};
+
+		pnand_ecc: ecc@1fa12000 {
+			compatible = "airoha,en7581-nand-ecc";
+			reg = <0x0 0x1fa12000 0x0 0x150>;
+
+			clocks = <&scuclk EN7523_CLK_SPI>;
+			clock-names = "nfiecc_clk";
+
+			/* The parallel NFI consumer acquires the ECC engine during attach. */
+			status = "disabled";
+		};
+
 		mmc0: mmc@1fa0e000 {
 			compatible = "mediatek,mt7622-mmc";
 			reg = <0x0 0x1fa0e000 0x0 0x1000>,
