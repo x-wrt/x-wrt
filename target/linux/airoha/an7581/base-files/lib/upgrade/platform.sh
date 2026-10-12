@@ -51,6 +51,7 @@ platform_check_image() {
 	unionman,ung00a|\
 	znxt,zn504xg-d|\
 	znxt,zn515xg-d|\
+	h3c,hm2004-du|\
 	nokia,xg-040g-md-ubi|\
 	quantum,q1000k-ubi)
 		fit_check_image "$1"
@@ -75,7 +76,8 @@ platform_do_upgrade() {
 		fiberhome,hg5585f-cu|\
 		unionman,ung00a|\
 		znxt,zn504xg-d|\
-		znxt,zn515xg-d)
+		znxt,zn515xg-d|\
+		h3c,hm2004-du)
 			airoha_require_ubi_layout factory && fit_do_upgrade "$1"
 			;;
 		nokia,xg-040g-md-ubi)

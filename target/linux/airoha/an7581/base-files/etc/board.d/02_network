@@ -56,6 +56,10 @@ an7581_setup_interfaces()
 		# Panel numbering starts at the 2.5G port and continues through lan4.
 		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4" "pon0"
 		;;
+	h3c,hm2004-du)
+		# One EN8811H 2.5GE port plus three GSW ports; PON is the uplink.
+		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4" "pon0"
+		;;
 	nokia,valyrian)
 		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 10g" "wan"
 		;;
