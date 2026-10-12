@@ -22,7 +22,7 @@ an7581_setup_interfaces()
 		;;
 	nokia,xg-040g-md |\
 	nokia,xg-040g-md-ubi)
-		ucidef_set_interface_lan "lan1 lan2 lan3 lan4"
+		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4" "pon0"
 		;;
 	quantum,q1000k-ubi)
 		# Both copper ports are LAN; the upstream connection is PON.
