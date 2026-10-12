@@ -32,6 +32,9 @@ case "$board" in
 fiberhome,hg5382a|fiberhome,hg5585f-ct|fiberhome,hg5585f-cu)
 	pon_data_target factory ubi 1048576
 	;;
+znxt,zn504xg-d|znxt,zn515xg-d)
+	pon_data_target factory ubi 2359296
+	;;
 gemtek,xg2010g)
 	pon_data_target factory ubi 2097152
 	;;
