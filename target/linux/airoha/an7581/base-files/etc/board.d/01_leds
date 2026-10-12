@@ -13,6 +13,28 @@ airoha,an7581-evb)
 	ucidef_set_led_usbport "usb1" "USB 1" "green:usb-1" "usb1-port1" "usb2-port1"
 	ucidef_set_led_usbport "usb2" "USB 2" "green:usb-2" "usb3-port1" "usb4-port1"
 	;;
+fiberhome,hg5382a)
+	ucidef_set_led_netdev "lan1" "lan1" "blue:lan-1" "lan1" "link tx rx"
+	ucidef_set_led_netdev "lan2" "lan2" "blue:lan-2" "lan2" "link tx rx"
+	ucidef_set_led_netdev "lan3" "lan3" "blue:lan-3" "lan3" "link tx rx"
+	ucidef_set_led_netdev "lan4" "lan4" "blue:lan-4" "lan4" "link tx rx"
+	;;
+fiberhome,hg5585f-ct)
+	ucidef_set_led_usbport "usb1" "USB 1" "blue:usb-1" "usb3-port1" "usb4-port1"
+	;;
+fiberhome,hg5585f-cu)
+	ucidef_set_led_netdev "lan1" "lan1" "blue:lan-1" "lan1" "link tx rx"
+	ucidef_set_led_netdev "lan2" "lan2" "blue:lan-2" "lan2" "link tx rx"
+	ucidef_set_led_netdev "lan3" "lan3" "blue:lan-3" "lan3" "link tx rx"
+	ucidef_set_led_netdev "lan4" "lan4" "blue:lan-4" "lan4" "link tx rx"
+	# USB1 is the USB2 port; USB2 is the USB3 port.
+	ucidef_set_led_usbport "usb1" "USB 1" "blue:usb-1" "usb3-port1" "usb4-port1"
+	ucidef_set_led_usbport "usb2" "USB 2" "blue:usb-2" "usb1-port1" "usb2-port1"
+	;;
+gemtek,xg2010g)
+	ucidef_set_led_netdev "lan4-yellow" "lan4" "yellow:lan-4" "lan4" "link_10 link_100"
+	ucidef_set_led_netdev "lan4-green" "lan4" "green:lan-4" "lan4" "link_1000 tx rx"
+	;;
 gemtek,w1700k-ubi)
 	ucidef_set_led_netdev "wan-yellow" "wan" "mt7530-0:08:yellow:wan" "wan" "link_10 link_100 link_10000"
 	ucidef_set_led_netdev "wan-green" "wan" "mt7530-0:08:green:wan" "wan" "link_1000 link_2500 link_5000 link_10000 tx rx"
@@ -23,8 +45,12 @@ gemtek,w1700k-ubi)
 	ucidef_set_led_netdev "lan4-yellow" "lan4" "yellow:lan-4" "lan4" "link_10 link_100"
 	ucidef_set_led_netdev "lan4-green" "lan4" "green:lan-4" "lan4" "link_1000 tx rx"
 	;;
+h3c,hm2004-du|\
 nokia,xg-040g-md|\
-nokia,xg-040g-md-ubi)
+nokia,xg-040g-md-ubi|\
+nokia,xg-040g-tf-ubi|\
+znxt,zn504xg-d|\
+znxt,zn515xg-d)
 	ucidef_set_led_netdev "lan2" "lan2" "mt7530-0:0a:green:lan-2" "lan2" "link tx rx"
 	ucidef_set_led_netdev "lan3" "lan3" "mt7530-0:0b:green:lan-3" "lan3" "link tx rx"
 	ucidef_set_led_netdev "lan4" "lan4" "mt7530-0:0c:green:lan-4" "lan4" "link tx rx"
@@ -32,6 +58,11 @@ nokia,xg-040g-md-ubi)
 quantum,q1000k-ubi)
 	ucidef_set_led_netdev "lan1-yellow" "lan1" "yellow:lan" "lan1" "link_10 link_100"
 	ucidef_set_led_netdev "lan1-green" "lan1" "green:lan" "lan1" "link_1000 tx rx"
+	;;
+unionman,ung00a)
+	# The board reverses PHY2/PHY3 relative to the panel port numbering.
+	ucidef_set_led_netdev "lan2" "lan2" "mt7530-0:0b:green:lan-2" "lan2" "link tx rx"
+	ucidef_set_led_netdev "lan3" "lan3" "mt7530-0:0a:green:lan-3" "lan3" "link tx rx"
 	;;
 esac
 
