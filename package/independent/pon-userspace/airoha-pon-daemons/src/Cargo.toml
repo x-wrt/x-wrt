@@ -1,0 +1,23 @@
+[package]
+name = "airoha-pon-daemons"
+version = "0.3.0"
+edition = "2021"
+license = "GPL-2.0-only"
+repository = "https://github.com/pbs05/openwrt-pon-userspace"
+description = "Userspace OMCI and OAM agent for Airoha PON devices"
+autobins = false
+
+[dependencies]
+aes = "0.8.4"
+cmac = "0.7.2"
+
+[[bin]]
+name = "airoha-pond"
+path = "src/bin/airoha-pond.rs"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
