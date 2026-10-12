@@ -46,6 +46,31 @@
 		method = "smc";
 	};
 
+	efuse: efuse {
+		compatible = "airoha,an7583-efuse";
+
+		nvmem-layout {
+			compatible = "fixed-layout";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			pon_impedance_valid: pon-impedance-valid@4 {
+				reg = <0x4 0x1>;
+				bits = <5 1>;
+			};
+
+			pon_tx_term: pon-tx-term@f {
+				reg = <0xf 0x1>;
+				bits = <5 2>;
+			};
+
+			pon_rx_impedance: pon-rx-impedance@f {
+				reg = <0xf 0x2>;
+				bits = <7 2>;
+			};
+		};
+	};
+
 	cpus {
 		#address-cells = <1>;
 		#size-cells = <0>;
@@ -648,6 +673,10 @@
 			reset-names = "mac", "phy", "xfi";
 
 			airoha,scu = <&scuclk>;
+			nvmem-cells = <&pon_impedance_valid>, <&pon_tx_term>,
+			              <&pon_rx_impedance>;
+			nvmem-cell-names = "pon-impedance-valid", "pon-tx-term",
+			                   "pon-rx-impedance";
 
 			#pcs-cells = <0>;
 		};
