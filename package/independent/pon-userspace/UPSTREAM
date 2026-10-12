@@ -8,3 +8,8 @@ on that package and airoha-pon-debug.
 
 The normal packages feed still supplies the Rust build helpers, and the LuCI
 feed supplies luci.mk. No separate PON feed update or installation is needed.
+
+Local mode-selection fix: ponctl exposes the effective kernel line mode, and
+airoha-pond resolves an empty UCI mode before bringing up its control interface.
+The active mode takes precedence over a pending configuration. These changes
+are additional to the recorded upstream snapshot.
