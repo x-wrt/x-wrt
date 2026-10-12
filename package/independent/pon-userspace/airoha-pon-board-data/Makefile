@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+# Board tools extracted from pon_userspace cce9d756742487b378749c606b30e13ee9b0f093.
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=airoha-pon-board-data

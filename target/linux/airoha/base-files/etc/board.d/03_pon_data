@@ -29,7 +29,21 @@ json_add_object pon_data
 
 board="$(board_name)"
 case "$board" in
-nokia,xg-040g-md-ubi|nokia,xg-040g-mf-ubi)
+fiberhome,hg5382a|fiberhome,hg5585f-ct|fiberhome,hg5585f-cu)
+	pon_data_target factory ubi 1048576
+	;;
+znxt,zn504xg-d|znxt,zn515xg-d|unionman,ung00a)
+	pon_data_target factory ubi 2359296
+	;;
+# The factory UBI volume on this board is 1 MiB, so it carries the compact
+# H3C layout instead of the vendor's 0x240000 reservearea offsets.
+h3c,hm2004-du)
+	pon_data_target factory ubi 1048576
+	;;
+gemtek,xg2010g)
+	pon_data_target factory ubi 2097152
+	;;
+nokia,xg-040g-md-ubi|nokia,xg-040g-tf-ubi|nokia,xg-040g-mf-ubi)
 	pon_data_target bosa ubi 262144
 	pon_data_target ri ubi 262144
 	;;
@@ -42,10 +56,26 @@ esac
 json_close_object
 
 case "$board" in
-nokia,xg-040g-md-ubi|nokia,xg-040g-mf-ubi|nokia,xg-040g-mf)
+gemtek,xg2010g)
+	identity_available=1
+	json_add_object identity
+	json_add_object targets
+	json_add_object factory
+	json_add_object fields
+	identity_field pon_sn pon-sn 210 12 pon-ascii12
+	identity_field pon_mac mac 108 17 mac-colon17
+	identity_field lan_base_mac mac 134 17 mac-colon17
+	json_close_object
+	json_close_object
+	json_close_object
+	json_close_object
+	;;
+nokia,xg-040g-md-ubi|nokia,xg-040g-tf-ubi|nokia,xg-040g-mf-ubi|nokia,xg-040g-mf)
+	identity_available=1
 	json_add_object identity
 	json_add_object targets
 	json_add_object ri
+	# RI couples the display SN to a raw VSSN copy and two record checksums.
 	json_add_string codec nokia-ri-v1
 	json_add_object fields
 	identity_field pon_sn pon-sn 26 12 pon-ascii12 88
@@ -54,10 +84,23 @@ nokia,xg-040g-md-ubi|nokia,xg-040g-mf-ubi|nokia,xg-040g-mf)
 	json_close_object
 	json_close_object
 	json_close_object
+	;;
+h3c,hm2004-du)
 	identity_available=1
+	json_add_object identity
+	json_add_object targets
+	json_add_object factory
+	json_add_object fields
+	# Device SN, plain ASCII (H3CT0005EBF0) at 0x60 of the compact layout.
+	identity_field pon_sn pon-sn 96 12 pon-ascii12
+	json_close_object
+	json_close_object
+	json_close_object
+	json_close_object
 	;;
 esac
 
 board_config_flush
-[ "$identity_available" = 1 ] && touch /tmp/pon-board-identity.available
-exit 0
+if [ "$identity_available" = 1 ]; then
+	touch /tmp/pon-board-identity.available
+fi

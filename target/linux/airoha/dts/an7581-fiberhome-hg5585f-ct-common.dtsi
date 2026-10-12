@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+/dts-v1/;
+
+#include "an7581-fiberhome-hg5585f-common.dtsi"
+
+&mdio {
+	/* The CT variant connects GPY211 over HSGMII with active-low GPIO34 reset. */
+	gpy211: ethernet-phy@7 {
+		compatible = "maxlinear,gpy211",
+			     "ethernet-phy-ieee802.3-c45";
+		reg = <7>;
+		reset-gpios = <&en7581_pinctrl 34 GPIO_ACTIVE_LOW>;
+		reset-assert-us = <100000>;
+		reset-deassert-us = <100000>;
+	};
+};
+
+&eth_pcs {
+	status = "okay";
+};
+
+&gdm4 {
+	nvmem-cells = <&fiberhome_base_mac>;
+	nvmem-cell-names = "mac-address";
+	status = "okay";
+	phy-handle = <&gpy211>;
+	phy-mode = "2500base-x";
+	openwrt,netdev-name = "lan1";
+};
