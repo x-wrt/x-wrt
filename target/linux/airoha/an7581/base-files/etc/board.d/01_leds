@@ -48,6 +48,7 @@ gemtek,w1700k-ubi)
 h3c,hm2004-du|\
 nokia,xg-040g-md|\
 nokia,xg-040g-md-ubi|\
+nokia,xg-040g-tf-ubi|\
 znxt,zn504xg-d|\
 znxt,zn515xg-d)
 	ucidef_set_led_netdev "lan2" "lan2" "mt7530-0:0a:green:lan-2" "lan2" "link tx rx"
