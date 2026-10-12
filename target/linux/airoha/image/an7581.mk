@@ -201,6 +201,33 @@ endef
 TARGET_DEVICES += quantum_q1000k-ubi
 
 
+define Device/gemtek_xg2010g
+  DEVICE_VENDOR := Gemtek
+  DEVICE_MODEL := XG2010G
+  DEVICE_DTS := an7581-gemtek-xg2010g
+  KERNEL_LOADADDR := 0x8a000000
+  BLOCKSIZE := 128k
+  PAGESIZE := 2048
+  UBOOTENV_IN_UBI := 1
+  KERNEL_IN_UBI := 1
+  UBINIZE_OPTS := -E 5
+  KERNEL := kernel-bin | gzip
+  KERNEL_INITRAMFS := kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 128k
+  KERNEL_INITRAMFS_SUFFIX := -recovery.itb
+  IMAGES := sysupgrade.itb
+  IMAGE/sysupgrade.itb := append-kernel | \
+	fit gzip $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb external-static-with-rootfs | \
+	append-metadata
+  DEVICE_PACKAGES := kmod-gpio-button-hotplug kmod-leds-gpio \
+	kmod-phy-airoha-en8811h kmod-phy-realtek rtl826x-firmware \
+	kmod-airoha-en7572 kmod-airoha-xpon airoha-ponctl airoha-pond \
+	fitblk nand-utils ubi-utils
+  DEVICE_PACKAGES += airoha-pon-board-data kmod-crypto-ecb
+endef
+TARGET_DEVICES += gemtek_xg2010g
+
+
 define Device/nokia_xg-040g-md-ubi-images
   UBOOTENV_IN_UBI := 1
   KERNEL_IN_UBI := 1
