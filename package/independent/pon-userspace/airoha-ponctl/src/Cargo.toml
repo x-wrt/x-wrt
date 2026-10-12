@@ -1,0 +1,18 @@
+[package]
+name = "airoha-ponctl"
+version = "0.2.0"
+edition = "2021"
+license = "GPL-2.0-only"
+description = "Multi-instance PON control utility for Airoha OpenWrt targets"
+repository = "https://github.com/pbs05/openwrt-pon-userspace"
+
+[[bin]]
+name = "ponctl"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
