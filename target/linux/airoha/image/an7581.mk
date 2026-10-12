@@ -356,6 +356,32 @@ endef
 TARGET_DEVICES += znxt_zn504xg-d
 
 
+define Device/unionman_ung00a
+  $(call Device/FitImageLzma)
+  DEVICE_VENDOR := Unionman
+  DEVICE_MODEL := UNG00A
+  DEVICE_DTS := an7581-unionman-ung00a
+  KERNEL_LOADADDR := 0x8a000000
+  BLOCKSIZE := 128k
+  PAGESIZE := 2048
+  UBOOTENV_IN_UBI := 1
+  KERNEL_IN_UBI := 1
+  KERNEL := kernel-bin | gzip
+  KERNEL_INITRAMFS = kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(DEVICE_DTS).dtb with-initrd | pad-to 128k
+  KERNEL_INITRAMFS_SUFFIX := -recovery.itb
+  IMAGES := sysupgrade.itb
+  IMAGE/sysupgrade.itb = append-kernel | \
+	fit gzip $$(KDIR)/image-$$(DEVICE_DTS).dtb external-static-with-rootfs | \
+	append-metadata
+  DEVICE_PACKAGES := kmod-gpio-button-hotplug kmod-leds-gpio \
+	 kmod-phy-airoha-en8811h kmod-airoha-en7572 kmod-airoha-xpon \
+	 airoha-ponctl airoha-pond fitblk nand-utils ubi-utils
+  DEVICE_PACKAGES += airoha-pon-board-data kmod-crypto-ecb
+endef
+TARGET_DEVICES += unionman_ung00a
+
+
 define Device/nokia_xg-040g-md-ubi-images
   UBOOTENV_IN_UBI := 1
   KERNEL_IN_UBI := 1
