@@ -1,0 +1,1033 @@
+From: Chen Minqiang <ptpt52@gmail.com>
+Subject: [PATCH] net: airoha: connect AN7581 and AN7583 PON controllers
+
+Adapt the PonWrt PON data and control API to the shared multi-SoC
+Ethernet core. Keep QDMA ownership and DMA mapping in the Ethernet
+driver, and bind optical controllers only to AN7581/AN7583 PON GDM2.
+
+Recognize native netdev operations in the PON API and
+TX completion path before accessing the Ethernet private data.
+
+Based on the PON paths by pbs05.
+Signed-off-by: Chen Minqiang <ptpt52@gmail.com>
+---
+--- a/drivers/net/ethernet/airoha/airoha_eth.c
++++ b/drivers/net/ethernet/airoha/airoha_eth.c
+@@ -27,6 +27,7 @@
+ #include <linux/module.h>
+ #include <linux/mutex.h>
+ #include <linux/netdevice.h>
++#include <linux/airoha-eth.h>
+ #include <linux/of.h>
+ #include <linux/of_net.h>
+ #include <linux/of_reserved_mem.h>
+@@ -62,6 +63,13 @@
+ #include "airoha_regs.h"
+ #include "airoha_wed.h"
+ 
++static const struct net_device_ops airoha_netdev_ops;
++
++static bool airoha_is_netdev(const struct net_device *netdev)
++{
++	return netdev && netdev->netdev_ops == &airoha_netdev_ops;
++}
++
+ static void econet_prepare_qdma_cfg(struct airoha_qdma_mips_cfg *cfg,
+ 				    const struct airoha_eth_soc_data *soc,
+ 				    int id);
+@@ -2151,7 +2159,7 @@ airoha_qdma_get_xpon_dev(struct airoha_e
+ 			struct airoha_gdm_dev *dev = port->devs[j];
+ 
+ 			if (dev &&
+-			    (dev->flags & AIROHA_PRIV_F_XPON_MANAGED))
++			    (dev->flags & (AIROHA_PRIV_F_XPON_MANAGED | AIROHA_PRIV_F_PON)))
+ 				return dev;
+ 		}
+ 	}
+@@ -2358,6 +2366,66 @@ static bool airoha_qdma_rx_checksum_ok(s
+ 	return (ip4 || ip6) && l4_valid && !ip4_fault && !l4_fault;
+ }
+ 
++static void airoha_qdma_decode_pon_control(u32 msg0,
++					  struct airoha_pon_ctrl_rx_info *info)
++{
++	/* Translate QDMA fields into protocol-neutral control metadata. */
++	info->id = FIELD_GET(QDMA_ETH_RXMSG_GEM_MASK, msg0);
++	info->channel = FIELD_GET(QDMA_ETH_RXMSG_CHANNEL_MASK, msg0);
++	info->oam = !!(msg0 & QDMA_ETH_RXMSG_OAM_MASK);
++	info->no_mic = !!(msg0 & QDMA_ETH_RXMSG_NO_MIC_MASK);
++}
++
++static bool airoha_qdma_is_pon_control(struct airoha_gdm_dev *dev,
++				       u32 msg0)
++{
++	const struct airoha_pon_link_ops *ops;
++	struct airoha_pon_ctrl_rx_info info;
++	bool matched = false;
++	void *priv;
++
++	if (!(dev->flags & AIROHA_PRIV_F_PON))
++		return false;
++
++	airoha_qdma_decode_pon_control(msg0, &info);
++	if (info.oam)
++		return true;
++
++	/* The ITU-T path also matches the active OMCC ID for control frames. */
++	rcu_read_lock();
++	ops = smp_load_acquire(&dev->pon_link_ops);
++	priv = READ_ONCE(dev->pon_link_priv);
++	if (ops && ops->match_control && priv)
++		matched = ops->match_control(priv, &info);
++	rcu_read_unlock();
++
++	return matched;
++}
++
++static void airoha_qdma_dispatch_pon_control(struct airoha_gdm_dev *dev,
++					      struct net_device *netdev,
++					      struct sk_buff *skb, u32 msg0)
++{
++	const struct airoha_pon_link_ops *ops;
++	struct airoha_pon_ctrl_rx_info info;
++	void *priv;
++
++	/* AN7581 marks valid 44/48-byte OMCI PDUs as Ethernet runts. */
++	/* The control layer validates protocol, OMCC ID, length, and MIC status. */
++
++	airoha_qdma_decode_pon_control(msg0, &info);
++
++	/* RCU keeps controller private data alive through NAPI callbacks. */
++	rcu_read_lock();
++	ops = smp_load_acquire(&dev->pon_link_ops);
++	priv = READ_ONCE(dev->pon_link_priv);
++	if (ops && ops->rx_control && priv)
++		ops->rx_control(priv, skb, &info);
++	else
++		dev_kfree_skb(skb);
++	rcu_read_unlock();
++}
++
+ static struct sk_buff *airoha_qdma_build_rx_skb(struct airoha_queue *q,
+ 						struct airoha_qdma_desc *desc,
+ 						struct airoha_queue_entry *e,
+@@ -2436,7 +2504,7 @@ static int airoha_qdma_rx_process(struct
+ 		struct airoha_queue_entry *e = &q->entry[q->tail];
+ 		struct airoha_qdma_desc *desc = &q->desc[q->tail];
+ 		u32 hash, reason, msg0, msg1, desc_ctrl;
+-		struct airoha_gdm_dev *dev;
++		struct airoha_gdm_dev *dev = NULL;
+ 		struct net_device *netdev;
+ 		bool xpon_oam;
+ 		int data_len, len;
+@@ -2497,7 +2565,10 @@ static int airoha_qdma_rx_process(struct
+ 			 * source port. Resolve them through the registered xPON GDM2
+ 			 * provider before applying the normal source-port decoder.
+ 			 */
+-			if (xpon_oam)
++			if (xpon_oam ||
++			    (airoha_is(eth, airoha_en7581, airoha_an7583) &&
++			     q->qdma == &eth->qdma[1] &&
++			     (msg0 & QDMA_ETH_RXMSG_OAM_MASK)))
+ 				dev = airoha_qdma_get_xpon_dev(eth);
+ 			else
+ 				dev = airoha_qdma_get_gdm_dev(
+@@ -2514,6 +2585,38 @@ static int airoha_qdma_rx_process(struct
+ 			netdev = netdev_from_priv(dev);
+ 		}
+ 
++		if (dev->flags & AIROHA_PRIV_F_PON) {
++			u8 channel = FIELD_GET(QDMA_ETH_RXMSG_CHANNEL_MASK, msg0);
++			bool control = airoha_qdma_is_pon_control(dev, msg0);
++
++			WRITE_ONCE(dev->pon_stats.last_rx_msg0, msg0);
++			WRITE_ONCE(dev->pon_stats.last_rx_msg1,
++				   le32_to_cpu(READ_ONCE(desc->msg1)));
++			if (msg0 & QDMA_ETH_RXMSG_CRC_ERR_MASK)
++				atomic64_inc(&dev->pon_stats.rx_crc_errors);
++			if (msg0 & QDMA_ETH_RXMSG_RUNT_MASK)
++				atomic64_inc(&dev->pon_stats.rx_runt_frames);
++			if (msg0 & QDMA_ETH_RXMSG_LONG_MASK)
++				atomic64_inc(&dev->pon_stats.rx_long_frames);
++			if (control) {
++				struct sk_buff *skb;
++
++				/* Preserve any data frame being assembled on this ring. */
++				skb = airoha_qdma_build_rx_skb(q, desc, e, netdev, true);
++				if (!skb) {
++					atomic64_inc(&dev->pon_stats.rx_descriptors_dropped);
++					page_pool_put_full_page(q->page_pool, page, true);
++					continue;
++				}
++				atomic64_inc(&dev->pon_stats.rx_control_packets);
++				atomic64_inc(&dev->pon_stats.rx_channel_packets[channel]);
++				if (!(msg0 & QDMA_ETH_RXMSG_OAM_MASK))
++					atomic64_inc(&dev->pon_stats.rx_control_fallback);
++				airoha_qdma_dispatch_pon_control(dev, netdev, skb, msg0);
++				done++;
++				continue;
++			}
++		}
+ 		if (!q->skb) { /* first buffer */
+ 			q->skb = airoha_qdma_build_rx_skb(q, desc, e, netdev, xpon_oam);
+ 			if (!q->skb)
+@@ -2653,10 +2756,19 @@ static int airoha_qdma_rx_process(struct
+ 					     false);
+ 
+ 		done++;
++		if (dev->flags & AIROHA_PRIV_F_PON) {
++			u8 channel = FIELD_GET(QDMA_ETH_RXMSG_CHANNEL_MASK, msg0);
++
++			atomic64_inc(&dev->pon_stats.rx_data_packets);
++			atomic64_inc(&dev->pon_stats.rx_packets_delivered);
++			atomic64_inc(&dev->pon_stats.rx_channel_packets[channel]);
++		}
+ 		napi_gro_receive(&q->napi, q->skb);
+ 		q->skb = NULL;
+ 		continue;
+ free_frag:
++		if (dev && !IS_ERR(dev) && (dev->flags & AIROHA_PRIV_F_PON))
++			atomic64_inc(&dev->pon_stats.rx_descriptors_dropped);
+ 		if (q->skb) {
+ 			dev_kfree_skb(q->skb);
+ 			q->skb = NULL;
+@@ -2868,6 +2980,19 @@ static void airoha_qdma_wake_netdev_txqs
+ 
+ 				netif_wake_subqueue(netdev, j);
+ 			}
++			if ((dev->flags & AIROHA_PRIV_F_PON) &&
++			    airoha_qdma_get_txq(qdma, 0) == qid) {
++				const struct airoha_pon_link_ops *ops;
++				void *priv;
++
++				rcu_read_lock();
++				ops = smp_load_acquire(&dev->pon_link_ops);
++				priv = READ_ONCE(dev->pon_link_priv);
++				if (ops && ops->wake_control_tx && priv)
++					ops->wake_control_tx(priv);
++				rcu_read_unlock();
++			}
++
+ 		}
+ 	}
+ 	q->txq_stopped = false;
+@@ -2991,6 +3116,19 @@ static int airoha_qdma_tx_napi_poll(stru
+ 		q->queued--;
+ 
+ 		if (skb) {
++			if (airoha_is_netdev(skb->dev)) {
++				struct airoha_gdm_dev *owner = netdev_priv(skb->dev);
++
++				if (owner->flags & AIROHA_PRIV_F_PON) {
++					if (desc_ctrl & QDMA_DESC_DROP_MASK)
++						atomic64_inc(&owner->pon_stats.tx_packets_hw_dropped);
++					else {
++						atomic64_inc(&owner->pon_stats.tx_packets_completed);
++						atomic64_add(skb->len, &owner->pon_stats.tx_bytes_completed);
++					}
++				}
++			}
++
+ 			airoha_qdma_complete_tx(e, skb);
+ 			dev_kfree_skb_any(skb);
+ 		}
+@@ -6719,7 +6857,12 @@ static int airoha_dev_open(struct net_de
+ 	 * xPON-managed GDM2 to run without either. In the latter case the xPON
+ 	 * provider owns carrier, speed and duplex.
+ 	 */
+-	err = airoha_gdm_phylink_connect(&dev->common,
++	if ((dev->flags & AIROHA_PRIV_F_PON) && !dev->pon_link_ops)
++		return -ENODEV;
++	if (dev->flags & AIROHA_PRIV_F_PON)
++		err = 0;
++	else
++		err = airoha_gdm_phylink_connect(&dev->common,
+ 					 dev->flags & AIROHA_PRIV_F_XPON_MANAGED);
+ 	if (err) {
+ 		netdev_err(netdev, "could not attach PHY: %d\n", err);
+@@ -6815,7 +6958,13 @@ static int airoha_dev_open(struct net_de
+ 
+ 	}
+ 
+-	err = airoha_gdm_xpon_start(dev);
++	if (dev->flags & AIROHA_PRIV_F_PON) {
++		netif_carrier_off(netdev);
++		netif_tx_disable(netdev);
++		err = dev->pon_link_ops->start(dev->pon_link_priv);
++	} else {
++		err = airoha_gdm_xpon_start(dev);
++	}
+ 	if (err) {
+ 		netdev_err(netdev, "failed to start xPON provider: %d\n", err);
+ 		airoha_dev_stop(netdev);
+@@ -6832,7 +6981,10 @@ static int airoha_dev_stop(struct net_de
+ 	bool econet = dev->common.family == AIROHA_ETH_FAMILY_ECONET;
+ 	struct airoha_qdma *qdma;
+ 
+-	airoha_gdm_xpon_stop(dev);
++	if ((dev->flags & AIROHA_PRIV_F_PON) && dev->pon_link_ops)
++		dev->pon_link_ops->stop(dev->pon_link_priv);
++	else
++		airoha_gdm_xpon_stop(dev);
+ 	netif_tx_disable(netdev);
+ 	qdma = airoha_qdma_deref(dev);
+ 
+@@ -7514,14 +7666,66 @@ static void airoha_xpon_flush_services(s
+ 	spin_unlock_bh(&dev->xpon_service_lock);
+ }
+ 
++static void airoha_pon_skb_vlan(struct sk_buff *skb, u16 *vlan_id,
++				 u8 *pbit)
++{
++	struct vlan_ethhdr vlan_header;
++	const struct vlan_ethhdr *header;
++	u16 tci;
++
++	*vlan_id = AIROHA_PON_VID_ANY;
++	*pbit = 0;
++	if (skb_vlan_tag_present(skb)) {
++		*vlan_id = skb_vlan_tag_get_id(skb);
++		*pbit = skb_vlan_tag_get_prio(skb);
++		return;
++	}
++	header = skb_header_pointer(skb, 0, sizeof(vlan_header), &vlan_header);
++	if (!header || !eth_type_vlan(header->h_vlan_proto))
++		return;
++	tci = ntohs(header->h_vlan_TCI);
++	*vlan_id = tci & VLAN_VID_MASK;
++	*pbit = (tci & VLAN_PRIO_MASK) >> VLAN_PRIO_SHIFT;
++}
++
++static u32 airoha_pon_select_flow(struct airoha_gdm_dev *dev,
++				  struct sk_buff *skb)
++{
++	const struct airoha_pon_flow_table *table;
++	const struct airoha_pon_flow_entry *fallback = NULL;
++	u16 vlan_id;
++	u8 pbit;
++	unsigned int i;
++
++	airoha_pon_skb_vlan(skb, &vlan_id, &pbit);
++	table = rcu_dereference(dev->pon_flow_table);
++	if (!table)
++		return 0;
++	for (i = 0; i < table->count; i++) {
++		const struct airoha_pon_flow_entry *entry = &table->entries[i];
++
++		if (!(entry->pbit_mask & BIT(pbit)))
++			continue;
++		if (entry->vlan_id == vlan_id)
++			return entry->tag;
++		if (entry->vlan_id == AIROHA_PON_VID_ANY && !fallback)
++			fallback = entry;
++	}
++
++	return fallback ? fallback->tag : 0;
++}
++
+ static netdev_tx_t __airoha_dev_xmit(struct sk_buff *skb,
+ 				     struct net_device *netdev,
+-				     const struct airoha_xpon_tx_info *xpon)
++				     const struct airoha_xpon_tx_info *xpon,
++				     struct airoha_gdm_dev *dev,
++				     const struct airoha_pon_ctrl_tx_info *ctrl)
+ {
+-	struct airoha_gdm_dev *dev = netdev_priv(netdev);
+ 	struct airoha_xpon_tx_info classified;
+ 	struct airoha_qdma_skb_meta skb_meta;
+-	bool xpon_oam = xpon && xpon->oam;
++	bool xpon_oam = ctrl || (xpon && xpon->oam);
++	bool pon_data = !ctrl && (dev->flags & AIROHA_PRIV_F_PON);
++	u32 pon_tag = 0;
+ 	u32 nr_frags, tag = 0, msg0, msg1, len;
+ 	struct airoha_queue_entry *e;
+ 	struct airoha_qdma *qdma;
+@@ -7530,7 +7734,7 @@ static netdev_tx_t __airoha_dev_xmit(str
+ 	LIST_HEAD(tx_list);
+ 	int i = 0, qid, chn;
+ 	u16 index, queue_mapping;
+-	u8 fport;
++	u8 fport, nboq = dev->nbq;
+ 
+ 	/* The AN7563 vendor active-Ethernet path submits at least 64 bytes to
+ 	 * QDMA1. In particular, pad ARP/DHCP frames before they enter the PSE;
+@@ -7546,6 +7750,15 @@ static netdev_tx_t __airoha_dev_xmit(str
+ 
+ 	rcu_read_lock();
+ 	qdma = rcu_dereference(dev->qdma);
++	if (pon_data) {
++		pon_tag = READ_ONCE(dev->pon_qdma_tag);
++		if (!(pon_tag & AIROHA_PON_QDMA_EPON))
++			pon_tag = airoha_pon_select_flow(dev, skb);
++		if (!(pon_tag & AIROHA_PON_QDMA_VALID)) {
++			atomic64_inc(&dev->pon_stats.tx_no_mapping);
++			goto error;
++		}
++	}
+ 	if (!xpon && (dev->flags & AIROHA_PRIV_F_XPON_MANAGED) &&
+ 	    dev->xpon_mode == AIROHA_XPON_MODE_GPON) {
+ 		if (airoha_eth_xpon_classify(dev, skb, &classified))
+@@ -7563,6 +7776,8 @@ static netdev_tx_t __airoha_dev_xmit(str
+ 	txq = skb_get_tx_queue(netdev, skb);
+ 	nr_frags = 1 + skb_shinfo(skb)->nr_frags;
+ 	if (q->queued + nr_frags >= q->ndesc) {
++		if (pon_data)
++			atomic64_inc(&dev->pon_stats.tx_busy);
+ 		netif_tx_stop_queue(txq);
+ 		q->txq_stopped = true;
+ 		spin_unlock_bh(&q->lock);
+@@ -7574,7 +7789,34 @@ static netdev_tx_t __airoha_dev_xmit(str
+ 	/* Reserve ring space before changing the DSA header or TSO checksum.
+ 	 * A BUSY return must leave those fields intact for the next attempt.
+ 	 */
+-	if (xpon) {
++	if (ctrl) {
++		msg0 = QDMA_ETH_TXMSG_OAM_MASK |
++			FIELD_PREP(QDMA_ETH_TXMSG_QUEUE_MASK, qid % AIROHA_NUM_QOS_QUEUES);
++		if (ctrl->type == AIROHA_PON_CTRL_OMCI) {
++			msg0 |= FIELD_PREP(QDMA_ETH_TXMSG_SP_TAG_MASK, ctrl->id) |
++				FIELD_PREP(QDMA_ETH_TXMSG_MIC_IDX_MASK, ctrl->key_index);
++			nboq = 0;
++		} else {
++			msg0 |= FIELD_PREP(QDMA_ETH_TXMSG_CHAN_MASK, ctrl->channel);
++			nboq = ctrl->channel;
++		}
++	} else if (pon_data) {
++		u8 channel = FIELD_GET(AIROHA_PON_QDMA_TCONT_MASK, pon_tag);
++
++		msg0 = FIELD_PREP(QDMA_ETH_TXMSG_CHAN_MASK, channel) |
++			FIELD_PREP(QDMA_ETH_TXMSG_QUEUE_MASK, qid % AIROHA_NUM_QOS_QUEUES);
++		if (!(pon_tag & AIROHA_PON_QDMA_EPON))
++			msg0 |= FIELD_PREP(QDMA_ETH_TXMSG_SP_TAG_MASK,
++				FIELD_GET(AIROHA_PON_QDMA_GEM_MASK, pon_tag));
++		nboq = channel;
++		if (skb->len < ETH_ZLEN && skb_put_padto(skb, ETH_ZLEN)) {
++			atomic64_inc(&dev->pon_stats.tx_dropped);
++			netdev->stats.tx_dropped++;
++			spin_unlock_bh(&q->lock);
++			rcu_read_unlock();
++			return NETDEV_TX_OK;
++		}
++	} else if (xpon) {
+ 		if (!airoha_is(qdma->eth, airoha_en7523))
+ 			goto error_unlock;
+ 
+@@ -7638,13 +7880,16 @@ static netdev_tx_t __airoha_dev_xmit(str
+ 		       FIELD_PREP(QDMA_ETH_TXMSG_METER_MASK, 0x7f);
+ 	else
+ 		msg1 = FIELD_PREP(QDMA_ETH_TXMSG_NBOQ_MASK,
+-				  xpon ? xpon->tcont : dev->nbq) |
++				  xpon ? xpon->tcont : nboq) |
+ 		       FIELD_PREP(QDMA_ETH_TXMSG_FPORT_MASK, fport) |
+ 		       FIELD_PREP(QDMA_ETH_TXMSG_METER_MASK, 0x7f);
+ 	if (airoha_is(qdma->eth, airoha_an7563))
+ 		msg1 |= QDMA_ETH_TXMSG_ACNT_G1_MASK |
+ 			QDMA_ETH_TXMSG_ACNT_G0_MASK;
+ 
++	if (ctrl || pon_data)
++		msg1 |= FIELD_PREP(QDMA_ETH_TXMSG_ACNT_G0_MASK, 0x1f) |
++			FIELD_PREP(QDMA_ETH_TXMSG_ACNT_G1_MASK, 0x1f);
+ 	if (xpon_oam)
+ 		msg1 |= QDMA_ETH_TXMSG_NO_DROP;
+ 
+@@ -7662,14 +7907,14 @@ static netdev_tx_t __airoha_dev_xmit(str
+ 			skb_frag_t *frag = &skb_shinfo(skb)->frags[i - 1];
+ 
+ 			len = skb_frag_size(frag);
+-			addr = skb_frag_dma_map(netdev->dev.parent, frag, 0,
++			addr = skb_frag_dma_map(dev->eth->dev, frag, 0,
+ 						len, DMA_TO_DEVICE);
+ 		} else {
+ 			len = skb_headlen(skb);
+-			addr = dma_map_single(netdev->dev.parent, skb->data, len,
++			addr = dma_map_single(dev->eth->dev, skb->data, len,
+ 					      DMA_TO_DEVICE);
+ 		}
+-		if (unlikely(dma_mapping_error(netdev->dev.parent, addr)))
++		if (unlikely(dma_mapping_error(dev->eth->dev, addr)))
+ 			goto error_unmap;
+ 
+ 		list_move_tail(&e->list, &tx_list);
+@@ -7700,7 +7945,20 @@ static netdev_tx_t __airoha_dev_xmit(str
+ 		i++;
+ 	}
+ 	q->queued += i;
++	if (pon_data) {
++		u8 channel = FIELD_GET(QDMA_ETH_TXMSG_CHAN_MASK, msg0);
+ 
++		atomic64_inc(&dev->pon_stats.tx_packets_submitted);
++		atomic64_add(skb->len, &dev->pon_stats.tx_bytes_submitted);
++		atomic64_inc(&dev->pon_stats.tx_channel_packets[channel]);
++		WRITE_ONCE(dev->pon_stats.last_tx_msg0, msg0);
++		WRITE_ONCE(dev->pon_stats.last_tx_msg1, msg1);
++	}
++	if (ctrl) {
++		netdev->stats.tx_packets++;
++		netdev->stats.tx_bytes += skb->len;
++	}
++	skb->dev = netdev;
+ 	skb_tx_timestamp(skb);
+ 	netdev_tx_sent_queue(txq, skb->len);
+ 	if (q->ndesc - q->queued < q->free_thr) {
+@@ -7736,11 +7994,13 @@ error_unmap:
+ error_unlock:
+ 	spin_unlock_bh(&q->lock);
+ error:
+-	if (xpon_oam) {
++	if (xpon_oam && !ctrl) {
+ 		rcu_read_unlock();
+ 		return NETDEV_TX_BUSY;
+ 	}
+ 
++	if (pon_data)
++		atomic64_inc(&dev->pon_stats.tx_dropped);
+ 	dev_kfree_skb_any(skb);
+ 	netdev->stats.tx_dropped++;
+ 	rcu_read_unlock();
+@@ -7756,7 +8016,7 @@ static netdev_tx_t airoha_dev_xmit(struc
+ 	if (airoha_has_legacy_qdma(dev->eth))
+ 		return econet_qdma_xmit(skb, netdev);
+ 
+-	return __airoha_dev_xmit(skb, netdev, NULL);
++	return __airoha_dev_xmit(skb, netdev, NULL, dev, NULL);
+ }
+ 
+ static int airoha_xpon_xmit_oam(struct net_device *netdev, struct sk_buff *skb,
+@@ -7785,7 +8045,7 @@ static int airoha_xpon_xmit_oam(struct n
+ 	 */
+ 	skb->dev = netdev;
+ 	skb_set_queue_mapping(skb, 7);
+-	ret = __airoha_dev_xmit(skb, netdev, &info);
++	ret = __airoha_dev_xmit(skb, netdev, &info, dev, NULL);
+ 	return ret == NETDEV_TX_BUSY ? -EBUSY : 0;
+ }
+ 
+@@ -7862,6 +8122,9 @@ airoha_ethtool_get_link_ksettings(struct
+ 	struct airoha_xpon_link_state state;
+ 	unsigned long flags;
+ 
++	if (dev->flags & AIROHA_PRIV_F_PON)
++		return -EOPNOTSUPP;
++
+ 	if (!(READ_ONCE(dev->flags) & AIROHA_PRIV_F_XPON_MANAGED))
+ 		return phylink_ethtool_ksettings_get(dev->common.phylink, cmd);
+ 
+@@ -7900,7 +8163,7 @@ airoha_ethtool_set_link_ksettings(struct
+ {
+ 	struct airoha_gdm_dev *dev = netdev_priv(netdev);
+ 
+-	if (READ_ONCE(dev->flags) & AIROHA_PRIV_F_XPON_MANAGED)
++	if (READ_ONCE(dev->flags) & (AIROHA_PRIV_F_XPON_MANAGED | AIROHA_PRIV_F_PON))
+ 		return -EOPNOTSUPP;
+ 
+ 	return phylink_ethtool_ksettings_set(dev->common.phylink, cmd);
+@@ -7910,7 +8173,7 @@ static int airoha_ethtool_nway_reset(str
+ {
+ 	struct airoha_gdm_dev *dev = netdev_priv(netdev);
+ 
+-	if (READ_ONCE(dev->flags) & AIROHA_PRIV_F_XPON_MANAGED)
++	if (READ_ONCE(dev->flags) & (AIROHA_PRIV_F_XPON_MANAGED | AIROHA_PRIV_F_PON))
+ 		return -EOPNOTSUPP;
+ 
+ 	return phylink_ethtool_nway_reset(dev->common.phylink);
+@@ -8827,6 +9090,255 @@ static const struct net_device_ops airoh
+ 	.ndo_setup_tc		= airoha_gdm_dev_tc_setup,
+ };
+ 
++static void airoha_pon_read_datapath_stats(
++	struct airoha_gdm_dev *dev, struct airoha_pon_datapath_stats *stats)
++{
++	unsigned int i;
++
++	stats->tx_packets_submitted =
++		atomic64_read(&dev->pon_stats.tx_packets_submitted);
++	stats->tx_bytes_submitted =
++		atomic64_read(&dev->pon_stats.tx_bytes_submitted);
++	stats->tx_packets_completed =
++		atomic64_read(&dev->pon_stats.tx_packets_completed);
++	stats->tx_bytes_completed =
++		atomic64_read(&dev->pon_stats.tx_bytes_completed);
++	stats->tx_packets_hw_dropped =
++		atomic64_read(&dev->pon_stats.tx_packets_hw_dropped);
++	stats->tx_busy = atomic64_read(&dev->pon_stats.tx_busy);
++	stats->tx_dropped = atomic64_read(&dev->pon_stats.tx_dropped);
++	stats->tx_no_mapping = atomic64_read(&dev->pon_stats.tx_no_mapping);
++	stats->rx_data_packets =
++		atomic64_read(&dev->pon_stats.rx_data_packets);
++	stats->rx_control_packets =
++		atomic64_read(&dev->pon_stats.rx_control_packets);
++	stats->rx_control_fallback =
++		atomic64_read(&dev->pon_stats.rx_control_fallback);
++	stats->rx_packets_delivered =
++		atomic64_read(&dev->pon_stats.rx_packets_delivered);
++	stats->rx_descriptors_dropped =
++		atomic64_read(&dev->pon_stats.rx_descriptors_dropped);
++	stats->rx_crc_errors = atomic64_read(&dev->pon_stats.rx_crc_errors);
++	stats->rx_runt_frames = atomic64_read(&dev->pon_stats.rx_runt_frames);
++	stats->rx_long_frames = atomic64_read(&dev->pon_stats.rx_long_frames);
++	for (i = 0; i < AIROHA_PON_MAX_QDMA_CHANNELS; i++) {
++		stats->tx_channel_packets[i] =
++			atomic64_read(&dev->pon_stats.tx_channel_packets[i]);
++		stats->rx_channel_packets[i] =
++			atomic64_read(&dev->pon_stats.rx_channel_packets[i]);
++	}
++	stats->last_tx_msg0 = READ_ONCE(dev->pon_stats.last_tx_msg0);
++	stats->last_tx_msg1 = READ_ONCE(dev->pon_stats.last_tx_msg1);
++	stats->last_rx_msg0 = READ_ONCE(dev->pon_stats.last_rx_msg0);
++	stats->last_rx_msg1 = READ_ONCE(dev->pon_stats.last_rx_msg1);
++}
++
++int airoha_eth_pon_xmit_control(
++	struct net_device *pon_netdev, struct net_device *control_netdev,
++	struct sk_buff *skb, const struct airoha_pon_ctrl_tx_info *info)
++{
++	struct airoha_gdm_dev *dev;
++
++	/* pon_netdev owns QDMA while control_netdev owns the control queue. */
++	if (!control_netdev || !skb || !info ||
++	    !airoha_is_netdev(pon_netdev))
++		goto drop;
++	dev = netdev_priv(pon_netdev);
++	if (!(dev->flags & AIROHA_PRIV_F_PON) ||
++	    !netif_running(pon_netdev) || !READ_ONCE(dev->pon_link_ops))
++		goto drop;
++	if (info->type != AIROHA_PON_CTRL_OMCI &&
++	    info->type != AIROHA_PON_CTRL_EPON_OAM)
++		goto drop;
++	if (info->channel >= 32 || info->key_index >= 2)
++		goto drop;
++	if (info->type == AIROHA_PON_CTRL_OMCI && info->channel)
++		goto drop;
++
++	return __airoha_dev_xmit(skb, control_netdev, NULL, dev, info);
++
++drop:
++	if (skb)
++		dev_kfree_skb_any(skb);
++	if (control_netdev)
++		control_netdev->stats.tx_dropped++;
++	return NETDEV_TX_OK;
++}
++EXPORT_SYMBOL_GPL(airoha_eth_pon_xmit_control);
++
++int airoha_eth_pon_replace_flows(
++	struct net_device *netdev, const struct airoha_pon_flow_config *flows,
++	unsigned int count)
++{
++	struct airoha_pon_flow_table *table = NULL, *old;
++	struct airoha_gdm_dev *dev;
++	unsigned int i, j;
++
++	if (!airoha_is_netdev(netdev))
++		return -EINVAL;
++	dev = netdev_priv(netdev);
++	if (!(dev->flags & AIROHA_PRIV_F_PON))
++		return -EOPNOTSUPP;
++	if (count > 32 || (count && !flows))
++		return -EINVAL;
++	if (count) {
++		table = kzalloc(struct_size(table, entries, count), GFP_KERNEL);
++		if (!table)
++			return -ENOMEM;
++		table->count = count;
++		for (i = 0; i < count; i++) {
++			if (flows[i].tcont >= 32 ||
++			    (flows[i].vlan_id > 4094 &&
++			     flows[i].vlan_id != AIROHA_PON_VID_ANY) ||
++			    !flows[i].pbit_mask) {
++				kfree(table);
++				return -EINVAL;
++			}
++			/*
++			 * VID_ANY matches untagged frames and follows exact VID lookup.
++			 * Duplicate VID and P-bit keys conflict.
++			 */
++			for (j = 0; j < i; j++)
++				if (flows[i].vlan_id == flows[j].vlan_id &&
++				    flows[i].pbit_mask & flows[j].pbit_mask) {
++					kfree(table);
++					return -EINVAL;
++				}
++			table->entries[i].vlan_id = flows[i].vlan_id;
++			table->entries[i].pbit_mask = flows[i].pbit_mask;
++			table->entries[i].tag = AIROHA_PON_QDMA_VALID |
++				FIELD_PREP(AIROHA_PON_QDMA_TCONT_MASK,
++					   flows[i].tcont) |
++				FIELD_PREP(AIROHA_PON_QDMA_GEM_MASK,
++					   flows[i].gem_id) |
++				FIELD_PREP(AIROHA_PON_QDMA_PBIT_MASK,
++					   flows[i].pbit_mask);
++		}
++	}
++
++	mutex_lock(&flow_offload_mutex);
++	old = rcu_replace_pointer(dev->pon_flow_table, table,
++				  lockdep_is_held(&flow_offload_mutex));
++	WRITE_ONCE(dev->pon_qdma_tag, 0);
++	mutex_unlock(&flow_offload_mutex);
++	synchronize_net();
++	kfree(old);
++	return 0;
++}
++EXPORT_SYMBOL_GPL(airoha_eth_pon_replace_flows);
++
++int airoha_eth_pon_configure(struct net_device *netdev, u8 tcont,
++			     u16 gem_id, bool valid)
++{
++	struct airoha_pon_flow_config flow = {
++		.tcont = tcont,
++		.gem_id = gem_id,
++		.vlan_id = AIROHA_PON_VID_ANY,
++		.pbit_mask = 0xff,
++	};
++
++	return airoha_eth_pon_replace_flows(netdev, valid ? &flow : NULL,
++					    valid ? 1 : 0);
++}
++EXPORT_SYMBOL_GPL(airoha_eth_pon_configure);
++
++int airoha_eth_pon_configure_epon(struct net_device *netdev, u8 channel,
++				  bool valid)
++{
++	struct airoha_gdm_dev *dev;
++	u32 value = 0;
++
++	if (!airoha_is_netdev(netdev))
++		return -EINVAL;
++	dev = netdev_priv(netdev);
++	if (!(dev->flags & AIROHA_PRIV_F_PON))
++		return -EOPNOTSUPP;
++	if (valid && channel >= 32)
++		return -ERANGE;
++	airoha_eth_pon_replace_flows(netdev, NULL, 0);
++	if (valid)
++		value = AIROHA_PON_QDMA_VALID | AIROHA_PON_QDMA_EPON |
++			FIELD_PREP(AIROHA_PON_QDMA_TCONT_MASK, channel);
++
++	WRITE_ONCE(dev->pon_qdma_tag, value);
++	return 0;
++}
++EXPORT_SYMBOL_GPL(airoha_eth_pon_configure_epon);
++
++int airoha_eth_pon_get_datapath_stats(
++	struct net_device *netdev, struct airoha_pon_datapath_stats *stats)
++{
++	struct airoha_gdm_dev *dev;
++
++	if (!stats || !airoha_is_netdev(netdev))
++		return -EINVAL;
++	dev = netdev_priv(netdev);
++	if (!(dev->flags & AIROHA_PRIV_F_PON))
++		return -EOPNOTSUPP;
++
++	memset(stats, 0, sizeof(*stats));
++	airoha_pon_read_datapath_stats(dev, stats);
++	return 0;
++}
++EXPORT_SYMBOL_GPL(airoha_eth_pon_get_datapath_stats);
++
++int airoha_eth_pon_register_controller(
++	struct net_device *netdev, const struct airoha_pon_link_ops *ops,
++	void *priv)
++{
++	struct airoha_gdm_dev *dev;
++	int ret = 0;
++
++	if (!ops || !ops->start || !ops->stop || !priv ||
++	    !airoha_is_netdev(netdev))
++		return -EINVAL;
++	dev = netdev_priv(netdev);
++	if (!(dev->flags & AIROHA_PRIV_F_PON))
++		return -EOPNOTSUPP;
++
++	/* RTNL serializes controller registration and interface state. */
++	/* The controller takes line ownership while the interface is down. */
++	rtnl_lock();
++	if (netif_running(netdev))
++		ret = -EBUSY;
++	else if (dev->pon_link_ops)
++		ret = -EEXIST;
++	else {
++		WRITE_ONCE(dev->pon_link_priv, priv);
++		/* Publishing ops marks the fully initialized private context. */
++		smp_store_release(&dev->pon_link_ops, ops);
++	}
++	rtnl_unlock();
++
++	return ret;
++}
++EXPORT_SYMBOL_GPL(airoha_eth_pon_register_controller);
++
++void airoha_eth_pon_unregister_controller(struct net_device *netdev,
++					  void *priv)
++{
++	struct airoha_gdm_dev *dev;
++
++	if (!airoha_is_netdev(netdev))
++		return;
++	dev = netdev_priv(netdev);
++	if (!(dev->flags & AIROHA_PRIV_F_PON))
++		return;
++
++	rtnl_lock();
++	if (READ_ONCE(dev->pon_link_priv) == priv) {
++		/* dev_close() completes ndo_stop before clearing the controller pointer. */
++		if (netif_running(netdev))
++			dev_close(netdev);
++		/* synchronize_net() drains NAPI callbacks holding the old ops pointer. */
++		WRITE_ONCE(dev->pon_link_ops, NULL);
++		synchronize_net();
++		WRITE_ONCE(dev->pon_link_priv, NULL);
++	}
++	rtnl_unlock();
++}
++EXPORT_SYMBOL_GPL(airoha_eth_pon_unregister_controller);
++
+ static const struct ethtool_ops airoha_ethtool_ops = {
+ 	.get_drvinfo		= airoha_eth_get_drvinfo,
+ 	.get_eth_mac_stats	= airoha_ethtool_get_mac_stats,
+@@ -9167,6 +9679,15 @@ static int airoha_alloc_gdm_device(struc
+ 			set_bit(AIROHA_DEV_F_WAN, &dev->flags);
+ 	}
+ 
++	if (of_property_read_bool(np, "airoha,pon-data-path")) {
++		if (!airoha_is(eth, airoha_en7581, airoha_an7583) ||
++		    port->id != AIROHA_GDM2_IDX || nbq ||
++		    of_property_read_bool(np, "airoha,xpon-managed"))
++			return -EINVAL;
++		dev->flags |= AIROHA_PRIV_F_PON;
++		strscpy(netdev->name, "pon%d", IFNAMSIZ);
++		netif_carrier_off(netdev);
++	}
+ 	if (of_property_read_bool(np, "airoha,xpon-managed")) {
+ 		dev->flags |= AIROHA_PRIV_F_XPON_MANAGED;
+ 		netdev->features |= NETIF_F_LRO;
+@@ -9178,7 +9699,8 @@ static int airoha_alloc_gdm_device(struc
+ 	}
+ 	port->devs[index] = dev;
+ 
+-	return airoha_setup_phylink(netdev);
++	return dev->flags & AIROHA_PRIV_F_PON ? 0 :
++		airoha_setup_phylink(netdev);
+ }
+ 
+ static int airoha_alloc_gdm_port(struct airoha_eth *eth,
+--- a/drivers/net/ethernet/airoha/airoha_eth.h
++++ b/drivers/net/ethernet/airoha/airoha_eth.h
+@@ -9,6 +9,7 @@
+ 
+ #include <linux/atomic.h>
+ #include <linux/bitfield.h>
++#include <linux/airoha-eth.h>
+ #include <linux/debugfs.h>
+ #include <linux/etherdevice.h>
+ #include <linux/if_vlan.h>
+@@ -1004,6 +1005,7 @@ enum airoha_priv_flags {
+ 	AIROHA_PRIV_F_WAN = BIT(0),
+ 	AIROHA_PRIV_F_QOS = BIT(1),
+ 	AIROHA_PRIV_F_XPON_MANAGED = BIT(2),
++	AIROHA_PRIV_F_PON = BIT(3),
+ };
+ 
+ #define AIROHA_XPON_OAM_RX_F_MIC_PRESENT	BIT(0)
+@@ -1082,6 +1084,50 @@ struct airoha_xpon_tx_info {
+ 	bool oam;
+ };
+ 
++#define AIROHA_PON_QDMA_GEM_MASK	GENMASK(15, 0)
++#define AIROHA_PON_QDMA_TCONT_MASK	GENMASK(20, 16)
++#define AIROHA_PON_QDMA_PBIT_MASK	GENMASK(28, 21)
++#define AIROHA_PON_QDMA_EPON		BIT(30)
++#define AIROHA_PON_QDMA_VALID		BIT(31)
++
++struct airoha_pon_flow_entry {
++	u32 tag;
++	u16 vlan_id;
++	u8 pbit_mask;
++};
++
++struct airoha_pon_flow_table {
++	struct rcu_head rcu;
++	unsigned int count;
++	struct airoha_pon_flow_entry entries[];
++};
++
++/* NAPI completes descriptors; atomic counters span the TX and RX queues. */
++struct airoha_pon_datapath_counters {
++	atomic64_t tx_packets_submitted;
++	atomic64_t tx_bytes_submitted;
++	atomic64_t tx_packets_completed;
++	atomic64_t tx_bytes_completed;
++	atomic64_t tx_packets_hw_dropped;
++	atomic64_t tx_busy;
++	atomic64_t tx_dropped;
++	atomic64_t tx_no_mapping;
++	atomic64_t rx_data_packets;
++	atomic64_t rx_control_packets;
++	atomic64_t rx_control_fallback;
++	atomic64_t rx_packets_delivered;
++	atomic64_t rx_descriptors_dropped;
++	atomic64_t rx_crc_errors;
++	atomic64_t rx_runt_frames;
++	atomic64_t rx_long_frames;
++	atomic64_t tx_channel_packets[AIROHA_PON_MAX_QDMA_CHANNELS];
++	atomic64_t rx_channel_packets[AIROHA_PON_MAX_QDMA_CHANNELS];
++	u32 last_tx_msg0;
++	u32 last_tx_msg1;
++	u32 last_rx_msg0;
++	u32 last_rx_msg1;
++};
++
+ struct airoha_gdm_dev {
+ 	/* Must stay first: shared GDM/phylink and PPE port metadata. */
+ 	struct airoha_gdm_common common;
+@@ -1108,6 +1154,12 @@ struct airoha_gdm_dev {
+ 	unsigned long flags;
+ 	int nbq;
+ 
++	u32 pon_qdma_tag;
++	struct airoha_pon_flow_table __rcu *pon_flow_table;
++	const struct airoha_pon_link_ops *pon_link_ops;
++	void *pon_link_priv;
++	struct airoha_pon_datapath_counters pon_stats;
++
+ 	struct airoha_hw_stats stats;
+ 	spinlock_t *txq_lock;
+ 
+--- a/drivers/net/ethernet/airoha/airoha_ppe.c
++++ b/drivers/net/ethernet/airoha/airoha_ppe.c
+@@ -898,6 +898,10 @@
+ 
+ 			if (!eth->ppe_host_ops->is_valid_gdm_dev(eth, dev))
+ 				return -EINVAL;
++
++			/* PON bearer metadata is added by the dedicated PPE adapter. */
++			if (dev->flags & AIROHA_PRIV_F_PON)
++				return -EOPNOTSUPP;
+ 
+ 			port = dev->port;
+ 			if (!port) {
+--- a/drivers/net/ethernet/airoha/airoha_regs.h
++++ b/drivers/net/ethernet/airoha/airoha_regs.h
+@@ -1038,6 +1038,13 @@
+ #define EN7523_QDMA_ETH_RXMSG_OAM_MASK	BIT(8)
+ #define EN7523_QDMA_ETH_RXMSG_GEM_MASK	GENMASK(29, 14)
+ #define EN7523_QDMA_ETH_RXMSG_NO_MIC_MASK	BIT(30)
++#define QDMA_ETH_RXMSG_CHANNEL_MASK	GENMASK(7, 3)
++#define QDMA_ETH_RXMSG_OAM_MASK		BIT(8)
++#define QDMA_ETH_RXMSG_CRC_ERR_MASK	BIT(11)
++#define QDMA_ETH_RXMSG_RUNT_MASK		BIT(12)
++#define QDMA_ETH_RXMSG_LONG_MASK		BIT(13)
++#define QDMA_ETH_RXMSG_GEM_MASK		GENMASK(29, 14)
++#define QDMA_ETH_RXMSG_NO_MIC_MASK	BIT(30)
+ #define QDMA_ETH_RXMSG_SPTAG		GENMASK(21, 14)
+ #define EN7580_QDMA_ETH_RXMSG_SPTAG	GENMASK(29, 14)
+ /* RX MSG1 */
+--- /dev/null
++++ b/include/linux/airoha-eth.h
+@@ -0,0 +1,105 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#ifndef _LINUX_AIROHA_ETH_H_
++#define _LINUX_AIROHA_ETH_H_
++
++#include <linux/types.h>
++
++struct net_device;
++struct sk_buff;
++
++/* PON control metadata; skb->data carries the raw OMCI or OAM PDU. */
++struct airoha_pon_ctrl_rx_info {
++	u16 id;		/* XG-PON OMCC/GEM Port-ID; EPON LLID value */
++	u8 channel;	/* EPON LLID table index; normally zero for XG-PON */
++	bool oam;	/* QDMA descriptor carries the OAM/OMCI flag */
++	bool no_mic;	/* Downstream OMCI MIC validation is pending */
++};
++
++enum airoha_pon_ctrl_type {
++	AIROHA_PON_CTRL_OMCI,
++	AIROHA_PON_CTRL_EPON_OAM,
++};
++
++/* Protocol fields describe the frame; airoha_eth builds the QDMA descriptor. */
++struct airoha_pon_ctrl_tx_info {
++	enum airoha_pon_ctrl_type type;
++	u16 id;		/* OMCI OMCC ID or EPON OAM LLID value */
++	u8 channel;	/* Zero for OMCI; EPON LLID table index */
++	u8 key_index;	/* OMCI OIK group; zero for EPON */
++};
++
++#define AIROHA_PON_VID_ANY	0xffff
++#define AIROHA_PON_MAX_QDMA_CHANNELS	32
++
++/*
++ * QDMA is the shared data plane for all PON protocols. Counters accumulate
++ * over the pon netdev lifetime and span one registration and service cycle.
++ */
++struct airoha_pon_datapath_stats {
++	u64 tx_packets_submitted;
++	u64 tx_bytes_submitted;
++	u64 tx_packets_completed;
++	u64 tx_bytes_completed;
++	u64 tx_packets_hw_dropped;
++	u64 tx_busy;
++	u64 tx_dropped;
++	u64 tx_no_mapping;
++	u64 rx_data_packets;
++	u64 rx_control_packets;
++	u64 rx_control_fallback;
++	u64 rx_packets_delivered;
++	u64 rx_descriptors_dropped;
++	u64 rx_crc_errors;
++	u64 rx_runt_frames;
++	u64 rx_long_frames;
++	u64 tx_channel_packets[AIROHA_PON_MAX_QDMA_CHANNELS];
++	u64 rx_channel_packets[AIROHA_PON_MAX_QDMA_CHANNELS];
++	u32 last_tx_msg0;
++	u32 last_tx_msg1;
++	u32 last_rx_msg0;
++	u32 last_rx_msg1;
++};
++
++/* XG-PON upstream classifier keyed by vlan_id and pbit_mask. */
++struct airoha_pon_flow_config {
++	u16 gem_id;
++	u16 vlan_id;
++	u8 tcont;
++	u8 pbit_mask;
++};
++
++/* Start the line asynchronously and drain control work and IRQs in stop(). */
++struct airoha_pon_link_ops {
++	int (*start)(void *priv);
++	void (*stop)(void *priv);
++	/* Protocol state and descriptor ID classify control frames without OAM flags. */
++	bool (*match_control)(void *priv,
++			      const struct airoha_pon_ctrl_rx_info *info);
++	/* rx_control() takes skb ownership before returning to airoha_eth. */
++	void (*rx_control)(void *priv, struct sk_buff *skb,
++			   const struct airoha_pon_ctrl_rx_info *info);
++	/* Wake protocol control netdevs when the shared QDMA ring recovers. */
++	void (*wake_control_tx)(void *priv);
++};
++
++/* Configure the T-CONT and GEM Port-ID mapping used by QDMA TX descriptors. */
++int airoha_eth_pon_configure(struct net_device *netdev, u8 tcont,
++			     u16 gem_id, bool valid);
++int airoha_eth_pon_replace_flows(
++	struct net_device *netdev, const struct airoha_pon_flow_config *flows,
++	unsigned int count);
++int airoha_eth_pon_configure_epon(struct net_device *netdev, u8 channel,
++				  bool valid);
++int airoha_eth_pon_get_datapath_stats(
++	struct net_device *netdev, struct airoha_pon_datapath_stats *stats);
++/* Send control_netdev frames through the pon_netdev QDMA ring. */
++int airoha_eth_pon_xmit_control(
++	struct net_device *pon_netdev, struct net_device *control_netdev,
++	struct sk_buff *skb, const struct airoha_pon_ctrl_tx_info *info);
++int airoha_eth_pon_register_controller(
++	struct net_device *netdev, const struct airoha_pon_link_ops *ops,
++	void *priv);
++void airoha_eth_pon_unregister_controller(struct net_device *netdev,
++					  void *priv);
++
++#endif
