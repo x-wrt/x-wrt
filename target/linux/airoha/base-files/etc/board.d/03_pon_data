@@ -43,7 +43,7 @@ h3c,hm2004-du)
 gemtek,xg2010g)
 	pon_data_target factory ubi 2097152
 	;;
-nokia,xg-040g-md-ubi|nokia,xg-040g-mf-ubi)
+nokia,xg-040g-md-ubi|nokia,xg-040g-tf-ubi|nokia,xg-040g-mf-ubi)
 	pon_data_target bosa ubi 262144
 	pon_data_target ri ubi 262144
 	;;
@@ -70,7 +70,7 @@ gemtek,xg2010g)
 	json_close_object
 	json_close_object
 	;;
-nokia,xg-040g-md-ubi|nokia,xg-040g-mf-ubi|nokia,xg-040g-mf)
+nokia,xg-040g-md-ubi|nokia,xg-040g-tf-ubi|nokia,xg-040g-mf-ubi|nokia,xg-040g-mf)
 	identity_available=1
 	json_add_object identity
 	json_add_object targets
