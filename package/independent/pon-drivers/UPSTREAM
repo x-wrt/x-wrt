@@ -1,0 +1,6 @@
+Repository: https://github.com/pbs05/openwrt-pon-drivers
+Commit: e5194d2dfd169eef8f4a944fdc3f929e0287b680
+
+Local OpenWrt packages for AN7581 and AN7583. Keep the public PON API
+compatible with the userspace snapshot recorded in ../pon-userspace/UPSTREAM.
+The frontend and xPON packages remain siblings for shared headers.
