@@ -1,0 +1,46 @@
+#!/bin/sh /etc/rc.common
+# SPDX-License-Identifier: GPL-2.0-only
+
+START=18
+USE_PROCD=1
+
+apply_line() {
+	local section="$1"
+	local device mode serial registration
+
+	config_get device "$section" device
+	config_get mode "$section" mode
+	config_get serial "$section" serial_number
+	config_get registration "$section" registration_id
+
+	[ -n "$device" ] || {
+		echo "xpon section '$section' has no device" >&2
+		return 1
+	}
+	[ -n "$serial" ] || serial=default
+	[ -n "$registration" ] || registration=default
+
+	if [ -n "$mode" ]; then
+		/usr/sbin/ponctl --device "$device" mode set "$mode" || return 1
+	fi
+	/usr/sbin/ponctl --device "$device" identity set \
+		--serial "$serial" \
+		--registration-id "$registration"
+}
+
+apply_all_lines() {
+	config_load pon
+	config_foreach apply_line xpon
+}
+
+start_service() {
+	apply_all_lines
+}
+
+reload_service() {
+	apply_all_lines
+}
+
+service_triggers() {
+	procd_add_reload_trigger pon
+}
