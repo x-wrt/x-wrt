@@ -411,6 +411,15 @@ endef
 TARGET_DEVICES += h3c_hm2004-du
 
 
+define Device/nokia_xg-040g-tf-common
+  $(call Device/nokia_xg-040g-md-common)
+  DEVICE_MODEL := XG-040G-TF
+  DEVICE_PACKAGES += -kmod-regulator-userspace-consumer \
+    -kmod-usb-ledtrig-usbport -kmod-usb3 \
+    $(addprefix -,$(AIROHA_USB_STORAGE_PACKAGES))
+endef
+
+
 define Device/nokia_xg-040g-md-ubi-images
   UBOOTENV_IN_UBI := 1
   KERNEL_IN_UBI := 1
@@ -424,3 +433,22 @@ define Device/nokia_xg-040g-md-ubi-images
 	append-metadata
   DEVICE_PACKAGES += fitblk
 endef
+
+
+define Device/nokia_xg-040g-tf-ubi
+  $(call Device/nokia_xg-040g-tf-common)
+  DEVICE_VARIANT := (UBI)
+  DEVICE_DTS := an7581-nokia_xg-040g-tf-ubi
+  UBOOTENV_IN_UBI := 1
+  KERNEL_IN_UBI := 1
+  KERNEL := kernel-bin | gzip
+  KERNEL_INITRAMFS := kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 128k
+  KERNEL_INITRAMFS_SUFFIX := -recovery.itb
+  IMAGES := sysupgrade.itb
+  IMAGE/sysupgrade.itb := append-kernel | \
+	fit gzip $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb external-static-with-rootfs | \
+	append-metadata
+  DEVICE_PACKAGES += fitblk
+endef
+TARGET_DEVICES += nokia_xg-040g-tf-ubi
