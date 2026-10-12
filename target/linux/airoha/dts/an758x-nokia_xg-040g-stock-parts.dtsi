@@ -67,22 +67,37 @@
 		reg = <0x2940000 0x2880000>;
 	};
 
-	partition@51c0000 {
+	pon_calibration_storage: partition@51c0000 {
 		label = "bosa";
 		reg = <0x51c0000 0x40000>;
-		read-only;
+
+		/* The 512-byte A0/A2 optical table follows the backup header. */
+		nvmem-layout {
+			compatible = "fixed-layout";
+
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			pon_calibration: calibration@2 {
+				reg = <0x2 0x200>;
+			};
+		};
 	};
 
 	partition@5200000 {
 		label = "ri";
 		reg = <0x5200000 0x40000>;
-		read-only;
 
 		nvmem-layout {
 			compatible = "fixed-layout";
 
 			#address-cells = <1>;
 			#size-cells = <1>;
+
+			/* RI offset 0x1a stores VEND plus eight hexadecimal VSSN characters. */
+			pon_serial: pon-serial@1a {
+				reg = <0x1a 0xc>;
+			};
 
 			macaddr_factory_3e: macaddr@3e {
 				compatible = "mac-base";
