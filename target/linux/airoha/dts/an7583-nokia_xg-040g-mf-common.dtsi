@@ -8,6 +8,11 @@
 #include "an758x-nokia_xg-040g-common.dtsi"
 
 / {
+	aliases {
+		/* Expose optical calibration through a stable NVMEM node. */
+		pon-calibration = &pon_calibration_storage;
+	};
+
 	gpio-keys {
 		compatible = "gpio-keys";
 
@@ -22,16 +27,20 @@
 	leds {
 		compatible = "gpio-leds";
 
-		led-0 {
+		led_pon_registration: led-0 {
 			color = <LED_COLOR_ID_GREEN>;
 			function = LED_FUNCTION_WAN;
 			gpios = <&an7583_pinctrl 6 GPIO_ACTIVE_LOW>;
+			/* Registration maps O1-O3 to fast blink, O4 to slow blink, and O5 on. */
+			linux,default-trigger = "pon0-registration";
 		};
 
-		led-1 {
+		led_internet: led-1 {
 			color = <LED_COLOR_ID_GREEN>;
 			function = LED_FUNCTION_WAN_ONLINE;
 			gpios = <&an7583_pinctrl 7 GPIO_ACTIVE_LOW>;
+			/* pon0 service-ready state drives the Internet LED. */
+			linux,default-trigger = "pon0-online";
 		};
 
 		led_power_green: led-2 {
@@ -50,10 +59,12 @@
 			trigger-sources = <&usb_port1>;
 		};
 
-		led-4 {
+		led_pon_los: led-4 {
 			color = <LED_COLOR_ID_RED>;
 			function = LED_FUNCTION_WAN;
 			gpios = <&an7583_pinctrl 27 GPIO_ACTIVE_LOW>;
+			/* The LOS LED follows optical signal loss. */
+			linux,default-trigger = "pon0-los";
 		};
 
 		led-5 {
@@ -97,6 +108,17 @@
 &an7583_pinctrl {
 	gpio-ranges = <&an7583_pinctrl 0 2 53>;
 
+	/*
+	 * MF uses the primary AN7583 PON pinout with GPIO15 as TX_DISABLE.
+	 * The optical frontend owns GPIO15 while pinctrl owns the other signals.
+	 */
+	pon_pins: pon-pins {
+		mux {
+			function = "pon";
+			groups = "pon_tx_disable_gpio";
+		};
+	};
+
 	mdio0_pins: mdio0-pins {
 		mux {
 			function = "mdio";
@@ -105,6 +127,17 @@
 		conf {
 			pins = "mdio_0";
 			output-high;
+		};
+	};
+
+	/*
+	 * AN7583 multiplexes I2C0 SCL and SDA with GPIO. Selecting this pin group
+	 * routes the dedicated I2C0 pins to optical frontend windows 0x50 and 0x51.
+	 */
+	i2c0_pins: i2c0-pins {
+		mux {
+			function = "i2c";
+			groups = "i2c0";
 		};
 	};
 
@@ -155,6 +188,27 @@
 			function = "phy4_led0";
 			pins = "gpio4";
 		};
+	};
+};
+
+&i2c0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c0_pins>;
+
+	/*
+	 * Window 0x50 loads MD32 and 0x51 provides runtime access.
+	 * GPIO15 high disables optical transmission.
+	 */
+	en7572: optical-front-end@50 {
+		compatible = "airoha,en7572";
+		reg = <0x50>;
+
+		/* Logical high keeps optical transmission disabled during probe. */
+		tx-disable-gpios = <&an7583_pinctrl 15 GPIO_ACTIVE_HIGH>;
+
+		/* The 512 bytes after the bosa header contain per-device optical data. */
+		nvmem-cells = <&pon_calibration>;
+		nvmem-cell-names = "calibration";
 	};
 };
 
