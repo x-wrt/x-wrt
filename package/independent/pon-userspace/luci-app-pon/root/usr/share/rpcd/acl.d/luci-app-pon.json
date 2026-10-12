@@ -1,0 +1,35 @@
+{
+	"luci-app-pon": {
+		"description": "Grant access to PON configuration and board data",
+		"read": {
+			"cgi-io": [ "exec" ],
+			"uci": [ "pon", "airoha-pon-debug" ],
+			"ubus": {
+				"file": [ "read" ]
+			},
+			"file": {
+				"/usr/sbin/ponctl --device * status": [ "exec" ],
+				"/usr/sbin/ponctl --device * status --json": [ "exec" ],
+				"/usr/bin/pondctl status --line *": [ "exec" ],
+				"/usr/libexec/pon-board-identity list": [ "exec" ],
+				"/usr/libexec/pon-board-identity read *": [ "exec" ],
+				"/usr/libexec/airoha-pon-data list": [ "exec" ],
+				"/tmp/pon-debug.tar.gz": [ "read" ]
+			}
+		},
+		"write": {
+			"cgi-io": [ "upload" ],
+			"uci": [ "pon", "airoha-pon-debug" ],
+			"ubus": {
+				"file": [ "exec", "write" ]
+			},
+			"file": {
+				"/tmp/pon-board-data.bin": [ "write" ],
+				"/usr/libexec/airoha-pon-data write *": [ "exec" ],
+				"/usr/libexec/pon-board-identity write *": [ "exec" ],
+				"/usr/libexec/airoha-pon-debug collect": [ "exec" ],
+				"/usr/libexec/airoha-pon-debug restart": [ "exec" ]
+			}
+		}
+	}
+}
