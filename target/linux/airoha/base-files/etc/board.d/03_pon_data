@@ -29,6 +29,9 @@ json_add_object pon_data
 
 board="$(board_name)"
 case "$board" in
+gemtek,xg2010g)
+	pon_data_target factory ubi 2097152
+	;;
 nokia,xg-040g-md-ubi|nokia,xg-040g-mf-ubi)
 	pon_data_target bosa ubi 262144
 	pon_data_target ri ubi 262144
@@ -42,6 +45,20 @@ esac
 json_close_object
 
 case "$board" in
+gemtek,xg2010g)
+	identity_available=1
+	json_add_object identity
+	json_add_object targets
+	json_add_object factory
+	json_add_object fields
+	identity_field pon_sn pon-sn 210 12 pon-ascii12
+	identity_field pon_mac mac 108 17 mac-colon17
+	identity_field lan_base_mac mac 134 17 mac-colon17
+	json_close_object
+	json_close_object
+	json_close_object
+	json_close_object
+	;;
 nokia,xg-040g-md-ubi|nokia,xg-040g-mf-ubi|nokia,xg-040g-mf)
 	identity_available=1
 	json_add_object identity
