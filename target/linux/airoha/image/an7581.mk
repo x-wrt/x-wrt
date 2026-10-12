@@ -308,6 +308,54 @@ endef
 TARGET_DEVICES += fiberhome_hg5585f-cu
 
 
+define Device/znxt_zn50xg-d-common
+  DEVICE_VENDOR := ZNXT
+  DEVICE_VARIANT := (UBI)
+  # 0x8a000000 follows NPU/QDMA reserved memory and holds recovery decompression.
+  KERNEL_LOADADDR := 0x8a000000
+  BLOCKSIZE := 128k
+  PAGESIZE := 2048
+  UBOOTENV_IN_UBI := 1
+  KERNEL_IN_UBI := 1
+  KERNEL := kernel-bin | gzip
+  KERNEL_INITRAMFS = kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(DEVICE_DTS).dtb with-initrd | pad-to 128k
+  KERNEL_INITRAMFS_SUFFIX := -recovery.itb
+  IMAGES := sysupgrade.itb
+  IMAGE/sysupgrade.itb = append-kernel | \
+	fit gzip $$(KDIR)/image-$$(DEVICE_DTS).dtb external-static-with-rootfs | \
+	append-metadata
+endef
+
+
+define Device/znxt_zn515xg-d
+  $(call Device/znxt_zn50xg-d-common)
+  DEVICE_MODEL := ZN515XG-D
+  DEVICE_DTS := an7581-znxt-zn515xg-d
+  DEVICE_PACKAGES := kmod-gpio-button-hotplug kmod-leds-gpio \
+    kmod-usb3 kmod-usb-ledtrig-usbport kmod-phy-airoha-en8811h \
+    kmod-airoha-en7572 kmod-airoha-xpon airoha-ponctl airoha-pond \
+    kmod-mt7915e kmod-mt7916-firmware znxt-zn515-mt7916-eeprom \
+    nand-utils ubi-utils $(AIROHA_USB_STORAGE_PACKAGES)
+  DEVICE_PACKAGES += fitblk
+  DEVICE_PACKAGES += airoha-pon-board-data kmod-crypto-ecb
+endef
+TARGET_DEVICES += znxt_zn515xg-d
+
+
+define Device/znxt_zn504xg-d
+  $(call Device/znxt_zn50xg-d-common)
+  DEVICE_MODEL := ZN504XG-D
+  DEVICE_DTS := an7581-znxt-zn504xg-d
+  DEVICE_PACKAGES := kmod-gpio-button-hotplug kmod-leds-gpio \
+    kmod-phy-airoha-en8811h kmod-airoha-en7572 kmod-airoha-xpon \
+    airoha-ponctl airoha-pond nand-utils ubi-utils
+  DEVICE_PACKAGES += fitblk
+  DEVICE_PACKAGES += airoha-pon-board-data kmod-crypto-ecb
+endef
+TARGET_DEVICES += znxt_zn504xg-d
+
+
 define Device/nokia_xg-040g-md-ubi-images
   UBOOTENV_IN_UBI := 1
   KERNEL_IN_UBI := 1
