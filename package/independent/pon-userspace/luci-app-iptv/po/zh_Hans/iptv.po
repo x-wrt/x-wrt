@@ -1,0 +1,59 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-iptv\n"
+"PO-Revision-Date: 2026-08-27 12:00+0800\n"
+"Last-Translator: OpenWrt LuCI community\n"
+"Language: zh_Hans\n"
+"Language-Team: Chinese (Simplified)\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "Bind one LAN port to the operator IPTV VLAN. Applying the configuration removes the selected port from br-lan."
+msgstr "将一个 LAN 口绑定到运营商 IPTV VLAN。应用配置时会把所选端口移出 br-lan。"
+
+msgid "Carries DHCP, authentication, video on demand and, when no separate multicast VLAN is set, multicast traffic."
+msgstr "承载 DHCP、鉴权和点播；未设置独立组播 VLAN 时也承载组播流量。"
+
+msgid "Enable"
+msgstr "启用"
+
+msgid "Grant access to IPTV bridge configuration"
+msgstr "允许访问 IPTV 网桥配置"
+
+msgid "IPTV LAN port"
+msgstr "IPTV LAN 口"
+
+msgid "Leave the multicast VLAN empty when both services use the same VLAN."
+msgstr "两种业务共用同一 VLAN 时，请将组播 VLAN 留空。"
+
+msgid "Multicast VLAN"
+msgstr "组播 VLAN"
+
+msgid "Network device carrying the operator VLANs, normally pon0."
+msgstr "承载运营商 VLAN 的网络设备，通常为 pon0。"
+
+msgid "Optional. In separate multicast VLAN mode, IPv4 multicast flows downstream and IGMP is allowed upstream."
+msgstr "可选。使用独立组播 VLAN 时，IPv4 组播向机顶盒下行，并允许 IGMP 上行。"
+
+msgid "Service VLAN"
+msgstr "业务 VLAN"
+
+msgid "The selected port is dedicated to the set-top box."
+msgstr "所选端口将专用于机顶盒。"
+
+msgid "Uplink device"
+msgstr "上联设备"
+
+msgid "Use a Linux network device name containing at most 15 characters."
+msgstr "请输入不超过 15 个字符的 Linux 网络设备名称。"
+
+msgid "IGMP upstream VLAN"
+msgstr "IGMP 上行 VLAN"
+
+msgid "Optional. Leave empty to use the multicast VLAN, or the service VLAN when no separate multicast VLAN is configured."
+msgstr "可选。留空时使用组播 VLAN；未设置独立组播 VLAN 时使用业务 VLAN。"
+
+msgid "Same as multicast traffic"
+msgstr "与组播流量相同"

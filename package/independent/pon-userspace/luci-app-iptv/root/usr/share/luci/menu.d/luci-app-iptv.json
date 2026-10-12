@@ -1,0 +1,14 @@
+{
+	"admin/network/iptv": {
+		"title": "IPTV",
+		"order": 86,
+		"action": {
+			"type": "view",
+			"path": "iptv/config"
+		},
+		"depends": {
+			"acl": [ "luci-app-iptv" ],
+			"uci": { "iptv": true }
+		}
+	}
+}

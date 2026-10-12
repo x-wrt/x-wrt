@@ -1,0 +1,15 @@
+{
+	"luci-app-iptv": {
+		"description": "Grant access to IPTV bridge configuration",
+		"read": {
+			"uci": [ "iptv", "network" ],
+			"ubus": {
+				"network.device": [ "status" ],
+				"network.interface": [ "dump" ]
+			}
+		},
+		"write": {
+			"uci": [ "iptv" ]
+		}
+	}
+}
