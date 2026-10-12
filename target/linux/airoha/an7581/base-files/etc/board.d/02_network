@@ -47,6 +47,10 @@ an7581_setup_interfaces()
 				;;
 		esac
 		;;
+	unionman,ung00a)
+		# The board exposes one 2.5G and three 1G ports with PON as the uplink.
+		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4" "pon0"
+		;;
 	znxt,zn504xg-d|\
 	znxt,zn515xg-d)
 		# Panel numbering starts at the 2.5G port and continues through lan4.
