@@ -1,0 +1,126 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+
+. /lib/functions.sh
+. /usr/share/libubox/jshn.sh
+. /lib/upgrade/nand.sh
+
+fail()
+{
+	echo "$*" >&2
+	exit 1
+}
+
+load_target()
+{
+	json_load "$(cat /etc/board.json)" || fail "Cannot read board data layout"
+	json_select pon_data || fail "Board data layout is missing"
+	json_select "$1" || fail "Unknown board data target: $1"
+	json_get_var storage type
+	json_get_var capacity size
+	json_get_var parent parent
+	name="$1"
+	case "$capacity" in ''|*[!0-9]*) fail "Invalid target size";; esac
+	[ "$capacity" -gt 0 ] || fail "Invalid target size"
+}
+
+locate_target()
+{
+	target=
+	if [ "$storage" = mtd ]; then
+		local index="$(find_mtd_index "$name")"
+		[ -n "$index" ] || fail "MTD partition $name is missing"
+		target="/dev/mtd$index"
+		actual_size="$(cat "/sys/class/mtd/mtd$index/size")"
+		[ "$actual_size" -eq "$capacity" ] || fail "MTD size differs from board layout"
+		return
+	fi
+
+	[ "$storage" = ubi ] && [ -n "$parent" ] || fail "Invalid storage declaration"
+	ubidev="$(nand_find_ubi "$parent")"
+	if [ -z "$ubidev" ]; then
+		local index="$(find_mtd_index "$parent")"
+		[ -n "$index" ] || fail "UBI parent $parent is missing"
+		ubiattach -m "$index" >&2 || fail "Cannot attach UBI on $parent"
+		ubidev="$(nand_find_ubi "$parent")"
+	fi
+	[ -n "$ubidev" ] || fail "UBI on $parent is missing"
+	local volume="$(nand_find_volume "$ubidev" "$name")"
+	[ -n "$volume" ] || return 0
+	target="/dev/$volume"
+	local entry="/sys/class/ubi/$volume"
+	actual_size=$(($(cat "$entry/reserved_ebs") * $(cat "$entry/usable_eb_size")))
+}
+
+read_target()
+{
+	local output="$1" length="$2"
+	if [ "$storage" = mtd ] && [ "$(cat "/sys/class/mtd/${target##*/}/type")" = nand ]; then
+		# Read NAND through the same bad-block mapping used by mtd write.
+		nanddump -q --bb=skipbad -l "$length" -f "$output" "$target" ||
+			fail "MTD read failed"
+	else
+		head -c "$length" "$target" > "$output" || fail "Read failed"
+	fi
+	[ "$(wc -c < "$output")" -eq "$length" ] || fail "Short read"
+}
+
+write_target()
+{
+	local backup=
+
+	if [ -n "$target" ]; then
+		backup="/tmp/pon-board-data.$name.$$.bin"
+		read_target "$work/original" "$capacity"
+		cp "$work/original" "$backup" || fail "Cannot save board data backup"
+	fi
+	if [ -z "$target" ]; then
+		ubimkvol "/dev/$ubidev" -N "$name" -s "$capacity" -t static >&2 ||
+			fail "Cannot create $name; check free UBI space"
+		locate_target
+	fi
+	[ -n "$target" ] && [ "$actual_size" -ge "$length" ] || fail "Existing target is too small"
+	case "$storage" in
+	ubi) ubiupdatevol "$target" "$work/input" >&2 || fail "UBI update failed";;
+	mtd) mtd write "$work/input" "$target" >&2 || fail "MTD write failed";;
+	esac
+	read_target "$work/verify" "$length"
+	cmp -s "$work/input" "$work/verify" || fail "Readback verification failed"
+	if [ -n "$backup" ]; then
+		echo "Written and verified: $name. Backup: $backup"
+	else
+		echo "Written and verified: $name"
+	fi
+}
+
+cleanup()
+{
+	[ -n "$work" ] && rm -rf "$work"
+	rmdir /tmp/airoha-pon-data.lock
+}
+
+case "$1" in
+list)
+	[ "$#" -eq 1 ] || exit 2
+	jsonfilter -i /etc/board.json -e '@.pon_data' || printf '{}\n'
+	exit 0
+	;;
+write)
+	[ "$#" -eq 2 ] || exit 2
+	load_target "$2"
+	;;
+*)
+	echo "usage: airoha-pon-data list | write NAME" >&2
+	exit 2
+	;;
+esac
+
+mkdir /tmp/airoha-pon-data.lock 2>/dev/null || fail "Another board data write is in progress"
+work=
+trap cleanup EXIT
+work="$(mktemp -d /tmp/airoha-pon-data.XXXXXX)" || fail "Cannot create work directory"
+mv /tmp/pon-board-data.bin "$work/input" || fail "Uploaded image is missing"
+length="$(wc -c < "$work/input")"
+[ "$length" -gt 0 ] && [ "$length" -le "$capacity" ] || fail "Invalid image size"
+locate_target
+write_target
