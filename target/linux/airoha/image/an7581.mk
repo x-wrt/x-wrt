@@ -153,6 +153,8 @@ define Device/nokia_xg-040g-md-common
   DEVICE_PACKAGES := kmod-gpio-button-hotplug kmod-leds-gpio \
 	kmod-phy-airoha-en8811h kmod-regulator-userspace-consumer \
 	kmod-usb-ledtrig-usbport kmod-usb3
+  DEVICE_PACKAGES += kmod-airoha-en7572 kmod-airoha-xpon \
+	airoha-ponctl airoha-pond kmod-crypto-aes kmod-crypto-ecb
 endef
 
 define Device/nokia_xg-040g-md
