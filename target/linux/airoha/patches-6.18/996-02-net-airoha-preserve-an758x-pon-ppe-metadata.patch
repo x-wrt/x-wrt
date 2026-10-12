@@ -2,16 +2,18 @@ From: PTPT52.AI <ptpt52@gmail.com>
 Subject: [PATCH] net: airoha: preserve AN758x PON bearer metadata in PPE flows
 
 Use the same VLAN and P-bit classifier for software and PPE egress.
-Reject ambiguous PCP mappings, serialize bearer changes with TC, and
-release source-MAC references when invalidating old PON flows.
-Keep the previous mapping if hardware flow removal fails.
+Reject ambiguous PCP mappings and serialize bearer changes with both TC
+and atomic natflow installation. Invalidate both directions of natflow
+connections as well as TC flows before replacing PON bearer mappings.
+Release source-MAC references only after successful hardware removal,
+and keep the previous mapping on failure.
 
 Based on the PON PPE support by pbs05.
 Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
 ---
 --- a/drivers/net/ethernet/airoha/airoha_eth.c
 +++ b/drivers/net/ethernet/airoha/airoha_eth.c
-@@ -9137,11 +9137,35 @@
+@@ -9140,11 +9140,42 @@
  }
  EXPORT_SYMBOL_GPL(airoha_eth_pon_xmit_control);
  
@@ -20,12 +22,17 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
 +				      u32 qdma_tag)
 +{
 +	struct airoha_pon_flow_table *old;
++	struct airoha_ppe *ppe = dev->eth->ppe;
 +	int err;
 +
-+	/* TC installation and bearer replacement observe the same mapping. */
++	/* Also exclude natflow installation from the atomic packet path. */
 +	mutex_lock(&flow_offload_mutex);
++	if (ppe)
++		spin_lock_bh(&ppe->natflow_lock);
 +	err = airoha_ppe_remove_egress_flows(dev);
 +	if (err) {
++		if (ppe)
++			spin_unlock_bh(&ppe->natflow_lock);
 +		mutex_unlock(&flow_offload_mutex);
 +		kfree(table);
 +		return err;
@@ -33,6 +40,8 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
 +	old = rcu_replace_pointer(dev->pon_flow_table, table,
 +				  lockdep_is_held(&flow_offload_mutex));
 +	WRITE_ONCE(dev->pon_qdma_tag, qdma_tag);
++	if (ppe)
++		spin_unlock_bh(&ppe->natflow_lock);
 +	mutex_unlock(&flow_offload_mutex);
 +	synchronize_net();
 +	kfree(old);
@@ -48,7 +57,7 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  	struct airoha_gdm_dev *dev;
  	unsigned int i, j;
  
-@@ -9187,14 +9211,7 @@
+@@ -9190,14 +9221,7 @@
  		}
  	}
  
@@ -64,7 +73,7 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  }
  EXPORT_SYMBOL_GPL(airoha_eth_pon_replace_flows);
  
-@@ -9226,13 +9243,11 @@
+@@ -9229,13 +9253,11 @@
  		return -EOPNOTSUPP;
  	if (valid && channel >= 32)
  		return -ERANGE;
@@ -90,7 +99,7 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  	struct airoha_natflow_entry *natflow;
  	u16 natflow_hash;
  	bool smac_ref;
-@@ -1556,6 +1558,7 @@
+@@ -1558,6 +1560,7 @@
  					 lockdep_is_held(&flow_offload_mutex));
  }
  
@@ -100,7 +109,7 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  bool airoha_ppe_is_enabled(struct airoha_eth *eth, int index);
 --- a/drivers/net/ethernet/airoha/airoha_ppe.c
 +++ b/drivers/net/ethernet/airoha/airoha_ppe.c
-@@ -844,18 +844,100 @@
+@@ -885,18 +885,103 @@
  	return eth->ppe_host_ops->xpon_get_tx_info(netdev, false, 0, false, 0, info);
  }
  
@@ -134,7 +143,9 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
 +	u16 vlan_id;
 +	u8 pbit;
 +
-+	lockdep_assert_held(&flow_offload_mutex);
++	RCU_LOCKDEP_WARN(!lockdep_is_held(&flow_offload_mutex) &&
++			 !lockdep_is_held(&dev->eth->ppe->natflow_lock),
++			 "PON flow lookup without configuration protection");
 +
 +	/* EPON uses the fixed LLID channel configured by the line controller. */
 +	tag = READ_ONCE(dev->pon_qdma_tag);
@@ -144,7 +155,8 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
 +	}
 +
 +	table = rcu_dereference_protected(dev->pon_flow_table,
-+					  lockdep_is_held(&flow_offload_mutex));
++					  lockdep_is_held(&flow_offload_mutex) ||
++					  lockdep_is_held(&dev->eth->ppe->natflow_lock));
 +	if (!table)
 +		return -EOPNOTSUPP;
 +
@@ -203,7 +215,7 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  	memset(hwe, 0, sizeof(*hwe));
  
  	val = FIELD_PREP(AIROHA_FOE_IB1_BIND_STATE, AIROHA_FOE_STATE_BIND) |
-@@ -900,9 +982,14 @@
+@@ -941,9 +1026,14 @@
  			if (!eth->ppe_host_ops->is_valid_gdm_dev(eth, dev))
  				return -EINVAL;
  
@@ -221,7 +233,7 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  
  			port = dev->port;
  			if (!port) {
-@@ -933,7 +1020,10 @@
+@@ -974,7 +1064,10 @@
  			/* GPON hardware forwarding must carry the same T-CONT,
  			 * queue and NBOQ metadata as CPU-originated descriptors.
  			 */
@@ -233,7 +245,7 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  				channel = xpon.tcont;
  				priority = xpon.queue;
  			} else {
-@@ -965,7 +1055,9 @@
+@@ -1006,7 +1099,9 @@
  			if (!airoha_is(eth, airoha_en7523) &&
  			    airoha_is_lan_gdm_dev(dev))
  				val |= AIROHA_FOE_IB2_FAST_PATH;
@@ -244,7 +256,7 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  				val |= FIELD_PREP(AIROHA_FOE_IB2_NBQ, xpon.tcont);
  			else if (dsa_port >= 0)
  				val |= FIELD_PREP(AIROHA_FOE_IB2_NBQ,
-@@ -1037,6 +1129,9 @@
+@@ -1078,6 +1173,9 @@
  	} else if (dsa_port >= 0) {
  		l2->etype = BIT(dsa_port);
  		l2->etype |= !data->vlan.num ? BIT(15) : 0;
@@ -254,7 +266,7 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  	} else if (xpon_flow) {
  		/* EN7523 reuses the FOE EtherType field as the GPON GEM tag. */
  		l2->etype = xpon.gem_port_id;
-@@ -2156,6 +2251,7 @@
+@@ -2211,6 +2309,7 @@
  {
  	struct flow_rule *rule = flow_cls_offload_flow_rule(f);
  	struct airoha_flow_table_entry *e;
@@ -262,7 +274,7 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  	struct airoha_flow_data data = {};
  	struct net_device *odev = NULL;
  	struct flow_action_entry *act;
-@@ -2267,7 +2363,7 @@
+@@ -2322,7 +2421,7 @@
  	}
  
  	err = airoha_ppe_foe_entry_prepare(eth, &hwe, odev, offload_type,
@@ -271,7 +283,7 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  	if (err)
  		return err;
  
-@@ -2343,6 +2439,8 @@
+@@ -2398,6 +2497,8 @@
  		return -ENOMEM;
  	}
  
@@ -280,7 +292,7 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  	e->cookie = f->cookie;
  	memcpy(&e->data, &hwe, sizeof(e->data));
  
-@@ -2397,6 +2495,48 @@
+@@ -2452,6 +2553,51 @@
  	kfree(e);
  
  	return 0;
@@ -295,8 +307,11 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
 +	int err = 0;
 +
 +	lockdep_assert_held(&flow_offload_mutex);
-+	if (!eth->ppe || !atomic_read(&eth->flow_table.nelems))
++	if (!eth->ppe)
 +		return 0;
++	err = airoha_ppe_natflow_remove_egress(eth->ppe, dev);
++	if (err || !atomic_read(&eth->flow_table.nelems))
++		return err;
 +	rhashtable_walk_enter(&eth->flow_table, &iter);
 +	rhashtable_walk_start(&iter);
 +	while ((e = rhashtable_walk_next(&iter))) {
@@ -329,7 +344,7 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
  }
  
  static int airoha_ppe_flow_offload_stats(struct airoha_eth *eth,
-@@ -2983,7 +3123,7 @@
+@@ -3067,7 +3213,7 @@
  	}
  
  	err = airoha_ppe_foe_entry_prepare(ppe->common.eth, entry, odev, type,
