@@ -1,0 +1,10 @@
+Repository: https://github.com/pbs05/openwrt-pon-userspace
+Commit: cce9d756742487b378749c606b30e13ee9b0f093
+
+Local OpenWrt packages paired with the driver snapshot in ../pon-drivers/UPSTREAM.
+The PON board data scripts and identity-image helper are split out of the
+upstream luci-app-pon into airoha-pon-board-data. The local LuCI package depends
+on that package and airoha-pon-debug.
+
+The normal packages feed still supplies the Rust build helpers, and the LuCI
+feed supplies luci.mk. No separate PON feed update or installation is needed.

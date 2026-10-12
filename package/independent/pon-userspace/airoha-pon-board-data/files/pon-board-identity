@@ -1,0 +1,168 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+
+. /lib/functions.sh
+. /usr/share/libubox/jshn.sh
+. /lib/upgrade/nand.sh
+
+fail()
+{
+	echo "$*" >&2
+	exit 1
+}
+
+valid_name()
+{
+	case "$1" in
+		''|*[!A-Za-z0-9_-]*) return 1 ;;
+	esac
+}
+
+load_field()
+{
+	local field="$1"
+
+	valid_name "$field" || fail "Invalid identity field"
+	json_load "$(cat /etc/board.json)" || fail "Cannot read board layout"
+	json_select identity && json_select targets &&
+		json_select "$name" && json_select fields &&
+		json_select "$field" || fail "Unknown identity field: $name.$field"
+	json_get_var offset offset
+	json_get_var field_size size
+	json_get_var encoding encoding
+	json_get_var mirror vssn_offset
+	[ -n "$offset" ] && [ -n "$field_size" ] && [ -n "$encoding" ] ||
+		fail "Incomplete identity field: $name.$field"
+	[ -n "$mirror" ] || mirror=-
+	json_select ..
+	json_select ..
+	json_get_var codec codec
+	[ -n "$codec" ] || codec=-
+}
+
+load_storage()
+{
+	json_load "$(cat /etc/board.json)" || fail "Cannot read board layout"
+	json_select pon_data && json_select "$name" ||
+		fail "Unknown board data target: $name"
+	json_get_var storage type
+	json_get_var capacity size
+	json_get_var parent parent
+	case "$capacity" in ''|*[!0-9]*) fail "Invalid target size" ;; esac
+	[ "$capacity" -gt 0 ] || fail "Invalid target size"
+}
+
+locate_target()
+{
+	local index volume entry
+
+	case "$storage" in
+	mtd)
+		index="$(find_mtd_index "$name")"
+		[ -n "$index" ] || fail "MTD partition $name is missing"
+		target="/dev/mtd$index"
+		[ "$(cat "/sys/class/mtd/mtd$index/size")" -eq "$capacity" ] ||
+			fail "MTD size differs from board layout"
+		;;
+	ubi)
+		[ -n "$parent" ] || fail "UBI parent is missing"
+		ubidev="$(nand_find_ubi "$parent")"
+		if [ -z "$ubidev" ]; then
+			index="$(find_mtd_index "$parent")"
+			[ -n "$index" ] || fail "UBI parent $parent is missing"
+			ubiattach -m "$index" >&2 || fail "Cannot attach UBI on $parent"
+			ubidev="$(nand_find_ubi "$parent")"
+		fi
+		[ -n "$ubidev" ] || fail "UBI on $parent is missing"
+		volume="$(nand_find_volume "$ubidev" "$name")"
+		[ -n "$volume" ] || fail "UBI volume $name is missing"
+		target="/dev/$volume"
+		entry="/sys/class/ubi/$volume"
+		[ "$(($(cat "$entry/reserved_ebs") * $(cat "$entry/usable_eb_size")))" -ge "$capacity" ] ||
+			fail "UBI volume is smaller than board layout"
+		;;
+	*) fail "Unknown storage type" ;;
+	esac
+}
+
+read_image()
+{
+	local output="$1"
+
+	if [ "$storage" = mtd ] &&
+	   [ "$(cat "/sys/class/mtd/${target##*/}/type")" = nand ]; then
+		# Read NAND through the same bad-block mapping used by mtd write.
+		nanddump -q --bb=skipbad -l "$capacity" -f "$output" "$target" ||
+			fail "MTD read failed"
+	else
+		head -c "$capacity" "$target" > "$output" || fail "Read failed"
+	fi
+	[ "$(wc -c < "$output")" -eq "$capacity" ] || fail "Short identity image"
+}
+
+cleanup()
+{
+	[ -n "$work" ] && rm -r "$work"
+	rmdir /tmp/airoha-pon-data.lock
+}
+
+action="$1"
+[ "$#" -eq 0 ] || shift
+
+case "$action" in
+list)
+	[ "$#" -eq 0 ] || exit 2
+	jsonfilter -i /etc/board.json -e '@.identity' || fail "Board identity layout is missing"
+	exit 0
+	;;
+read|write)
+	[ "$#" -ge 2 ] || exit 2
+	name="$1"
+	shift
+	valid_name "$name" || exit 2
+	;;
+*)
+	echo "usage: pon-board-identity list | read TARGET FIELD | write TARGET FIELD=VALUE..." >&2
+	exit 2
+	;;
+esac
+
+[ "$action" = write ] || [ "$#" -eq 1 ] || exit 2
+mkdir /tmp/airoha-pon-data.lock 2>/dev/null || fail "Board data is busy"
+work=
+trap cleanup EXIT
+work="$(mktemp -d /tmp/pon-board-identity.XXXXXX)" || fail "Cannot create work directory"
+
+load_storage
+locate_target
+read_image "$work/current"
+
+if [ "$action" = read ]; then
+	load_field "$1"
+	/usr/libexec/pon-identity-image read "$work/current" \
+		"$offset" "$field_size" "$encoding"
+	exit $?
+fi
+
+cp "$work/current" "$work/updated" || fail "Cannot prepare identity image"
+for change in "$@"; do
+	case "$change" in *=*) ;; *) exit 2 ;; esac
+	field="${change%%=*}"
+	value="${change#*=}"
+	load_field "$field"
+	/usr/libexec/pon-identity-image write "$work/updated" "$work/next" \
+		"$offset" "$field_size" "$encoding" "$codec" "$mirror" "$value" ||
+		fail "Invalid value for $name.$field"
+	mv "$work/next" "$work/updated" || fail "Cannot prepare identity image"
+done
+
+# Keep the original logical image available for recovery after an update.
+backup="/tmp/pon-board-identity.$name.$$.bin"
+cp "$work/current" "$backup" || fail "Cannot save identity backup"
+case "$storage" in
+ubi) ubiupdatevol "$target" "$work/updated" || fail "UBI update failed" ;;
+mtd) mtd write "$work/updated" "$name" || fail "MTD write failed" ;;
+esac
+read_image "$work/verify"
+cmp -s "$work/updated" "$work/verify" || fail "Identity readback differs"
+echo "Board identity written. Backup: $backup"
