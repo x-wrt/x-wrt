@@ -57,6 +57,13 @@ quantum,q1000k-ubi)
 	ucidef_set_led_netdev "lan1-yellow" "lan1" "yellow:lan" "lan1" "link_10 link_100"
 	ucidef_set_led_netdev "lan1-green" "lan1" "green:lan" "lan1" "link_1000 tx rx"
 	;;
+unionman,ung00a)
+	# Panel LAN2/LAN3/LAN4 map to PHY addresses 0x0b/0x0a/0x09.
+	ucidef_set_led_netdev "lan1" "lan1" "mt7530-0:0f:green:lan-1" "lan1" "link tx rx"
+	ucidef_set_led_netdev "lan2" "lan2" "mt7530-0:0b:green:lan-2" "lan2" "link tx rx"
+	ucidef_set_led_netdev "lan3" "lan3" "mt7530-0:0a:green:lan-3" "lan3" "link tx rx"
+	ucidef_set_led_netdev "lan4" "lan4" "mt7530-0:09:green:lan-4" "lan4" "link tx rx"
+	;;
 esac
 
 board_config_flush
