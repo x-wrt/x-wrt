@@ -12,9 +12,16 @@ define Build/an7581-preloader
 endef
 
 define Build/an7581-bl31-uboot
+  @if [ -f "$(STAGING_DIR_IMAGE)/an7581_$1-u-boot.lzma" ]; then \
+    UBOOT_BIN="$(STAGING_DIR_IMAGE)/an7581_$1-u-boot.lzma"; \
+  elif [ -f "$(STAGING_DIR_IMAGE)/an7581_$1-u-boot.bin.lzma" ]; then \
+    UBOOT_BIN="$(STAGING_DIR_IMAGE)/an7581_$1-u-boot.bin.lzma"; \
+  else \
+    UBOOT_BIN="$(STAGING_DIR_IMAGE)/an7581_$1-u-boot.bin"; \
+  fi; \
   $(STAGING_DIR_HOST)/bin/fiptool create \
 		--soc-fw $(STAGING_DIR_IMAGE)/an7581-bl31.lzma \
-		--nt-fw $(STAGING_DIR_IMAGE)/an7581_$1-u-boot.lzma \
+		--nt-fw "$$UBOOT_BIN" \
 		$(STAGING_DIR_IMAGE)/an7581_$1-bl31-u-boot.fip
   cat $(STAGING_DIR_IMAGE)/an7581_$1-bl31-u-boot.fip >> $@
 endef
@@ -23,6 +30,9 @@ define Build/an7581-chainloader
   $(INSTALL_DIR) $(KDIR)/chainload-fit-$(notdir $@)
   @if [ -f "$(STAGING_DIR_IMAGE)/an7581_$1-u-boot.lzma" ]; then \
     KERNEL="$(STAGING_DIR_IMAGE)/an7581_$1-u-boot.lzma"; \
+    COMP="lzma"; \
+  elif [ -f "$(STAGING_DIR_IMAGE)/an7581_$1-u-boot.bin.lzma" ]; then \
+    KERNEL="$(STAGING_DIR_IMAGE)/an7581_$1-u-boot.bin.lzma"; \
     COMP="lzma"; \
   else \
     KERNEL="$(STAGING_DIR_IMAGE)/an7581_$1-u-boot.bin"; \
