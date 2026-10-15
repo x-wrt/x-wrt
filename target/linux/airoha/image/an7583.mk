@@ -43,6 +43,22 @@ define Device/airoha_an7583-evb-multievb
 endef
 TARGET_DEVICES += airoha_an7583-evb-multievb
 
+define Device/airoha_an7583-evb-emmc-kite
+  $(call Device/airoha_an7583-evb-multievb)
+  DEVICE_MODEL := AN7583 Evaluation Board (eMMC + MT7992)
+  DEVICE_DTS_OVERLAY := an7583-evb-emmc-kite
+  DEVICE_PACKAGES += kmod-mt7992-firmware wpad-basic-mbedtls
+endef
+TARGET_DEVICES += airoha_an7583-evb-emmc-kite
+
+define Device/airoha_an7583-evb-emmc-eagle
+  $(call Device/airoha_an7583-evb-multievb)
+  DEVICE_MODEL := AN7583 Evaluation Board (eMMC + MT7996)
+  DEVICE_DTS_OVERLAY := an7583-evb-emmc-eagle
+  DEVICE_PACKAGES += kmod-mt7996-firmware wpad-basic-mbedtls
+endef
+TARGET_DEVICES += airoha_an7583-evb-emmc-eagle
+
 define Device/nokia_xg-040g-mf-common
   $(call Device/FitImageLzma)
   DEVICE_VENDOR := Nokia
