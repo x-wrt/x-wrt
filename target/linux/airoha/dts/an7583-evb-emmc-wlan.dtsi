@@ -1,0 +1,27 @@
+// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+
+#include "an7583-evb-emmc.dtso"
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/clock/en7523-clk.h>
+#include <dt-bindings/reset/airoha,an7583-reset.h>
+#include "an7583-pcie-gen3.dtsi"
+#include "an7583-npu-wlan.dtsi"
+
+&pcie0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pcie0_rst_pins>;
+	status = "okay";
+
+	pcie@0,0 {
+		#address-cells = <3>;
+		#size-cells = <2>;
+		ranges;
+		reg = <0x0000 0 0 0 0>;
+		wifi@0,0 {
+			compatible = "mediatek,mt76";
+			reg = <0x0000 0 0 0 0>;
+			airoha,npu = <&npu>;
+			airoha,eth = <&eth>;
+		};
+	};
+};
