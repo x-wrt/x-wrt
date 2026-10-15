@@ -1,0 +1,7 @@
+// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+
+#include "an7583-evb-emmc-wlan.dtsi"
+
+&{/} {
+	model = "Airoha AN7583 Evaluation Board (eMMC + MT7996)";
+};
