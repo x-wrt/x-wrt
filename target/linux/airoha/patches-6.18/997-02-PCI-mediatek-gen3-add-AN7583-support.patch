@@ -1,0 +1,28 @@
+From: Christian Marangi <ansuelsmth@gmail.com>
+Subject: [PATCH] PCI: mediatek-gen3: add support for Airoha AN7583 SoC
+
+AN7583 shares the EN7581 startup sequence but has one Gen3 lane.
+
+Link: https://lists.infradead.org/pipermail/linux-mediatek/2025-September/098848.html
+Signed-off-by: Christian Marangi <ansuelsmth@gmail.com>
+---
+--- a/drivers/pci/controller/pcie-mediatek-gen3.c
++++ b/drivers/pci/controller/pcie-mediatek-gen3.c
+@@ -1438,7 +1438,17 @@ static const struct mtk_gen3_pcie_pdata
+ 	.flags = SKIP_PCIE_RSTB,
+ };
+ 
++static const struct mtk_gen3_pcie_pdata mtk_pcie_soc_an7583 = {
++	.power_up = mtk_pcie_en7581_power_up,
++	.phy_resets = {
++		.id[0] = "phy-lane0",
++		.num_resets = 1,
++	},
++	.flags = SKIP_PCIE_RSTB,
++};
++
+ static const struct of_device_id mtk_pcie_of_match[] = {
++	{ .compatible = "airoha,an7583-pcie-gen3", .data = &mtk_pcie_soc_an7583 },
+ 	{ .compatible = "airoha,en7581-pcie", .data = &mtk_pcie_soc_en7581 },
+ 	{ .compatible = "mediatek,mt8192-pcie", .data = &mtk_pcie_soc_mt8192 },
+ 	{ .compatible = "mediatek,mt8196-pcie", .data = &mtk_pcie_soc_mt8196 },
