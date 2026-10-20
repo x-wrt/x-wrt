@@ -7,6 +7,7 @@ use Getopt::Long;
 use Time::Piece;
 use JSON::PP;
 use Digest::MD5 qw(md5_hex);
+use Text::Tabs qw(expand);
 
 my %board;
 
@@ -143,6 +144,121 @@ sub package_depends($$) {
 	return $ret;
 }
 
+sub strip_parens {
+	my ($s) = @_;
+	return "" unless defined $s;
+	$s =~ s/^\s+|\s+$//g;
+	while ($s =~ /^\((.*)\)$/) {
+		my $inner = $1;
+		my $bal = 0;
+		my $ok = 1;
+		for my $ch (split //, $inner) {
+			$bal++ if $ch eq '(';
+			$bal-- if $ch eq ')';
+			if ($bal < 0) { $ok = 0; last; }
+		}
+		if ($ok && $bal == 0) {
+			$s = $inner;
+			$s =~ s/^\s+|\s+$//g;
+		} else {
+			last;
+		}
+	}
+	return $s;
+}
+
+my %bool_symbols;
+
+sub collect_bool_symbols {
+	my ($config) = @_;
+	my ($symbol, $help_indent);
+	for my $line (split /\n/, expand($config)) {
+		my ($indent) = $line =~ /^(\s*)/;
+		if (defined $help_indent) {
+			next if $line =~ /^\s*$/ || length($indent) > $help_indent;
+			undef $help_indent;
+		}
+		if ($line =~ /^\s*(?:menu)?config\s+([\w-]+)\s*$/) {
+			$symbol = $1;
+		} elsif ($line =~ /^\s*(?:help|---help---)\s*$/) {
+			$help_indent = length($indent);
+			undef $symbol;
+		} elsif (defined $symbol && $line =~ /^\s*(bool|def_bool|tristate|def_tristate|int|hex|string)\b/) {
+			# Never classify a symbol with a conflicting declaration as bool.
+			$bool_symbols{$symbol} = ($1 =~ /^(?:def_)?bool$/ &&
+				(!exists $bool_symbols{$symbol} || $bool_symbols{$symbol}));
+		} elsif ($line =~ /^\s*(?:choice|endchoice|if|endif|menu|endmenu|comment|source)\b/) {
+			undef $symbol;
+		}
+	}
+}
+
+sub init_bool_symbols {
+	%bool_symbols = ();
+	# Other symbols, including those in external source files, remain unknown.
+	for my $file (glob("$FindBin::Bin/../config/Config-*.in"), "$FindBin::Bin/../toolchain/Config.in") {
+		open my $fh, '<', $file or next;
+		local $/;
+		collect_bool_symbols(<$fh>);
+	}
+	for my $pkg (values %package) {
+		collect_bool_symbols("config PACKAGE_$pkg->{name}\n\t" .
+			($pkg->{tristate} ? 'tristate' : 'bool') . "\n" . ($pkg->{config} || ''));
+	}
+}
+
+sub get_conjuncts {
+	my ($cond) = @_;
+	$cond = strip_parens($cond);
+	return ($cond) if $cond =~ /["']/;
+	my @conjuncts;
+	my $len = length($cond);
+	my $depth = 0;
+	my $start = 0;
+	for (my $i = 0; $i < $len; $i++) {
+		my $c = substr($cond, $i, 1);
+		if ($c eq '(') {
+			$depth++;
+		} elsif ($c eq ')') {
+			$depth--;
+			return ($cond) if $depth < 0;
+		} elsif ($depth == 0 && substr($cond, $i, 2) eq '||') {
+			# OR binds less tightly than AND: the whole expression is opaque.
+			return ($cond);
+		} elsif ($c eq '&' && substr($cond, $i, 2) eq '&&' && $depth == 0) {
+			push @conjuncts, substr($cond, $start, $i - $start);
+			$i++;
+			$start = $i + 1;
+		}
+	}
+	# No top-level AND means there is nothing to recurse into, even if an
+	# AND occurs inside a disjunction or a negated parenthesized expression.
+	return ($cond) if $depth != 0 || !@conjuncts;
+	push @conjuncts, substr($cond, $start) if $start < $len;
+
+	my @result;
+	for my $term (@conjuncts) {
+		$term = strip_parens($term);
+		push @result, get_conjuncts($term) if length($term) > 0;
+	}
+	return @result;
+}
+
+sub condition_implies {
+	my ($condition, $depend) = @_;
+	return 0 unless defined $condition and defined $depend;
+	$condition = strip_parens($condition);
+	$depend = strip_parens($depend);
+	# !m || m is m, not y. Only a known boolean conjunct makes this gate
+	# tautological; keep tristate, compound and unknown dependencies intact.
+	return 0 unless $bool_symbols{$depend};
+	return 1 if $condition eq $depend;
+	for my $conj (get_conjuncts($condition)) {
+		return 1 if strip_parens($conj) eq $depend;
+	}
+	return 0;
+}
+
 sub mconf_depends {
 	my $pkgname = shift;
 	my $depends = shift;
@@ -239,6 +355,7 @@ sub mconf_depends {
 				next if $depend eq $condition;
 				$depend = "$depend if $condition";
 			} else {
+				next if condition_implies($condition, $depend);
 				next if $dep->{"$depend if $condition"};
 				$depend = "!($condition) || $depend" unless $dep->{$condition} eq 'select';
 			}
@@ -410,6 +527,7 @@ sub print_package_overrides() {
 
 sub gen_package_config() {
 	parse_package_metadata($ARGV[0]) or exit 1;
+	init_bool_symbols();
 	add_implicit_provides_conflicts();
 	print "menuconfig IMAGEOPT\n\tbool \"Image configuration\"\n\tdefault n\n";
 	print "source \"package/*/image-config.in\"\n";
