@@ -21,6 +21,20 @@ requiring CAC cannot be adopted while continuously transmitting this AP.
 Changes to SSID, encryption, hardware capabilities, or `wifi down` for the whole
 radio are not STA-only operations and can still rebuild/stop the AP.
 
+Default infrastructure STA scanning uses one per-interface retry sequence:
+1, 2, 4, 8, 16, 32, then 60 seconds. Each automatic scan attempt advances it,
+so missing SSIDs, association failures, driver scan errors and AP channel-switch
+timeouts share the same delay floor. Finding a BSS or entering authentication
+does not reset it. A completed connection, an interface disable, or an explicit
+network enable/selection resets it; the first scan can run immediately again.
+Existing longer delays, including authentication-failure handling, still apply.
+
+The default automatic STA path uses normal scans so a fixed driver scheduled
+scan interval cannot bypass this policy. Manual scans, explicit `autoscan` or
+`sched_scan_plans` policies, WPS and non-infrastructure workflows retain their
+own behavior. These are delays before the next scan, not scan durations or
+guarantees about AP packet latency.
+
 ## Host regression
 
 Run `sh package/network/services/hostapd/tests/run-apsta.sh` from the repository
@@ -45,6 +59,16 @@ cancellation, timeout, roaming, same-channel width changes and timer allocation
 failure under AddressSanitizer/UBSan. The default flags target GCC; override
 `APSTA_WORK_FLAGS` if a different compiler requires other sanitizer flags.
 
+Run `sh package/network/services/hostapd/tests/run-scan-backoff.sh` to test scan
+retry behavior. It needs `HOSTAPD_TREE`, `UCODE_INCLUDE`, OpenSSL development
+files, and any header flags in `APSTA_CFLAGS`. It builds the production daemon
+with its `none` driver and L2 backend, replaces only scan/association driver
+callbacks, and runs the real scanning, scan-result selection, connection-failure,
+state-transition and event-loop code. It checks missing and discovered-but-failing
+networks, mixed failures, saturation, successful-connection reset, administrative
+reset, manual scans, driver scan failures and aborted-scan recovery without
+RF access or long waits.
+
 ## Device acceptance
 
 Use a supported radio/driver and an independently connected AP client. Observe
@@ -59,6 +83,10 @@ Use a supported radio/driver and an independently connected AP client. Observe
 5. Disable during CSA, change upstream channel, and exercise width fallback.
 6. For MLD, repeat loss/disable for each radio and verify unused links retain
    their channel.
+7. Keep the uplink absent, then available with failing authentication. Record
+   scan-start/result timestamps and verify the retry delay grows to 60 seconds
+   in both cases; finding the uplink must not reset it. Connect successfully,
+   then remove the uplink again and confirm fast scanning resumes.
 
 Record client traffic and AP netdev/hostapd BSS lifetimes. CSA and off-channel
 scans can briefly interrupt airtime; retaining the AP interface does not prove
