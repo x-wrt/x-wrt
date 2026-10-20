@@ -1,0 +1,161 @@
+Subject: [PATCH] wpa_supplicant: back off automatic STA scans until connected
+
+Count automatic scan attempts across missing SSIDs and association failures.
+Apply a shared 1, 2, 4, 8, 16, 32, 60 second retry floor, reset only on a
+completed connection or an administrative restart. This also covers driver
+scan errors and AP/STA channel-preparation failures through req_scan().
+
+Keep default infrastructure retries in userspace so fixed-interval scheduled
+scans cannot bypass the backoff. Leave explicit autoscan/scheduled-scan
+policies, manual scans, WPS, mesh and P2P workflows to their existing policy.
+
+diff --git a/wpa_supplicant/scan.c b/wpa_supplicant/scan.c
+index c143cd2..36b1b95 100644
+--- a/wpa_supplicant/scan.c
++++ b/wpa_supplicant/scan.c
+@@ -27,6 +27,46 @@
+ static struct wpabuf * wpa_supplicant_extra_ies(struct wpa_supplicant *wpa_s);
+ 
+ 
++static bool wpas_scan_backoff_enabled(struct wpa_supplicant *wpa_s)
++{
++	struct wpa_ssid *ssid;
++	bool enabled = false;
++
++	if (wpa_s->wpa_state == WPA_COMPLETED || wpa_s->p2p_mgmt ||
++	    wpa_s->pno || wpa_s->pno_sched_pending ||
++	    wpa_s->conf->ap_scan != 1 || wpa_s->conf->autoscan ||
++	    wpa_s->conf->sched_scan_plans || wpa_s->after_wps ||
++	    wpas_wps_searching(wpa_s))
++		return false;
++
++	for (ssid = wpa_s->conf->ssid; ssid; ssid = ssid->next) {
++		if (wpas_network_disabled(wpa_s, ssid))
++			continue;
++		if (ssid->mode != WPAS_MODE_INFRA || ssid->p2p_group ||
++		    ssid->key_mgmt == WPA_KEY_MGMT_WPS)
++			return false;
++		enabled = true;
++	}
++
++	return enabled;
++}
++
++
++static void wpas_scan_backoff_update(struct wpa_supplicant *wpa_s)
++{
++	if (wpa_s->last_scan_req == MANUAL_SCAN_REQ ||
++	    !wpas_scan_backoff_enabled(wpa_s))
++		return;
++
++	/* Count scan attempts, not state transitions or individual failed BSSes. */
++	wpa_s->scan_retry_delay = wpa_s->scan_retry_delay ?
++		MIN(wpa_s->scan_retry_delay * 2, 60) : 1;
++	/* Drop an automatic timer queued before this scan was actually started. */
++	if (wpa_s->scan_req != MANUAL_SCAN_REQ)
++		wpa_supplicant_cancel_scan(wpa_s);
++}
++
++
+ static void wpa_supplicant_gen_assoc_event(struct wpa_supplicant *wpa_s)
+ {
+ 	struct wpa_ssid *ssid;
+@@ -229,6 +269,7 @@ static void wpas_trigger_scan_cb(struct wpa_radio_work *work, int deinit)
+ 			   "Request driver to clear scan cache due to local BSS flush");
+ 		params->only_new_results = 1;
+ 	}
++	wpas_scan_backoff_update(wpa_s);
+ 	ret = wpa_drv_scan(wpa_s, params);
+ 	/*
+ 	 * Store the obtained vendor scan cookie (if any) in wpa_s context.
+@@ -1632,6 +1673,17 @@ void wpa_supplicant_req_scan(struct wpa_supplicant *wpa_s, int sec, int usec)
+ {
+ 	int res;
+ 
++	/* Apply the same floor to missing-SSID and failed-association retries. */
++	if (wpa_s->scan_req != MANUAL_SCAN_REQ &&
++	    wpas_scan_backoff_enabled(wpa_s)) {
++		wpa_supplicant_cancel_delayed_sched_scan(wpa_s);
++		wpa_supplicant_cancel_sched_scan(wpa_s);
++		if (sec < (int) wpa_s->scan_retry_delay) {
++			sec = wpa_s->scan_retry_delay;
++			usec = 0;
++		}
++	}
++
+ 	if (wpa_s->p2p_mgmt) {
+ 		wpa_dbg(wpa_s, MSG_DEBUG,
+ 			"Ignore scan request (%d.%06d sec) on p2p_mgmt interface",
+@@ -1668,6 +1720,11 @@ void wpa_supplicant_req_scan(struct wpa_supplicant *wpa_s, int sec, int usec)
+ int wpa_supplicant_delayed_sched_scan(struct wpa_supplicant *wpa_s,
+ 				      int sec, int usec)
+ {
++	/* A fixed driver scan interval would bypass the progressive backoff. */
++	if (wpa_s->scan_req != MANUAL_SCAN_REQ &&
++	    wpas_scan_backoff_enabled(wpa_s))
++		return -1;
++
+ 	if (!wpa_s->sched_scan_supported)
+ 		return -1;
+ 
+@@ -1720,6 +1777,10 @@ int wpa_supplicant_req_sched_scan(struct wpa_supplicant *wpa_s)
+ 	int need_ssids;
+ 	struct sched_scan_plan scan_plan;
+ 
++	if (wpa_s->scan_req != MANUAL_SCAN_REQ &&
++	    wpas_scan_backoff_enabled(wpa_s))
++		return -1;
++
+ 	if (!wpa_s->sched_scan_supported)
+ 		return -1;
+ 
+diff --git a/wpa_supplicant/wpa_supplicant.c b/wpa_supplicant/wpa_supplicant.c
+index 92175ac..f759d54 100644
+--- a/wpa_supplicant/wpa_supplicant.c
++++ b/wpa_supplicant/wpa_supplicant.c
+@@ -1189,6 +1189,7 @@ void wpa_supplicant_set_state(struct wpa_supplicant *wpa_s,
+ 	if (state == WPA_INTERFACE_DISABLED) {
+ 		/* Assure normal scan when interface is restored */
+ 		wpa_s->normal_scans = 0;
++		wpa_s->scan_retry_delay = 0;
+ 
+ 		/*
+ 		 * A NAN management interface is not expected to be disabled. If
+@@ -1204,6 +1205,7 @@ void wpa_supplicant_set_state(struct wpa_supplicant *wpa_s,
+ 		wpas_connect_work_done(wpa_s);
+ 		/* Reinitialize normal_scan counter */
+ 		wpa_s->normal_scans = 0;
++		wpa_s->scan_retry_delay = 0;
+ 	}
+ 
+ #ifdef CONFIG_P2P
+@@ -5545,6 +5547,8 @@ int wpa_supplicant_remove_all_networks(struct wpa_supplicant *wpa_s)
+ void wpa_supplicant_enable_network(struct wpa_supplicant *wpa_s,
+ 				   struct wpa_ssid *ssid)
+ {
++	wpa_s->scan_retry_delay = 0;
++
+ 	if (ssid == NULL) {
+ 		for (ssid = wpa_s->conf->ssid; ssid; ssid = ssid->next)
+ 			wpa_supplicant_enable_one_network(wpa_s, ssid);
+@@ -5690,6 +5694,8 @@ void wpa_supplicant_select_network(struct wpa_supplicant *wpa_s,
+ 	int disconnected = 0;
+ 	bool request_new_scan = false;
+ 
++	wpa_s->scan_retry_delay = 0;
++
+ 	if (ssid && ssid != wpa_s->current_ssid && wpa_s->current_ssid) {
+ 		if (wpa_s->wpa_state >= WPA_AUTHENTICATING)
+ 			wpa_s->own_disconnect_req = 1;
+diff --git a/wpa_supplicant/wpa_supplicant_i.h b/wpa_supplicant/wpa_supplicant_i.h
+index d7015d2..e5e4cd1 100644
+--- a/wpa_supplicant/wpa_supplicant_i.h
++++ b/wpa_supplicant/wpa_supplicant_i.h
+@@ -959,6 +959,7 @@ struct wpa_supplicant {
+ 	struct os_reltime scan_trigger_time, scan_start_time;
+ 	/* Minimum freshness requirement for connection purposes */
+ 	struct os_reltime scan_min_time;
++	unsigned int scan_retry_delay; /* automatic STA scan backoff, in seconds */
+ 	int scan_runs; /* number of scan runs since WPS was started */
+ 	int *next_scan_freqs;
+ 	int *select_network_scan_freqs;
