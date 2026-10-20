@@ -1,0 +1,25 @@
+--- a/lib/socket.c
++++ b/lib/socket.c
+@@ -78,6 +78,22 @@
+ # include <linux/can.h>
+ # include <linux/can/raw.h>
+ 
++# ifndef IPV6_MULTICAST_ALL
++#  define IPV6_MULTICAST_ALL 29
++# endif
++
++# ifndef IPV6_ROUTER_ALERT_ISOLATE
++#  define IPV6_ROUTER_ALERT_ISOLATE 30
++# endif
++
++# ifndef TCP_CM_INQ
++#  define TCP_CM_INQ 36
++# endif
++
++# ifndef UDP_GRO
++#  define UDP_GRO 104
++# endif
++
+ # ifndef SO_TIMESTAMP_OLD
+ #  define SO_TIMESTAMP_OLD SO_TIMESTAMP
+ # endif
