@@ -34,68 +34,7 @@
 #include <net/pkt_cls.h>
 #include <net/tcp.h>
 
-#include "qca_ppe.h"
-
-struct ppe_flow_data {
-	struct ethhdr eth;
-	u16 addr_type;
-	u8 l4proto;
-
-	__be32 v4_src, v4_dst, v4_src_new, v4_dst_new;
-	struct in6_addr v6_src, v6_dst;
-	__be16 sport, dport, sport_new, dport_new;
-
-	u16 vlan_id;
-	bool vlan_valid;
-	u16 ivid;
-	u16 pppoe_sid;
-	bool pppoe_valid;
-
-	struct net_device *odev;
-	/* The profile the entry is given; filled only where the flowtable
-	 * reports a priority, and zero means DSCP still decides.
-	 */
-	u8 priority;
-};
-
-struct ppe_flow_entry {
-	struct rhash_head node;
-	struct list_head list;
-	struct flow_block *block;
-	unsigned long cookie;
-	u32 index;
-	u32 words[PPE_FLOW_ENTRY_WORDS_V6];
-	u8 nwords;
-	u32 hwords[PPE_HOST_ENTRY_WORDS_V6];
-	u8 nhwords;
-	u8 profile;
-	u8 quiet;
-	bool sparse;
-	u8 src_if;
-	u32 host_index;
-	int nexthop;
-	int my_mac;
-	int l3_if;
-	int eg_l3_if;
-	int pub_ip;
-	int uplink;
-	int in_uplink;
-	int session;
-	int xdev;
-	unsigned long ct;
-	u16 vid;
-	u8 xport;
-	u8 dscp;
-	u8 iport;
-	u8 oport;
-	u16 ivid;
-	u16 ovid;
-	u64 packets;
-	u64 bytes;
-	u64 unread_packets;
-	u64 unread_bytes;
-	unsigned long last_used;
-};
+#include "qca_ppe_flow.h"
 
 /* One bound flowtable block. Entries remember which block installed them,
  * because a dying flowtable unbinds from every port before the core flushes
@@ -653,7 +592,7 @@ static int ppe_flow_ingress_vsi(struct qca_ppe_priv *priv, int iport, u16 vid)
 /* The VSI a flow from this port and tag is keyed on: the uplink's, or the one
  * the port classifies into.
  */
-static int ppe_flow_src_if(struct qca_ppe_priv *priv, int iport, u16 vid)
+int ppe_flow_src_if(struct qca_ppe_priv *priv, int iport, u16 vid)
 {
 	int up = ppe_uplink_find(priv, iport, vid);
 
@@ -782,11 +721,16 @@ static int ppe_flow_alloc_ingress(struct qca_ppe_priv *priv, int iport,
 static void ppe_flow_entry_destroy(struct qca_ppe_priv *priv,
 				   struct ppe_flow_entry *entry);
 
-static void ppe_flow_free(struct qca_ppe_priv *priv,
+void ppe_flow_free(struct qca_ppe_priv *priv,
 			  struct ppe_flow_entry *entry)
 {
-	rhashtable_remove_fast(&priv->flow_table, &entry->node,
-			       ppe_flow_ht_params);
+	if (entry->pair) {
+		ppe_natflow_invalidate(priv, entry->pair);
+		return;
+	}
+	if (entry->block)
+		rhashtable_remove_fast(&priv->flow_table, &entry->node,
+				       ppe_flow_ht_params);
 	list_del(&entry->list);
 	ppe_flow_entry_destroy(priv, entry);
 	kfree(entry);
@@ -834,11 +778,28 @@ static void ppe_flow_l3_mtu_set(struct qca_ppe_priv *priv, int port, int mtu)
  */
 static void ppe_flow_drop_port(struct qca_ppe_priv *priv, int port)
 {
-	struct ppe_flow_entry *entry, *tmp;
+	struct ppe_flow_entry *entry;
 
-	list_for_each_entry_safe(entry, tmp, &priv->flow_list, list)
-		if (entry->iport == port || entry->oport == port)
+restart:
+	list_for_each_entry(entry, &priv->flow_list, list) {
+		if (entry->iport == port || entry->oport == port) {
 			ppe_flow_drop(priv, entry);
+			goto restart;
+		}
+	}
+}
+
+static void ppe_flow_drop_egress_port(struct qca_ppe_priv *priv, int port)
+{
+	struct ppe_flow_entry *entry;
+
+restart:
+	list_for_each_entry(entry, &priv->flow_list, list) {
+		if (entry->oport == port) {
+			ppe_flow_drop(priv, entry);
+			goto restart;
+		}
+	}
 }
 
 /* Only the flows of one direction change path when its shaper does: those
@@ -847,11 +808,12 @@ static void ppe_flow_drop_port(struct qca_ppe_priv *priv, int port)
  */
 static void ppe_flow_shaper_drop(struct qca_ppe_priv *priv, bool upload)
 {
-	struct ppe_flow_entry *entry, *tmp;
+	struct ppe_flow_entry *entry;
 
 	lockdep_assert_held(&priv->flow_lock);
 
-	list_for_each_entry_safe(entry, tmp, &priv->flow_list, list) {
+restart:
+	list_for_each_entry(entry, &priv->flow_list, list) {
 		bool hit;
 
 		if (upload)
@@ -862,8 +824,10 @@ static void ppe_flow_shaper_drop(struct qca_ppe_priv *priv, bool upload)
 			hit = entry->xdev & PPE_XDEV_DL ||
 			      entry->in_uplink >= 0 ||
 			      !priv->port_br_dev[entry->iport];
-		if (hit)
+		if (hit) {
 			ppe_flow_drop(priv, entry);
+			goto restart;
+		}
 	}
 }
 
@@ -1005,23 +969,24 @@ static int ppe_flow_netdev_event(struct notifier_block *nb, unsigned long event,
 	struct qca_ppe_priv *priv = container_of(nb, struct qca_ppe_priv,
 						 netdev_nb);
 	struct net_device *dev = netdev_notifier_info_to_dev(ptr);
-	struct ppe_flow_entry *entry, *tmp;
 	struct dsa_port *dp;
 	int i;
 
-	if (event == NETDEV_REGISTER || event == NETDEV_UNREGISTER ||
-	    event == NETDEV_CHANGENAME || event == NETDEV_UP) {
-		guard(mutex)(&priv->flow_lock);
-		guard(mutex)(&priv->vlan_lock);
-		ppe_flow_shaper_track(priv, dev, event);
-		return NOTIFY_DONE;
-	}
-
-	if (event != NETDEV_CHANGEMTU && event != NETDEV_CHANGEADDR)
+	if (event != NETDEV_CHANGEMTU && event != NETDEV_CHANGEADDR &&
+	    event != NETDEV_GOING_DOWN && event != NETDEV_UNREGISTER &&
+	    event != NETDEV_REGISTER && event != NETDEV_CHANGENAME &&
+	    event != NETDEV_UP)
 		return NOTIFY_DONE;
 
 	guard(mutex)(&priv->flow_lock);
 	guard(mutex)(&priv->vlan_lock);
+
+	if (event == NETDEV_REGISTER || event == NETDEV_UNREGISTER ||
+	    event == NETDEV_CHANGENAME || event == NETDEV_UP)
+		ppe_flow_shaper_track(priv, dev, event);
+	if (event == NETDEV_REGISTER || event == NETDEV_CHANGENAME ||
+	    event == NETDEV_UP)
+		return NOTIFY_DONE;
 
 	/* Reached through the netdev itself rather than by walking the switch:
 	 * this notifier is live before the switch is registered, and every
@@ -1033,13 +998,10 @@ static int ppe_flow_netdev_event(struct notifier_block *nb, unsigned long event,
 	else
 		dp = dsa_port_from_netdev(dev);
 	if (!IS_ERR(dp) && dp->ds == &priv->ds) {
-		if (event == NETDEV_CHANGEADDR) {
+		if (event != NETDEV_CHANGEMTU) {
 			ppe_flow_drop_port(priv, dp->index);
 		} else {
-			list_for_each_entry_safe(entry, tmp, &priv->flow_list,
-						 list)
-				if (entry->oport == dp->index)
-					ppe_flow_drop(priv, entry);
+			ppe_flow_drop_egress_port(priv, dp->index);
 
 			if (!priv->port_br_dev[dp->index])
 				ppe_flow_l3_mtu_set(priv, dp->index, dev->mtu);
@@ -1050,7 +1012,7 @@ static int ppe_flow_netdev_event(struct notifier_block *nb, unsigned long event,
 		if (priv->port_br_dev[i] != dev)
 			continue;
 
-		if (event == NETDEV_CHANGEADDR)
+		if (event != NETDEV_CHANGEMTU)
 			ppe_flow_drop_port(priv, i);
 		else
 			ppe_flow_l3_mtu_set(priv, i, dev->mtu);
@@ -1089,15 +1051,17 @@ static void ppe_flow_free_ingress(struct qca_ppe_priv *priv,
  */
 void ppe_flow_purge_vsi(struct qca_ppe_priv *priv, u32 vsi)
 {
-	struct ppe_flow_entry *entry, *tmp;
+	struct ppe_flow_entry *entry;
 
 	lockdep_assert_held(&priv->flow_lock);
 
-	list_for_each_entry_safe(entry, tmp, &priv->flow_list, list) {
+restart:
+	list_for_each_entry(entry, &priv->flow_list, list) {
 		if (entry->src_if != vsi)
 			continue;
 
 		ppe_flow_drop(priv, entry);
+		goto restart;
 	}
 }
 
@@ -1109,14 +1073,16 @@ void ppe_flow_purge_vsi(struct qca_ppe_priv *priv, u32 vsi)
 static void ppe_flow_purge_ingress(struct qca_ppe_priv *priv,
 				   const struct ppe_uplink *up)
 {
-	struct ppe_flow_entry *entry, *tmp;
+	struct ppe_flow_entry *entry;
 
-	list_for_each_entry_safe(entry, tmp, &priv->flow_list, list) {
+restart:
+	list_for_each_entry(entry, &priv->flow_list, list) {
 		if (entry->iport != up->port || entry->ivid != up->vid ||
 		    entry->src_if == up->vsi)
 			continue;
 
 		ppe_flow_drop(priv, entry);
+		goto restart;
 	}
 }
 
@@ -2097,6 +2063,24 @@ static void ppe_flow_account(struct qca_ppe_priv *priv,
 	rcu_read_unlock();
 }
 
+int ppe_flow_poll(struct qca_ppe_priv *priv, struct ppe_flow_entry *entry,
+		  u32 *packets, u64 *bytes)
+{
+	int age = ppe_flow_entry_age(priv, entry);
+
+	lockdep_assert_held(&priv->flow_lock);
+	lockdep_assert_held(&priv->vlan_lock);
+	if (age < 0)
+		return age;
+	*packets = ppe_flow_counter_delta(priv, entry, bytes);
+	if (priv->flow_faulted)
+		return -EIO;
+	if (*packets || age == PPE_FLOW_AGE_MAX)
+		entry->last_used = jiffies;
+	ppe_flow_account(priv, entry, *packets, *bytes);
+	return age;
+}
+
 /* Both locks: the release below reaches the VLAN side, and a routing domain
  * going away destroys flows with that lock already held, so taking it here
  * would be the same task asking for it twice.
@@ -2204,6 +2188,136 @@ static void ppe_flow_encode(struct ppe_flow_data *data, bool v6, bool snat,
 	}
 }
 
+struct ppe_flow_entry *ppe_flow_create(struct qca_ppe_priv *priv,
+				      struct ppe_flow_data *data, int iport,
+				      unsigned long cookie,
+				      struct flow_block *block)
+{
+	u32 fw[PPE_FLOW_ENTRY_WORDS_V6] = {};
+	u32 hw[PPE_HOST_ENTRY_WORDS_V6] = {};
+	struct ppe_flow_entry *entry;
+	bool v6 = data->addr_type == FLOW_DISSECTOR_KEY_IPV6_ADDRS;
+	bool snat = data->v4_src != data->v4_src_new || data->sport != data->sport_new;
+	bool dnat = data->v4_dst != data->v4_dst_new || data->dport != data->dport_new;
+	int ret, nfw, nhw;
+
+	lockdep_assert_held(&priv->flow_lock);
+	lockdep_assert_held(&priv->vlan_lock);
+	if (priv->flow_faulted)
+		return ERR_PTR(-EIO);
+	if ((snat && dnat) || (v6 && (snat || dnat)))
+		return ERR_PTR(-EOPNOTSUPP);
+
+	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
+	if (!entry)
+		return ERR_PTR(-ENOMEM);
+
+	entry->cookie = cookie;
+	entry->block = block;
+	entry->nexthop = -1;
+	entry->eg_l3_if = -1;
+	entry->pub_ip = -1;
+	entry->my_mac = -1;
+	entry->l3_if = -1;
+	entry->uplink = -1;
+	entry->in_uplink = -1;
+	entry->session = -1;
+	entry->iport = iport;
+
+	ret = ppe_flow_alloc_ingress(priv, iport, data->ivid, entry);
+	if (ret) {
+		priv->flow_reject[ret == -EOPNOTSUPP ? PPE_REJECT_INGRESS_VLAN :
+				  PPE_REJECT_RESOURCE]++;
+		goto err_free;
+	}
+
+	ret = ppe_flow_alloc_egress(priv, data, snat, dnat, entry);
+	if (ret) {
+		priv->flow_reject[ret == -ENOSPC ? PPE_REJECT_RESOURCE :
+				  PPE_REJECT_EGRESS_PORT]++;
+		goto err_ingress;
+	}
+
+	/* Natflow supplies no flowtable cookie for the CPU/shaper path.
+	 * Leave these flows in software so their qdisc and conntrack handling
+	 * stay with the stack that owns them.
+	 */
+	if (!block && entry->xdev) {
+		ret = -EOPNOTSUPP;
+		priv->flow_reject[PPE_REJECT_EGRESS_PORT]++;
+		goto err_egress;
+	}
+
+	ppe_flow_encode(data, v6, snat, dnat, entry->nexthop, entry->src_if,
+			fw, hw);
+
+	nfw = v6 ? PPE_FLOW_ENTRY_WORDS_V6 : PPE_FLOW_ENTRY_WORDS_V4;
+	nhw = v6 ? PPE_HOST_ENTRY_WORDS_V6 : PPE_HOST_ENTRY_WORDS_V4;
+
+	ret = ppe_flow_op(priv, PPE_TBL_OP_ADD, fw, nfw, hw, nhw, &entry->index,
+			  &entry->host_index);
+	if (ret) {
+		priv->flow_reject[PPE_REJECT_HW_OP]++;
+		goto err_egress;
+	}
+
+	ppe_host_ref_get(priv, entry->host_index);
+	if (entry->xdev & PPE_XDEV_UL)
+		entry->ct = ppe_flow_ct_get(cookie);
+	if (entry->xdev && priv->ct_dscp)
+		entry->dscp = ppe_flow_ct_dscp(cookie);
+	if (entry->xdev)
+		ppe_flow_slot_set(priv, entry, entry->index);
+
+	/* The hardware writes the host index it resolved into the entry and
+	 * counts the age down from there, so the stored image carries the one
+	 * and drops the other for readbacks to compare equal.
+	 */
+	memcpy(entry->words, fw, nfw * sizeof(*fw));
+	entry->nwords = nfw;
+	memcpy(entry->hwords, hw, nhw * sizeof(*hw));
+	entry->nhwords = nhw;
+	entry->profile = data->priority;
+	entry->words[0] = (fw[0] | entry->host_index << PPE_FLOW_E_HOST_IDX_OFF) &
+			  ~PPE_FLOW_E_AGE_MASK;
+
+	/* The counter survives the entry that filled it, so a recycled slot has
+	 * to start from zero rather than from the previous flow's total.
+	 */
+	ret = ppe_flow_counter_clear(priv, entry->index);
+	if (ret)
+		goto err_hw;
+	entry->last_used = jiffies;
+
+	if (block) {
+		ret = rhashtable_insert_fast(&priv->flow_table, &entry->node,
+					     ppe_flow_ht_params);
+		if (ret)
+			goto err_hw;
+	}
+
+	list_add_tail(&entry->list, &priv->flow_list);
+	priv->flow_offloaded++;
+
+	return entry;
+
+err_hw:
+	if (entry->xdev)
+		ppe_flow_slot_clear(priv, entry->index);
+	if (entry->ct)
+		nf_conntrack_put(&((struct nf_conn *)(entry->ct & ~1UL))->ct_general);
+	ppe_flow_entry_delete(priv, entry->index);
+	ppe_host_ref_put(priv, entry->host_index);
+err_egress:
+	ppe_flow_free_egress(priv, entry);
+err_ingress:
+	ppe_flow_free_ingress(priv, entry);
+err_free:
+	kfree(entry);
+
+	return ERR_PTR(ret);
+}
+
 static int ppe_flow_reject(struct qca_ppe_priv *priv, enum ppe_flow_reject why)
 {
 	priv->flow_reject[why]++;
@@ -2216,13 +2330,11 @@ static int ppe_flow_offload_replace(struct ppe_flow_block *fb,
 {
 	struct flow_rule *rule = flow_cls_offload_flow_rule(f);
 	struct qca_ppe_priv *priv = fb->priv;
-	u32 fw[PPE_FLOW_ENTRY_WORDS_V6] = {};
-	u32 hw[PPE_HOST_ENTRY_WORDS_V6] = {};
 	struct ppe_flow_entry *entry;
 	struct ppe_flow_data data = {};
 	struct flow_action_entry *act;
 	bool snat, dnat, v6;
-	int i, ret, nfw, nhw, iport;
+	int i, ret, iport;
 
 	guard(mutex)(&priv->flow_lock);
 	guard(mutex)(&priv->vlan_lock);
@@ -2447,102 +2559,8 @@ static int ppe_flow_offload_replace(struct ppe_flow_block *fb,
 	if (v6 && (snat || dnat))
 		return ppe_flow_reject(priv, PPE_REJECT_NAT_IPV6);
 
-	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
-	if (!entry)
-		return -ENOMEM;
-
-	entry->cookie = f->cookie;
-	entry->block = fb->block;
-	entry->nexthop = -1;
-	entry->eg_l3_if = -1;
-	entry->pub_ip = -1;
-	entry->my_mac = -1;
-	entry->l3_if = -1;
-	entry->uplink = -1;
-	entry->in_uplink = -1;
-	entry->session = -1;
-	entry->iport = iport;
-
-	ret = ppe_flow_alloc_ingress(priv, iport, data.ivid, entry);
-	if (ret) {
-		priv->flow_reject[ret == -EOPNOTSUPP ? PPE_REJECT_INGRESS_VLAN :
-				  PPE_REJECT_RESOURCE]++;
-		goto err_free;
-	}
-
-	ret = ppe_flow_alloc_egress(priv, &data, snat, dnat, entry);
-	if (ret) {
-		priv->flow_reject[ret == -ENOSPC ? PPE_REJECT_RESOURCE :
-				  PPE_REJECT_EGRESS_PORT]++;
-		goto err_ingress;
-	}
-
-	ppe_flow_encode(&data, v6, snat, dnat, entry->nexthop, entry->src_if,
-			fw, hw);
-
-	nfw = v6 ? PPE_FLOW_ENTRY_WORDS_V6 : PPE_FLOW_ENTRY_WORDS_V4;
-	nhw = v6 ? PPE_HOST_ENTRY_WORDS_V6 : PPE_HOST_ENTRY_WORDS_V4;
-
-	ret = ppe_flow_op(priv, PPE_TBL_OP_ADD, fw, nfw, hw, nhw, &entry->index,
-			  &entry->host_index);
-	if (ret) {
-		priv->flow_reject[PPE_REJECT_HW_OP]++;
-		goto err_egress;
-	}
-
-	ppe_host_ref_get(priv, entry->host_index);
-	if (entry->xdev & PPE_XDEV_UL)
-		entry->ct = ppe_flow_ct_get(f->cookie);
-	if (entry->xdev && priv->ct_dscp)
-		entry->dscp = ppe_flow_ct_dscp(f->cookie);
-	if (entry->xdev)
-		ppe_flow_slot_set(priv, entry, entry->index);
-
-	/* The hardware writes the host index it resolved into the entry and
-	 * counts the age down from there, so the stored image carries the one
-	 * and drops the other for readbacks to compare equal.
-	 */
-	memcpy(entry->words, fw, nfw * sizeof(*fw));
-	entry->nwords = nfw;
-	memcpy(entry->hwords, hw, nhw * sizeof(*hw));
-	entry->nhwords = nhw;
-	entry->profile = data.priority;
-	entry->words[0] = (fw[0] | entry->host_index << PPE_FLOW_E_HOST_IDX_OFF) &
-			  ~PPE_FLOW_E_AGE_MASK;
-
-	/* The counter survives the entry that filled it, so a recycled slot has
-	 * to start from zero rather than from the previous flow's total.
-	 */
-	ret = ppe_flow_counter_clear(priv, entry->index);
-	if (ret)
-		goto err_hw;
-	entry->last_used = jiffies;
-
-	ret = rhashtable_insert_fast(&priv->flow_table, &entry->node,
-				     ppe_flow_ht_params);
-	if (ret)
-		goto err_hw;
-
-	list_add_tail(&entry->list, &priv->flow_list);
-	priv->flow_offloaded++;
-
-	return 0;
-
-err_hw:
-	if (entry->xdev)
-		ppe_flow_slot_clear(priv, entry->index);
-	if (entry->ct)
-		nf_conntrack_put(&((struct nf_conn *)(entry->ct & ~1UL))->ct_general);
-	ppe_flow_entry_delete(priv, entry->index);
-	ppe_host_ref_put(priv, entry->host_index);
-err_egress:
-	ppe_flow_free_egress(priv, entry);
-err_ingress:
-	ppe_flow_free_ingress(priv, entry);
-err_free:
-	kfree(entry);
-
-	return ret;
+	entry = ppe_flow_create(priv, &data, iport, f->cookie, fb->block);
+	return PTR_ERR_OR_ZERO(entry);
 }
 
 static int ppe_flow_offload_destroy(struct qca_ppe_priv *priv,
@@ -2638,6 +2656,7 @@ static void ppe_flow_block_release(void *cb_priv)
 	mutex_unlock(&priv->vlan_lock);
 	mutex_unlock(&priv->flow_lock);
 
+	ppe_natflow_ft_put(priv);
 	kfree(fb);
 }
 
@@ -2649,6 +2668,7 @@ int ppe_setup_ft_block(struct qca_ppe_priv *priv,
 {
 	struct flow_block_cb *block_cb;
 	struct ppe_flow_block *fb;
+	int ret;
 
 	if (f->binder_type != FLOW_BLOCK_BINDER_TYPE_CLSACT_INGRESS)
 		return -EOPNOTSUPP;
@@ -2664,15 +2684,21 @@ int ppe_setup_ft_block(struct qca_ppe_priv *priv,
 			return 0;
 		}
 
+		ret = ppe_natflow_ft_get(priv);
+		if (ret)
+			return ret;
 		fb = kzalloc(sizeof(*fb), GFP_KERNEL);
-		if (!fb)
+		if (!fb) {
+			ppe_natflow_ft_put(priv);
 			return -ENOMEM;
+		}
 		fb->priv = priv;
 		fb->block = f->block;
 
 		block_cb = flow_block_cb_alloc(ppe_flow_block_cb, priv, fb,
 					       ppe_flow_block_release);
 		if (IS_ERR(block_cb)) {
+			ppe_natflow_ft_put(priv);
 			kfree(fb);
 			return PTR_ERR(block_cb);
 		}
@@ -2799,6 +2825,10 @@ static void ppe_sparse_work(struct work_struct *work)
 	list_for_each_entry(entry, &priv->flow_list, list) {
 		u64 bytes;
 
+		/* Natflow polls its pairs and consumes their counter deltas. */
+		if (entry->pair)
+			continue;
+
 		regmap_read(priv->regmap, PPE_IN_FLOW_CNT_TBL(entry->index),
 			    &pkts);
 		delta = pkts - (u32)entry->packets;
@@ -2880,16 +2910,22 @@ int ppe_flow_offload_init(struct qca_ppe_priv *priv)
 
 	priv->netdev_nb.notifier_call = ppe_flow_netdev_event;
 	ret = register_netdevice_notifier(&priv->netdev_nb);
-	if (ret) {
-		rhashtable_destroy(&priv->flow_table);
-		return ret;
-	}
+	if (ret)
+		goto err_table;
+	ret = ppe_natflow_init(priv);
+	if (ret)
+		goto err_notifier;
 
 	INIT_DELAYED_WORK(&priv->sparse_work, ppe_sparse_work);
 	schedule_delayed_work(&priv->sparse_work,
 			      msecs_to_jiffies(PPE_SPARSE_PERIOD_MS));
-
 	return 0;
+
+err_notifier:
+	unregister_netdevice_notifier(&priv->netdev_nb);
+err_table:
+	rhashtable_destroy(&priv->flow_table);
+	return ret;
 }
 
 void ppe_flow_offload_exit(struct qca_ppe_priv *priv)
@@ -2897,6 +2933,7 @@ void ppe_flow_offload_exit(struct qca_ppe_priv *priv)
 	struct ppe_flow_entry *entry, *tmp;
 	int i;
 
+	ppe_natflow_exit(priv);
 	unregister_netdevice_notifier(&priv->netdev_nb);
 	cancel_delayed_work_sync(&priv->sparse_work);
 
