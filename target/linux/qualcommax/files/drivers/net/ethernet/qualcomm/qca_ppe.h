@@ -1482,6 +1482,7 @@ struct qca_ppe_priv {
 	u32 fdb_cmd_id;
 	u32 fdb_rd_cmd_id;
 	/* Guards the flow tables and the operation engine that reaches them. */
+	struct ppe_natflow *natflow;
 	struct mutex flow_lock;
 	u32 flow_cmd_id;
 	bool flow_faulted;
@@ -1823,6 +1824,7 @@ int ppe_flow_counter_read(struct qca_ppe_priv *priv, u32 index, u64 *packets,
 int ppe_flow_counter_clear(struct qca_ppe_priv *priv, u32 index);
 int ppe_flow_entry_delete(struct qca_ppe_priv *priv, u32 index);
 void ppe_flow_debugfs_init(struct qca_ppe_priv *priv);
+void ppe_natflow_show(struct qca_ppe_priv *priv, struct seq_file *s);
 
 unsigned long ppe_clk_rate(struct qca_ppe_priv *priv);
 void ppe_debugfs_init(struct qca_ppe_priv *priv);

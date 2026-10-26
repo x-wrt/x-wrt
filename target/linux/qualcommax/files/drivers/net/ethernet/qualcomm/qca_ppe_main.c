@@ -15,7 +15,7 @@
 #include <linux/if_bridge.h>
 #include <linux/if_vlan.h>
 
-#include "qca_ppe.h"
+#include "qca_ppe_flow.h"
 
 /* A port carrying nothing but minimum-sized frames at 10G wraps a packet
  * counter in under five minutes, and a total only stays monotonic for as long
@@ -3233,6 +3233,7 @@ static int qca_ppe_probe(struct platform_device *pdev)
 
 	ret = ppe_scheduler_ready(priv);
 	if (ret) {
+		ppe_natflow_exit(priv);
 		dsa_unregister_switch(ds);
 		goto err_flow;
 	}
@@ -3257,6 +3258,7 @@ static void qca_ppe_remove(struct platform_device *pdev)
 
 	ppe_debugfs_exit(priv);
 	ppe_scheduler_unready(priv);
+	ppe_natflow_exit(priv);
 	dsa_unregister_switch(&priv->ds);
 	/* After the switch is gone: unregistering its ports unbinds the
 	 * flowtable blocks, and the block release walks the flow table.
