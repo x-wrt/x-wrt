@@ -28,6 +28,33 @@
 
 #define PPE_FLOW_OP_RETRIES	1000
 
+/* A failed command can have completed in hardware after its result timed out.
+ * Stop lookups before the caller releases any referenced side-table entries.
+ * Keep this latched until the next hardware reset/probe.
+ */
+static int ppe_flow_fault(struct qca_ppe_priv *priv, int error)
+{
+	priv->flow_faulted = true;
+	priv->flow_op_errors++;
+	regmap_update_bits(priv->regmap, PPE_FLOW_CTRL0, PPE_FLOW_EN, 0);
+
+	return error;
+}
+
+static int ppe_flow_write(struct qca_ppe_priv *priv, u32 reg, u32 value)
+{
+	int ret = regmap_write(priv->regmap, reg, value);
+
+	return ret ? ppe_flow_fault(priv, ret) : 0;
+}
+
+static int ppe_flow_read(struct qca_ppe_priv *priv, u32 reg, u32 *value)
+{
+	int ret = regmap_read(priv->regmap, reg, value);
+
+	return ret ? ppe_flow_fault(priv, ret) : 0;
+}
+
 /* The result register reports how many results are queued and a read pops one,
  * so the value has to be captured on the poll that sees it, not re-read after.
  */
@@ -35,10 +62,12 @@ static int ppe_flow_op_wait(struct qca_ppe_priv *priv, u32 rslt_reg,
 			    u32 cmd_id, u32 *rslt)
 {
 	u32 val;
-	int i;
+	int i, ret;
 
 	for (i = 0; i < PPE_FLOW_OP_RETRIES; i++) {
-		regmap_read(priv->regmap, rslt_reg, &val);
+		ret = ppe_flow_read(priv, rslt_reg, &val);
+		if (ret)
+			return ret;
 		if (FIELD_GET(PPE_FLOW_RSLT_VALID_CNT, val) &&
 		    FIELD_GET(PPE_FLOW_RSLT_CMD_ID, val) == cmd_id) {
 			*rslt = val;
@@ -47,7 +76,7 @@ static int ppe_flow_op_wait(struct qca_ppe_priv *priv, u32 rslt_reg,
 		udelay(1);
 	}
 
-	return -ETIMEDOUT;
+	return ppe_flow_fault(priv, -ETIMEDOUT);
 }
 
 static u32 ppe_flow_next_cmd_id(struct qca_ppe_priv *priv)
@@ -71,22 +100,36 @@ int ppe_flow_op(struct qca_ppe_priv *priv, u32 op_type,
 
 	lockdep_assert_held(&priv->flow_lock);
 
-	for (i = 0; i < nhost; i++)
-		regmap_write(priv->regmap, PPE_FLOW_HOST_TBL_OP_DATA(i),
-			     host[i]);
-	regmap_write(priv->regmap, PPE_FLOW_HOST_TBL_OP,
-		     FIELD_PREP(PPE_FLOW_HOST_OP_HASH_BLOCK,
-				PPE_FLOW_HASH_BLOCKS));
+	if (priv->flow_faulted)
+		return -EIO;
+	if (nentry < 1 || nentry > PPE_FLOW_ENTRY_WORDS_V6 ||
+	    nhost < 1 || nhost > PPE_HOST_ENTRY_WORDS_V6)
+		return -EINVAL;
+	for (i = 0; i < nhost; i++) {
+		ret = ppe_flow_write(priv, PPE_FLOW_HOST_TBL_OP_DATA(i), host[i]);
+		if (ret)
+			return ret;
+	}
+	ret = ppe_flow_write(priv, PPE_FLOW_HOST_TBL_OP,
+			     FIELD_PREP(PPE_FLOW_HOST_OP_HASH_BLOCK,
+					PPE_FLOW_HASH_BLOCKS));
+	if (ret)
+		return ret;
 
-	for (i = 0; i < nentry; i++)
-		regmap_write(priv->regmap, PPE_FLOW_TBL_OP_DATA(i), entry[i]);
+	for (i = 0; i < nentry; i++) {
+		ret = ppe_flow_write(priv, PPE_FLOW_TBL_OP_DATA(i), entry[i]);
+		if (ret)
+			return ret;
+	}
 
 	cmd_id = ppe_flow_next_cmd_id(priv);
-	regmap_write(priv->regmap, PPE_FLOW_TBL_OP,
+	ret = ppe_flow_write(priv, PPE_FLOW_TBL_OP,
 		     FIELD_PREP(PPE_FLOW_OP_CMD_ID, cmd_id) |
 		     FIELD_PREP(PPE_FLOW_OP_TYPE, op_type) |
 		     FIELD_PREP(PPE_FLOW_OP_HASH_BLOCK, PPE_FLOW_HASH_BLOCKS) |
 		     PPE_FLOW_OP_HOST_EN);
+	if (ret)
+		return ret;
 
 	ret = ppe_flow_op_wait(priv, PPE_FLOW_TBL_OP_RSLT, cmd_id, &rslt);
 	if (ret)
@@ -94,6 +137,9 @@ int ppe_flow_op(struct qca_ppe_priv *priv, u32 op_type,
 
 	if (rslt & PPE_FLOW_RSLT_FAIL)
 		return -ENOENT;
+	val = FIELD_GET(PPE_FLOW_RSLT_ENTRY_IDX, rslt);
+	if (val >= priv->data->num_flow_entries)
+		return ppe_flow_fault(priv, -EIO);
 
 	if (index)
 		*index = FIELD_GET(PPE_FLOW_RSLT_ENTRY_IDX, rslt);
@@ -104,9 +150,13 @@ int ppe_flow_op(struct qca_ppe_priv *priv, u32 op_type,
 	 * wrote into the flow entry itself; read it from there.
 	 */
 	if (index && host_index) {
-		regmap_read(priv->regmap, PPE_IN_FLOW_TBL(*index), &val);
+		ret = ppe_flow_read(priv, PPE_IN_FLOW_TBL(*index), &val);
+		if (ret)
+			return ret;
 		*host_index = ppe_entry_get(&val, PPE_FLOW_E_HOST_IDX_OFF,
 					    PPE_FLOW_E_HOST_IDX_LEN);
+		if (*host_index >= priv->data->num_host_entries)
+			return ppe_flow_fault(priv, -EIO);
 	}
 
 	return 0;
@@ -124,14 +174,21 @@ int ppe_flow_entry_read(struct qca_ppe_priv *priv, u32 index, u32 *words,
 	int ret, i;
 
 	lockdep_assert_held(&priv->flow_lock);
+	if (priv->flow_faulted)
+		return -EIO;
+	if (index >= priv->data->num_flow_entries || nwords < 1 ||
+	    nwords > PPE_FLOW_ENTRY_WORDS_V6)
+		return -EINVAL;
 
 	cmd_id = ppe_flow_next_cmd_id(priv);
-	regmap_write(priv->regmap, PPE_FLOW_TBL_RD_OP,
+	ret = ppe_flow_write(priv, PPE_FLOW_TBL_RD_OP,
 		     FIELD_PREP(PPE_FLOW_OP_CMD_ID, cmd_id) |
 		     FIELD_PREP(PPE_FLOW_OP_TYPE, PPE_TBL_OP_GET) |
 		     FIELD_PREP(PPE_FLOW_OP_HASH_BLOCK, PPE_FLOW_HASH_BLOCKS) |
 		     PPE_FLOW_OP_INDEX_MODE |
 		     FIELD_PREP(PPE_FLOW_OP_ENTRY_IDX, index));
+	if (ret)
+		return ret;
 
 	ret = ppe_flow_op_wait(priv, PPE_FLOW_TBL_RD_OP_RSLT, cmd_id, &rslt);
 	if (ret)
@@ -140,9 +197,11 @@ int ppe_flow_entry_read(struct qca_ppe_priv *priv, u32 index, u32 *words,
 	if (rslt & PPE_FLOW_RSLT_FAIL)
 		return -ENOENT;
 
-	for (i = 0; i < nwords; i++)
-		regmap_read(priv->regmap, PPE_FLOW_TBL_RD_RSLT_DATA(i),
-			    &words[i]);
+	for (i = 0; i < nwords; i++) {
+		ret = ppe_flow_read(priv, PPE_FLOW_TBL_RD_RSLT_DATA(i), &words[i]);
+		if (ret)
+			return ret;
+	}
 
 	return 0;
 }
@@ -156,14 +215,20 @@ int ppe_flow_entry_delete(struct qca_ppe_priv *priv, u32 index)
 	int ret;
 
 	lockdep_assert_held(&priv->flow_lock);
+	if (priv->flow_faulted)
+		return -EIO;
+	if (index >= priv->data->num_flow_entries)
+		return -EINVAL;
 
 	cmd_id = ppe_flow_next_cmd_id(priv);
-	regmap_write(priv->regmap, PPE_FLOW_TBL_OP,
+	ret = ppe_flow_write(priv, PPE_FLOW_TBL_OP,
 		     FIELD_PREP(PPE_FLOW_OP_CMD_ID, cmd_id) |
 		     FIELD_PREP(PPE_FLOW_OP_TYPE, PPE_TBL_OP_DEL) |
 		     FIELD_PREP(PPE_FLOW_OP_HASH_BLOCK, PPE_FLOW_HASH_BLOCKS) |
 		     PPE_FLOW_OP_INDEX_MODE |
 		     FIELD_PREP(PPE_FLOW_OP_ENTRY_IDX, index));
+	if (ret)
+		return ret;
 
 	ret = ppe_flow_op_wait(priv, PPE_FLOW_TBL_OP_RSLT, cmd_id, &rslt);
 	if (ret)
@@ -178,59 +243,95 @@ int ppe_flow_entry_delete(struct qca_ppe_priv *priv, u32 index)
 int ppe_host_del(struct qca_ppe_priv *priv, u32 index)
 {
 	u32 cmd_id, val;
-	int i;
+	int i, ret;
 
 	lockdep_assert_held(&priv->flow_lock);
+	if (priv->flow_faulted)
+		return -EIO;
+	if (index >= priv->data->num_host_entries)
+		return -EINVAL;
 
 	cmd_id = ppe_flow_next_cmd_id(priv);
-	regmap_write(priv->regmap, PPE_HOST_TBL_OP,
+	ret = ppe_flow_write(priv, PPE_HOST_TBL_OP,
 		     FIELD_PREP(PPE_HOST_OP_CMD_ID, cmd_id) |
 		     FIELD_PREP(PPE_HOST_OP_TYPE, PPE_TBL_OP_DEL) |
 		     FIELD_PREP(PPE_HOST_OP_HASH_BLOCK, PPE_FLOW_HASH_BLOCKS) |
 		     PPE_HOST_OP_INDEX_MODE |
 		     FIELD_PREP(PPE_HOST_OP_ENTRY_IDX, index));
+	if (ret)
+		return ret;
 
 	for (i = 0; i < PPE_FLOW_OP_RETRIES; i++) {
-		regmap_read(priv->regmap, PPE_HOST_TBL_OP_RSLT, &val);
+		ret = ppe_flow_read(priv, PPE_HOST_TBL_OP_RSLT, &val);
+		if (ret)
+			return ret;
 		if (FIELD_GET(PPE_HOST_RSLT_VALID_CNT, val) &&
 		    FIELD_GET(PPE_HOST_RSLT_CMD_ID, val) == cmd_id)
 			return (val & PPE_HOST_RSLT_FAIL) ? -ENOENT : 0;
 		udelay(1);
 	}
 
-	return -ETIMEDOUT;
+	return ppe_flow_fault(priv, -ETIMEDOUT);
 }
 
-void ppe_flow_counter_read(struct qca_ppe_priv *priv, u32 index, u64 *packets,
-			   u64 *bytes)
+int ppe_flow_counter_read(struct qca_ppe_priv *priv, u32 index, u64 *packets,
+			  u64 *bytes)
 {
-	u32 lo, hi, hi2;
+	u32 pkts, lo, hi, hi2;
+	int ret, i;
 
-	regmap_read(priv->regmap, PPE_IN_FLOW_CNT_TBL(index), &lo);
-	*packets = lo;
+	lockdep_assert_held(&priv->flow_lock);
+	if (priv->flow_faulted)
+		return -EIO;
+	if (index >= priv->data->num_flow_entries)
+		return -EINVAL;
+	ret = ppe_flow_read(priv, PPE_IN_FLOW_CNT_TBL(index), &pkts);
+	if (ret)
+		return ret;
 
 	/* 40-bit byte counter. Re-read on a carry between the two halves so a
 	 * count crossing the low word's boundary is not torn by 1 << 32.
 	 */
-	regmap_read(priv->regmap, PPE_IN_FLOW_CNT_TBL(index) + 8, &hi);
-	do {
+	ret = ppe_flow_read(priv, PPE_IN_FLOW_CNT_TBL(index) + 8, &hi);
+	if (ret)
+		return ret;
+	for (i = 0; i < 4; i++) {
 		hi2 = hi;
-		regmap_read(priv->regmap, PPE_IN_FLOW_CNT_TBL(index) + 4, &lo);
-		regmap_read(priv->regmap, PPE_IN_FLOW_CNT_TBL(index) + 8, &hi);
-	} while (hi != hi2);
-	*bytes = lo | ((u64)FIELD_GET(PPE_FLOW_CNT_BYTES_HI, hi) << 32);
+		ret = ppe_flow_read(priv, PPE_IN_FLOW_CNT_TBL(index) + 4, &lo);
+		if (ret)
+			return ret;
+		ret = ppe_flow_read(priv, PPE_IN_FLOW_CNT_TBL(index) + 8, &hi);
+		if (ret)
+			return ret;
+		if (hi == hi2) {
+			*packets = pkts;
+			*bytes = lo | ((u64)FIELD_GET(PPE_FLOW_CNT_BYTES_HI, hi) << 32);
+			return 0;
+		}
+	}
+
+	return -EAGAIN;
 }
 
 /* Deleting an entry does not reset its counter, so a slot has to be cleared
  * when it is handed to a new flow rather than when the old one goes away.
  */
-void ppe_flow_counter_clear(struct qca_ppe_priv *priv, u32 index)
+int ppe_flow_counter_clear(struct qca_ppe_priv *priv, u32 index)
 {
-	int i;
+	int i, ret;
 
-	for (i = 0; i < PPE_FLOW_CNT_WORDS; i++)
-		regmap_write(priv->regmap, PPE_IN_FLOW_CNT_TBL(index) + i * 4,
-			     0);
+	lockdep_assert_held(&priv->flow_lock);
+	if (priv->flow_faulted)
+		return -EIO;
+	if (index >= priv->data->num_flow_entries)
+		return -EINVAL;
+	for (i = 0; i < PPE_FLOW_CNT_WORDS; i++) {
+		ret = ppe_flow_write(priv, PPE_IN_FLOW_CNT_TBL(index) + i * 4, 0);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
 }
 
 static int ppe_flows_show(struct seq_file *s, void *data)
@@ -251,7 +352,8 @@ static int ppe_flows_show(struct seq_file *s, void *data)
 				   PPE_FLOW_E_VALID_LEN))
 			continue;
 
-		ppe_flow_counter_read(priv, i, &packets, &bytes);
+		if (ppe_flow_counter_read(priv, i, &packets, &bytes))
+			continue;
 
 		seq_printf(s, "%-5u %-4s %-5llu %-3llu %-3llu %-5llu %-3llu %llu %llu\n",
 			   i, (w[0] & PPE_FLOW_E_TYPE_IPV6) ? "ipv6" : "ipv4",
@@ -303,6 +405,8 @@ static int ppe_offload_show(struct seq_file *s, void *data)
 	seq_printf(s, "%-24s %u\n", "reinstalled", priv->flow_reinstalled);
 	seq_printf(s, "%-24s %u\n", "destroy_miss", priv->flow_destroy_miss);
 	seq_printf(s, "%-24s %u\n", "stale", priv->flow_stale);
+	seq_printf(s, "%-24s %u\n", "faulted", priv->flow_faulted);
+	seq_printf(s, "%-24s %u\n", "op_errors", priv->flow_op_errors);
 	seq_printf(s, "%-24s %u\n", "xmit_drop",
 		   atomic_read(&priv->flow_xmit_drop));
 	seq_printf(s, "%-24s %u\n", "shaper_miss",
