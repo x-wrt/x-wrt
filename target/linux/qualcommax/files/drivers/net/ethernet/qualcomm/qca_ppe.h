@@ -1484,6 +1484,8 @@ struct qca_ppe_priv {
 	/* Guards the flow tables and the operation engine that reaches them. */
 	struct mutex flow_lock;
 	u32 flow_cmd_id;
+	bool flow_faulted;
+	u32 flow_op_errors;
 	struct rhashtable flow_table;
 	struct list_head flow_list;
 	struct ppe_res *eg_l3_if;
@@ -1816,9 +1818,9 @@ int ppe_flow_op(struct qca_ppe_priv *priv, u32 op_type,
 int ppe_host_del(struct qca_ppe_priv *priv, u32 index);
 int ppe_flow_entry_read(struct qca_ppe_priv *priv, u32 index, u32 *words,
 			int nwords);
-void ppe_flow_counter_read(struct qca_ppe_priv *priv, u32 index, u64 *packets,
-			   u64 *bytes);
-void ppe_flow_counter_clear(struct qca_ppe_priv *priv, u32 index);
+int ppe_flow_counter_read(struct qca_ppe_priv *priv, u32 index, u64 *packets,
+			  u64 *bytes);
+int ppe_flow_counter_clear(struct qca_ppe_priv *priv, u32 index);
 int ppe_flow_entry_delete(struct qca_ppe_priv *priv, u32 index);
 void ppe_flow_debugfs_init(struct qca_ppe_priv *priv);
 
