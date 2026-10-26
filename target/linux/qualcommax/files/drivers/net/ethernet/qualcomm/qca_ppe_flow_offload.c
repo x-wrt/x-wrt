@@ -2014,7 +2014,10 @@ static u32 ppe_flow_counter_delta(struct qca_ppe_priv *priv,
 	u64 packets, total;
 	u32 pkts;
 
-	ppe_flow_counter_read(priv, entry->index, &packets, &total);
+	if (ppe_flow_counter_read(priv, entry->index, &packets, &total)) {
+		*bytes = 0;
+		return 0;
+	}
 	pkts = (u32)(packets - entry->packets);
 	*bytes = (total - entry->bytes) & PPE_FLOW_CNT_BYTES;
 	entry->packets = packets;
@@ -2223,6 +2226,9 @@ static int ppe_flow_offload_replace(struct ppe_flow_block *fb,
 
 	guard(mutex)(&priv->flow_lock);
 	guard(mutex)(&priv->vlan_lock);
+
+	if (priv->flow_faulted)
+		return -EIO;
 
 	if (!flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_META) ||
 	    !flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_CONTROL) ||
@@ -2507,7 +2513,9 @@ static int ppe_flow_offload_replace(struct ppe_flow_block *fb,
 	/* The counter survives the entry that filled it, so a recycled slot has
 	 * to start from zero rather than from the previous flow's total.
 	 */
-	ppe_flow_counter_clear(priv, entry->index);
+	ret = ppe_flow_counter_clear(priv, entry->index);
+	if (ret)
+		goto err_hw;
 	entry->last_used = jiffies;
 
 	ret = rhashtable_insert_fast(&priv->flow_table, &entry->node,
@@ -2521,6 +2529,10 @@ static int ppe_flow_offload_replace(struct ppe_flow_block *fb,
 	return 0;
 
 err_hw:
+	if (entry->xdev)
+		ppe_flow_slot_clear(priv, entry->index);
+	if (entry->ct)
+		nf_conntrack_put(&((struct nf_conn *)(entry->ct & ~1UL))->ct_general);
 	ppe_flow_entry_delete(priv, entry->index);
 	ppe_host_ref_put(priv, entry->host_index);
 err_egress:
@@ -2767,7 +2779,9 @@ static int ppe_flow_profile_set(struct qca_ppe_priv *priv,
 	entry->words[0] = (w[0] | host_index << PPE_FLOW_E_HOST_IDX_OFF) &
 			  ~PPE_FLOW_E_AGE_MASK;
 	entry->index = index;
-	ppe_flow_counter_clear(priv, index);
+	ret = ppe_flow_counter_clear(priv, index);
+	if (ret)
+		return ret;
 	entry->packets = 0;
 	entry->bytes = 0;
 
