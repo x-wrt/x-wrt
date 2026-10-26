@@ -10,11 +10,51 @@ fw4/nft flowtable -> DSA user port -> qca_edma ndo_setup_tc(TC_SETUP_FT)
                  -> qca_ppe flow block -> PPE tables
 ```
 
-It requires no NSS firmware or ECM. It uses the standard netfilter interface;
-it does not implement natflow's private `ndo_flow_offload` ABI. Test without a
-competing software fast-forwarding service taking packets ahead of netfilter.
+It requires no NSS firmware or ECM. The nft path uses the standard netfilter
+interface. A separate versioned API now connects natflow as described below;
+the MTK/Airoha private `ndo_flow_offload` ABI is unchanged.
 
-## Scope
+## Natflow control plane
+
+Build the matching natflow feed patch with this kernel. Kbuild detects
+`include/linux/qca_ppe_natflow.h`; the client enables API v1 only with PPE,
+natflow PATH and netfilter ingress support. No external device or MTK ABI is
+required. The first version admits IPv4 TCP/UDP on two native user ports of the
+same PPE, with complete Ethernet headers and no explicit VLAN/PPPoE
+encapsulation, IPv6, L2 bridge forwarding, conntrack zones or software token
+control. Unsupported flows continue through the existing software path.
+
+The atomic submit copies both tuples and Ethernet headers, holds both devices,
+and queues an ordered worker. The worker uses the same entry/resource functions
+as nft, rolls back both directions on error, and reports READY separately from
+queue acceptance. The client retains the conntrack and validates the software
+slots, per-slot publication generations, path generation and policy before
+installation and on every poll. The driver does not retain per-CPU or stack
+request pointers and does not require software hashes to match hardware slots.
+
+An active pair is polled every second. Real packet/byte deltas, or the hardware's
+coarse maximum-age indication, establish activity; an inactive poll does not
+refresh the software entries. After 20 seconds without observed activity the
+pair is retired, before natflow's 25-second software timeout. This is an
+activity estimate when only age advances, not a substitute for real counters.
+The PPE credits bridge/VLAN counters; natflow credits conntrack/fakeuser counters
+and rates, avoiding duplicate netdevice accounting. Per-type hardware counter
+behavior still needs device validation.
+
+Native nft hardware flowtable blocks and queued/active natflow requests are
+mutually exclusive on each PPE. For a natflow test, disable both standard
+firewall flow-offload settings and restart the firewall first, then enable
+natflow's `hwnat=1` and `disabled=0` through `/dev/natflow_ctl`. The companion
+natflow change makes `hwnat=0` and `disabled=1` quiesce submissions and drain
+requests before returning. Module exit drains all callbacks before freeing
+software slots. Driver removal also drains pending requests before DSA user
+devices are unregistered.
+
+Debugfs `offload` additionally reports `natflow_requests`, `natflow_installed`,
+`natflow_failed` and `nft_blocks`. `natflow_installed` counts successful pairs;
+the shared `offloaded` counter counts individual direction entries.
+
+## Native nft scope
 
 - Both ingress and egress must resolve to user ports of the same PPE switch.
 - IPv4 routing, SNAT or DNAT, and IPv6 routing; TCP, UDP and GRE flowtable rules.
@@ -37,7 +77,7 @@ the assigned flow slot and host index. This is different from MediaTek's
 software-computed hash and adjacent-slot probing. No Qualcomm CRC polynomial
 or software reproduction of its slot selection is needed for this path.
 
-## Enable and inspect on a device
+## Enable and inspect native nft offload
 
 Build an IPQ807x/IPQ60xx image with firewall4 and `kmod-nft-offload`. The existing
 subtarget configuration enables PPE/EDMA; no change to the workspace's selected
@@ -82,6 +122,18 @@ Host validation on Linux 6.18.55 with this tree's generic and qualcommax patches
   command functions with ASan/UBSan against a register mock. It checks consuming
   result reads, command ID wrap, bounds, failures/timeouts and counter carry.
   Requires Python 3 and a C compiler with these sanitizers.
+- `python3 target/linux/qualcommax/tests/ppe-natflow.py --natflow /path/to/natflow`
+  runs the actual worker, shared release and client code against deterministic
+  host mocks with ASan/UBSan. It covers pending/ready admission, SNAT/DNAT tuple
+  direction, pair rollback, duplicate ownership, software-slot ABA, policy and
+  device invalidation, retry, counters, idle expiry, nft exclusion and teardown.
+  It does not emulate concurrent execution, MMIO forwarding or device traffic.
+- The matching natflow `20261018` package archive matches its declared SHA256;
+  the feed patch applies with zero fuzz and reproduces the local client sources.
+  Its PATH/URLLOGGER/DPI configuration and DKMS source copy cross-compile for
+  ARM64. API-disabled and legacy MTK fake-ABI client builds also pass; symbol
+  checks confirm which backend was compiled. This checks client compatibility,
+  not the MediaTek drivers or hardware.
 
 No device boot, register readback, NAT correctness or throughput test has been
 performed locally. Verify both directions of TCP/UDP IPv4 NAT and IPv6 routing,

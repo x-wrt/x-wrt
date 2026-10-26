@@ -418,6 +418,7 @@ static int ppe_offload_show(struct seq_file *s, void *data)
 		   priv->flow_sparse_promoted);
 	seq_printf(s, "%-24s %u\n", "sparse_demoted",
 		   priv->flow_sparse_demoted);
+	ppe_natflow_show(priv, s);
 	seq_printf(s, "%-24s %u\n", "live_entries",
 		   atomic_read(&priv->flow_table.nelems));
 	for (i = 0; i < PPE_REJECT_MAX; i++)
