@@ -20,6 +20,7 @@
 #include <linux/qca_edma.h>
 #include <linux/hash.h>
 #include <linux/if_pppox.h>
+#include <linux/if_arp.h>
 #include <linux/if_vlan.h>
 #include <linux/netdevice.h>
 #include <linux/ppp_defs.h>
@@ -970,12 +971,15 @@ static int ppe_flow_netdev_event(struct notifier_block *nb, unsigned long event,
 						 netdev_nb);
 	struct net_device *dev = netdev_notifier_info_to_dev(ptr);
 	struct dsa_port *dp;
+	bool encap = is_vlan_dev(dev) || dev->type == ARPHRD_PPP;
 	int i;
 
 	if (event != NETDEV_CHANGEMTU && event != NETDEV_CHANGEADDR &&
 	    event != NETDEV_GOING_DOWN && event != NETDEV_UNREGISTER &&
 	    event != NETDEV_REGISTER && event != NETDEV_CHANGENAME &&
-	    event != NETDEV_UP)
+	    event != NETDEV_UP &&
+	    !(encap && (event == NETDEV_DOWN || event == NETDEV_CHANGE ||
+			event == NETDEV_CHANGEUPPER)))
 		return NOTIFY_DONE;
 
 	guard(mutex)(&priv->flow_lock);
@@ -984,8 +988,11 @@ static int ppe_flow_netdev_event(struct notifier_block *nb, unsigned long event,
 	if (event == NETDEV_REGISTER || event == NETDEV_UNREGISTER ||
 	    event == NETDEV_CHANGENAME || event == NETDEV_UP)
 		ppe_flow_shaper_track(priv, dev, event);
+	if (encap)
+		ppe_natflow_purge(priv);
 	if (event == NETDEV_REGISTER || event == NETDEV_CHANGENAME ||
-	    event == NETDEV_UP)
+	    event == NETDEV_UP || event == NETDEV_DOWN ||
+	    event == NETDEV_CHANGE || event == NETDEV_CHANGEUPPER)
 		return NOTIFY_DONE;
 
 	/* Reached through the netdev itself rather than by walking the switch:
@@ -1086,6 +1093,54 @@ restart:
 	}
 }
 
+/* Prepare classification before installing either direction. In particular an
+ * inbound PPPoE flow must not be installed in the port's plain VSI and then
+ * purged when its reverse direction creates the session uplink.
+ */
+int ppe_flow_path_get(struct qca_ppe_priv *priv,
+		      const struct ppe_flow_data *data, int port,
+		      int *uplink, int *session)
+{
+	int up, ret;
+
+	lockdep_assert_held(&priv->flow_lock);
+	lockdep_assert_held(&priv->vlan_lock);
+	*uplink = -1;
+	*session = -1;
+	if (!data->pppoe_valid &&
+	    (!data->vlan_valid ||
+	     ppe_flow_ingress_vsi(priv, port, data->vlan_id) >= 0))
+		return 0;
+
+	up = ppe_uplink_get(priv, port, data->vlan_valid ? data->vlan_id : 0,
+			    data->eth.h_source, data->odev->mtu);
+	if (up < 0)
+		return up;
+	if (data->pppoe_valid) {
+		ret = ppe_pppoe_session_get(priv, up, data->pppoe_sid,
+					    data->eth.h_dest);
+		if (ret < 0) {
+			ppe_uplink_put(priv, up);
+			return ret;
+		}
+		*session = ret;
+	}
+	*uplink = up;
+	if (priv->uplink[up].ref == 1)
+		ppe_flow_purge_ingress(priv, &priv->uplink[up]);
+	return 0;
+}
+
+void ppe_flow_path_put(struct qca_ppe_priv *priv, int uplink, int session)
+{
+	lockdep_assert_held(&priv->flow_lock);
+	lockdep_assert_held(&priv->vlan_lock);
+	if (session >= 0)
+		ppe_pppoe_session_put(priv, session);
+	if (uplink >= 0)
+		ppe_uplink_put(priv, uplink);
+}
+
 static void ppe_flow_free_egress(struct qca_ppe_priv *priv,
 				 struct ppe_flow_entry *entry)
 {
@@ -1105,6 +1160,20 @@ static void ppe_flow_free_egress(struct qca_ppe_priv *priv,
 		ppe_pppoe_session_put(priv, entry->session);
 	if (entry->uplink >= 0)
 		ppe_uplink_put(priv, entry->uplink);
+}
+
+/* The limit includes the headers which the PPE adds, and never exceeds the
+ * physical port's limit. A learned path MTU may be lower than the port MTU.
+ */
+static u32 ppe_flow_egress_mtu(const struct ppe_flow_data *data, u32 port_mtu)
+{
+	u32 len = ETH_HLEN + (data->vlan_valid ? VLAN_HLEN : 0);
+	u32 mtu = port_mtu + len;
+
+	if (data->mtu)
+		mtu = min(mtu, data->mtu + len +
+			       (data->pppoe_valid ? PPPOE_SES_HLEN : 0));
+	return mtu;
 }
 
 static bool ppe_cpu_xmit = true;
@@ -1799,8 +1868,8 @@ static int ppe_flow_egress_path(struct qca_ppe_priv *priv,
 	 * separate entries when they do not share a size.
 	 */
 	odp = dsa_to_port(&priv->ds, port);
-	eg_mtu = odp->user->mtu + ETH_HLEN +
-		 (data->vlan_valid && push ? VLAN_HLEN : 0);
+	eg_mtu = push ? ppe_flow_egress_mtu(data, odp->user->mtu) :
+			 odp->user->mtu + ETH_HLEN;
 	/* A flow handed to the uplink device leaves at that device's size,
 	 * which for PPPoE is under the port's; a larger frame then takes the
 	 * host's path, which fragments it or answers with ICMP.
@@ -1942,26 +2011,10 @@ static int ppe_flow_alloc_egress(struct qca_ppe_priv *priv,
 	 * bridge classifies, arrives the same way on this port; set the port up
 	 * to route it so that direction offloads too.
 	 */
-	if (data->pppoe_valid ||
-	    (data->vlan_valid && !priv->port_br_dev[port])) {
-		ret = ppe_uplink_get(priv, port,
-				     data->vlan_valid ? data->vlan_id : 0,
-				     data->eth.h_source, odp->user->mtu);
-		if (ret < 0)
-			goto err;
-		entry->uplink = ret;
-	}
-
-	if (data->pppoe_valid) {
-		ret = ppe_pppoe_session_get(priv, entry->uplink,
-					    data->pppoe_sid, data->eth.h_dest);
-		if (ret < 0)
-			goto err;
-		entry->session = ret;
-	}
-
-	if (entry->uplink >= 0 && priv->uplink[entry->uplink].ref == 1)
-		ppe_flow_purge_ingress(priv, &priv->uplink[entry->uplink]);
+	ret = ppe_flow_path_get(priv, data, port, &entry->uplink,
+				&entry->session);
+	if (ret < 0)
+		goto err;
 
 	return 0;
 

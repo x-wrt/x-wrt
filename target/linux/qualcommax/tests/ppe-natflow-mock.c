@@ -20,6 +20,16 @@ typedef uint64_t u64;
 #define ETH_ALEN 6
 #define ETH_HLEN 14
 #define ETH_P_IP 0x800
+#define ETH_P_8021Q 0x8100
+#define ETH_P_8021AD 0x88a8
+#define ETH_P_PPP_SES 0x8864
+#define VLAN_HLEN 4
+#define VLAN_VID_MASK 0xfff
+#define PPPOE_SES_HLEN 8
+#define PPP_IP 0x21
+#define FF_ETH_P_8021Q 0
+#define FF_ETH_P_8021AD 1
+#define min(a, b) ((a) < (b) ? (a) : (b))
 #define ARPHRD_ETHER 1
 #define GFP_KERNEL 0
 #define GFP_ATOMIC 0
@@ -39,6 +49,14 @@ typedef uint64_t u64;
 static unsigned long jiffies;
 
 struct ethhdr { u8 h_dest[6], h_source[6]; __be16 h_proto; };
+struct pppoe_hdr {
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+	u8 type:4, ver:4;
+#else
+	u8 ver:4, type:4;
+#endif
+	u8 code; __be16 sid, length;
+} __attribute__((packed));
 struct list_head { struct list_head *next, *prev; };
 #define LIST_HEAD(name) struct list_head name = { &name, &name }
 #define INIT_LIST_HEAD(h) (*(h) = (struct list_head){ (h), (h) })
@@ -142,7 +160,7 @@ struct flow_block;
 struct qca_ppe_priv;
 struct dsa_switch { int unused; };
 struct dsa_port { struct dsa_switch *ds; int index; };
-struct net_device { struct dsa_port dp; int refs, type; bool running, carrier; };
+struct net_device { struct dsa_port dp; int refs, type, mtu; bool running, carrier; };
 static int init_net;
 #define dev_net(dev) (&init_net)
 #define dsa_port_from_netdev(dev) (&(dev)->dp)
@@ -153,6 +171,7 @@ static void dev_hold(struct net_device *d) { d->refs++; }
 static void dev_put(struct net_device *d) { assert(--d->refs >= 1); }
 static bool is_valid_ether_addr(const u8 *p) { return !(p[0] & 1) && memcmp(p, "\0\0\0\0\0\0", 6); }
 struct ppe_data { u32 num_flow_entries; };
+struct ppe_uplink { int ref, port, vid, vsi; };
 struct qca_ppe_priv {
 	struct dsa_switch ds;
 	struct ppe_natflow *natflow;
@@ -161,6 +180,8 @@ struct qca_ppe_priv {
 	int flow_table;
 	u8 port_vsi[8];
 	u8 pvid_vsi[8];
+	u32 flow_stale;
+	struct ppe_uplink uplink[16];
 	const struct ppe_data *data;
 };
 struct ppe_flow_entry {
@@ -169,17 +190,63 @@ struct ppe_flow_entry {
 	void *block;
 	int node;
 	u8 src_if;
+	u8 iport;
+	u16 ivid;
+	int uplink, session, in_uplink;
 	int age;
 	u32 packets;
 	u64 bytes;
 };
 static int ppe_flow_ht_params;
+static int ppe_flow_ingress_vsi(struct qca_ppe_priv *p, int port, u16 vid)
+{ return vid ? (vid == 100 ? 10 : -EOPNOTSUPP) : (p->pvid_vsi[port] ?: p->port_vsi[port]); }
+static int ppe_uplink_find(struct qca_ppe_priv *p, int port, u16 vid)
+{
+	for (int i = 0; i < 16; i++)
+		if (p->uplink[i].ref && p->uplink[i].port == port && p->uplink[i].vid == vid) return i;
+	return -ENOENT;
+}
 static int ppe_flow_src_if(struct qca_ppe_priv *p, int port, u16 vid)
-{ return p->pvid_vsi[port] ?: p->port_vsi[port]; }
+{ int up = ppe_uplink_find(p, port, vid); return up >= 0 ? p->uplink[up].vsi : ppe_flow_ingress_vsi(p, port, vid); }
+static int path_calls, fail_path, fail_session;
+static int ppe_uplink_get(struct qca_ppe_priv *p, int port, u16 vid, const u8 *mac, u32 mtu)
+{
+	if (++path_calls == fail_path) return -ENOSPC;
+	int up = ppe_uplink_find(p, port, vid);
+	if (up >= 0) { p->uplink[up].ref++; return up; }
+	for (int i = 0; i < 16; i++) if (!p->uplink[i].ref) {
+		p->uplink[i] = (struct ppe_uplink){ 1, port, vid, 16 + i }; return i;
+	}
+	return -ENOSPC;
+}
+static void ppe_uplink_put(struct qca_ppe_priv *p, int up)
+{ assert(p->uplink[up].ref > 0); p->uplink[up].ref--; }
+static struct { int ref, up; u16 sid; u8 mac[6]; } sessions[16];
+static int ppe_pppoe_session_get(struct qca_ppe_priv *p, int up, u16 sid, const u8 *mac)
+{
+	if (fail_session) return -ENOSPC;
+	for (int i = 0; i < 16; i++) if (sessions[i].ref && sessions[i].sid == sid &&
+		p->uplink[sessions[i].up].port == p->uplink[up].port && !memcmp(sessions[i].mac, mac, 6)) {
+		if (sessions[i].up != up) return -ENOSPC;
+		sessions[i].ref++; return i;
+	}
+	for (int i = 0; i < 16; i++) if (!sessions[i].ref) {
+		sessions[i].ref = 1; sessions[i].up = up; sessions[i].sid = sid;
+		memcpy(sessions[i].mac, mac, 6); return i;
+	}
+	return -ENOSPC;
+}
+static void ppe_pppoe_session_put(struct qca_ppe_priv *p, int session)
+{ assert(sessions[session].ref > 0); sessions[session].ref--; }
 #define rhashtable_remove_fast(h, n, p) ((void)(p))
 static int hardware_entries, create_calls, fail_create;
+static void ppe_flow_path_put(struct qca_ppe_priv *, int, int);
 static void ppe_flow_entry_destroy(struct qca_ppe_priv *p, struct ppe_flow_entry *e)
-{ assert(--hardware_entries >= 0); }
+{
+	assert(--hardware_entries >= 0);
+	ppe_flow_path_put(p, e->uplink, e->session);
+	if (e->in_uplink >= 0) ppe_uplink_put(p, e->in_uplink);
+}
 void ppe_flow_free(struct qca_ppe_priv *, struct ppe_flow_entry *);
 void ppe_natflow_invalidate(struct qca_ppe_priv *, struct ppe_natflow_pair *);
 static int ppe_flow_poll(struct qca_ppe_priv *p, struct ppe_flow_entry *e, u32 *pkts, u64 *bytes)
@@ -189,6 +256,8 @@ struct seq_file { int unused; };
 
 /* PRODUCTION */
 
+/* COMMON PATH */
+
 static struct ppe_flow_data encoded[4];
 static struct ppe_flow_entry *ppe_flow_create(struct qca_ppe_priv *p,
 	struct ppe_flow_data *data, int port, unsigned long cookie, struct flow_block *block)
@@ -197,7 +266,13 @@ static struct ppe_flow_entry *ppe_flow_create(struct qca_ppe_priv *p,
 	if (create_calls == fail_create) return ERR_PTR(-ENOSPC);
 	encoded[(create_calls - 1) % 4] = *data;
 	struct ppe_flow_entry *e = calloc(1, sizeof(*e));
-	e->src_if = ppe_flow_src_if(p, port, 0); e->age = PPE_FLOW_AGE_MAX;
+	e->uplink = e->session = -1;
+	e->in_uplink = ppe_uplink_find(p, port, data->ivid);
+	if (e->in_uplink >= 0) p->uplink[e->in_uplink].ref++;
+	e->src_if = ppe_flow_src_if(p, port, data->ivid); e->age = PPE_FLOW_AGE_MAX;
+	e->iport = port; e->ivid = data->ivid;
+	int ret = ppe_flow_path_get(p, data, data->odev->dp.index, &e->uplink, &e->session);
+	if (ret) { if (e->in_uplink >= 0) ppe_uplink_put(p, e->in_uplink); free(e); return ERR_PTR(ret); }
 	list_add_tail(&e->list, &p->flow_list); hardware_entries++;
 	return e;
 }
@@ -226,8 +301,8 @@ struct nf_conntrack_tuple {
 	struct { mock_addr u3; union { __be16 all; } u; int l3num; } src;
 	struct { mock_addr u3; union { __be16 all; } u; int protonum; } dst;
 };
-struct mock_route { int vlan_present, l2_head_len; struct net_device *outdev; u8 l2_head[14]; };
-typedef struct { u32 status; u16 magic; struct mock_route rroute[2]; } natflow_t;
+typedef struct { int vlan_present, vlan_proto; u16 vlan_tci, mtu; int l2_head_len; struct net_device *outdev; u8 l2_head[22]; } natflow_route_t;
+typedef struct { u32 status; u16 magic; natflow_route_t rroute[2]; } natflow_t;
 struct fakeuser_data_t { int auth_status; };
 typedef struct { struct fakeuser_data_t data; } natflow_fakeuser_t;
 struct nf_conn {
@@ -284,9 +359,10 @@ static void setup(void)
 	/* Ingress classification may select the PVID's VSI, not port_vsi. */
 	priv.pvid_vsi[1] = priv.pvid_vsi[2] = 7;
 	INIT_LIST_HEAD(&priv.flow_list);
-	lan = (struct net_device){ .dp = { &priv.ds, 1 }, .refs = 1, .type = ARPHRD_ETHER, .running = true, .carrier = true };
+	lan = (struct net_device){ .dp = { &priv.ds, 1 }, .refs = 1, .type = ARPHRD_ETHER, .mtu = 1500, .running = true, .carrier = true };
 	wan = lan; wan.dp.index = 2;
 	create_calls = fail_create = 0; jiffies = HZ; disabled = 0; hwnat = 1;
+	path_calls = fail_path = fail_session = 0; memset(sessions, 0, sizeof(sessions));
 	natflow_path_magic = 7; memset(nodes, 0, sizeof(nodes));
 	natflow_qca_slots = calloc(16, sizeof(*natflow_qca_slots));
 	assert(!ppe_natflow_init(&priv));
@@ -305,6 +381,7 @@ static struct nf_conn connection(void)
 	for (int d = 0; d < 2; d++) {
 		struct ethhdr eth = { .h_source = {2,0,0,0,0,1}, .h_dest = {2,0,0,0,0,2}, .h_proto = htons(ETH_P_IP) };
 		ct.nf.rroute[d].l2_head_len = 14;
+		ct.nf.rroute[d].mtu = 1500;
 		ct.nf.rroute[d].outdev = d ? &lan : &wan;
 		memcpy(ct.nf.rroute[d].l2_head, &eth, 14);
 		struct nf_conntrack_tuple *t = &ct.tuplehash[d].tuple;
@@ -315,11 +392,28 @@ static struct nf_conn connection(void)
 	return ct;
 }
 
+static void encapsulate(struct nf_conn *ct, int d, u16 vid, u16 sid)
+{
+	natflow_route_t *r = &ct->nf.rroute[d];
+	struct ethhdr eth;
+
+	r->vlan_present = !!vid; r->vlan_proto = FF_ETH_P_8021Q; r->vlan_tci = vid;
+	if (!sid) return;
+	memcpy(&eth, r->l2_head, ETH_HLEN); eth.h_proto = htons(ETH_P_PPP_SES);
+	memcpy(r->l2_head, &eth, ETH_HLEN);
+	struct pppoe_hdr ph = { .ver = 1, .type = 1, .sid = htons(sid) };
+	__be16 proto = htons(PPP_IP);
+	memcpy(r->l2_head + ETH_HLEN, &ph, sizeof(ph));
+	memcpy(r->l2_head + ETH_HLEN + sizeof(ph), &proto, sizeof(proto));
+	r->l2_head_len = ETH_HLEN + PPPOE_SES_HLEN; r->mtu = 1492;
+}
+
 static void finish(struct nf_conn *ct)
 {
 	disabled = 1; natflow_qca_stop();
 	assert(ct->ct_general == 1 && !hardware_entries && !priv.natflow->count);
 	assert(lan.refs == 1 && wan.refs == 1 && list_empty(&priv.flow_list));
+	for (int i = 0; i < 16; i++) assert(!priv.uplink[i].ref && !sessions[i].ref);
 	ppe_natflow_exit(&priv); free(natflow_qca_slots); natflow_qca_slots = NULL;
 }
 
@@ -358,6 +452,15 @@ int main(void)
 	/* A duplicate KEY ADD must not acquire somebody else's hardware slot. */
 	struct events other = {};
 	struct qca_ppe_natflow_request req = pair->req;
+	struct qca_ppe_natflow_path bad[2];
+	memcpy(bad, pair->path, sizeof(bad)); bad[0].flags = 0x80;
+	assert(qca_ppe_natflow_submit_encap(&req, bad) == -EOPNOTSUPP);
+	memcpy(bad, pair->path, sizeof(bad)); bad[0].flags = QCA_PPE_NATFLOW_VLAN;
+	bad[0].vlan_proto = htons(ETH_P_8021AD); bad[0].vlan_id = 7;
+	assert(qca_ppe_natflow_submit_encap(&req, bad) == -EOPNOTSUPP);
+	memcpy(bad, pair->path, sizeof(bad)); bad[0].flags = QCA_PPE_NATFLOW_PPPOE;
+	assert(qca_ppe_natflow_submit_encap(&req, bad) == -EOPNOTSUPP);
+	assert(priv.natflow->count == 1 && ct.ct_general == 2);
 	req.owner = &other; req.context = &other; req.notify = record;
 	assert(!qca_ppe_natflow_submit(&req)); run_ready(priv.natflow->wq);
 	assert(other.released == 1 && other.error == -EEXIST && hardware_entries == 2);
@@ -438,6 +541,92 @@ int main(void)
 	assert(ppe_natflow_ft_get(&priv) == -ESHUTDOWN);
 	ppe_natflow_ft_put(&priv);
 	free(natflow_qca_slots); natflow_qca_slots = NULL;
-	puts("natflow/PPE: async admission, SNAT/DNAT translation, pair rollback, identity ABA, policy invalidation, stats, idle expiry, nft exclusion and teardown PASS");
+
+	setup(); ct = connection(); encapsulate(&ct, 0, 20, 0); encapsulate(&ct, 1, 30, 0);
+	natflow_qca_try(&ct, &ct.nf); run_ready(priv.natflow->wq);
+	assert(hardware_entries == 2 && !priv.flow_stale);
+	assert(encoded[0].vlan_valid && encoded[0].vlan_id == 20 && encoded[0].ivid == 30);
+	assert(encoded[1].vlan_valid && encoded[1].vlan_id == 30 && encoded[1].ivid == 20);
+	assert(ppe_flow_egress_mtu(&encoded[0], 1500) == 1518); finish(&ct);
+
+	setup(); ct = connection(); encapsulate(&ct, 0, 0, 13);
+	natflow_qca_try(&ct, &ct.nf); run_ready(priv.natflow->wq);
+	assert(hardware_entries == 2 && encoded[0].pppoe_valid && encoded[0].pppoe_sid == 13);
+	assert(!encoded[1].pppoe_valid && ppe_flow_egress_mtu(&encoded[0], 1500) == 1514);
+	assert(encoded[0].eth.h_proto == htons(ETH_P_IP)); finish(&ct);
+
+	/* Incoming DNAT: the first installed direction already enters PPPoE.
+	 * Both uplinks must exist before it is assigned an ingress VSI.
+	 */
+	setup(); ct = connection();
+	struct nf_conntrack_tuple tuple = ct.tuplehash[0].tuple;
+	ct.tuplehash[0].tuple = ct.tuplehash[1].tuple; ct.tuplehash[1].tuple = tuple;
+	ct.nf.rroute[0].outdev = &lan; ct.nf.rroute[1].outdev = &wan;
+	encapsulate(&ct, 1, 0, 13);
+	natflow_qca_try(&ct, &ct.nf); run_ready(priv.natflow->wq);
+	pair = list_first_entry_or_null(&priv.natflow->pairs, struct ppe_natflow_pair, list);
+	assert(pair && !pair->invalid && pair->entry[0] && pair->entry[1]);
+	assert(pair->entry[0]->src_if >= 16 && !priv.flow_stale);
+	assert(encoded[0].v4_dst_new == htonl(2)); finish(&ct);
+
+	setup(); ct = connection(); encapsulate(&ct, 0, 7, 13); ct.nf.rroute[0].mtu = 1452;
+	natflow_qca_try(&ct, &ct.nf); run_ready(priv.natflow->wq);
+	assert(hardware_entries == 2 && encoded[0].pppoe_valid && encoded[0].vlan_id == 7);
+	assert(encoded[1].ivid == 7 && ppe_flow_egress_mtu(&encoded[0], 1500) == 1478);
+	assert(ppe_flow_egress_mtu(&encoded[0], 1400) == 1418);
+	/* A session change must invalidate an old ticket even without slot reuse. */
+	encapsulate(&ct, 0, 7, 14); jiffies += HZ; run_ready(priv.natflow->wq);
+	assert(!hardware_entries && ct.ct_general == 1); finish(&ct);
+
+	setup(); ct = connection(); encapsulate(&ct, 0, 7, 13);
+	natflow_qca_try(&ct, &ct.nf); run_ready(priv.natflow->wq);
+	ct.nf.rroute[0].mtu = 1400; jiffies += HZ; run_ready(priv.natflow->wq);
+	assert(!hardware_entries && ct.ct_general == 1); finish(&ct);
+
+	setup(); ct = connection(); encapsulate(&ct, 0, 7, 13);
+	natflow_qca_try(&ct, &ct.nf); run_ready(priv.natflow->wq);
+	mutex_lock(&priv.flow_lock); mutex_lock(&priv.vlan_lock);
+	ppe_natflow_purge(&priv);
+	mutex_unlock(&priv.vlan_lock); mutex_unlock(&priv.flow_lock);
+	assert(!hardware_entries && ct.ct_general == 2);
+	run_ready(priv.natflow->wq); assert(ct.ct_general == 1); finish(&ct);
+
+	setup(); ct = connection(); encapsulate(&ct, 0, 7, 13); fail_create = 2;
+	natflow_qca_try(&ct, &ct.nf); run_ready(priv.natflow->wq);
+	assert(!hardware_entries && ct.ct_general == 1); finish(&ct);
+
+	setup(); ct = connection(); encapsulate(&ct, 0, 7, 13); encapsulate(&ct, 1, 20, 14); fail_path = 2;
+	natflow_qca_try(&ct, &ct.nf); run_ready(priv.natflow->wq);
+	assert(!hardware_entries && !create_calls && ct.ct_general == 1); finish(&ct);
+
+	setup(); ct = connection(); encapsulate(&ct, 0, 7, 13); fail_session = 1;
+	natflow_qca_try(&ct, &ct.nf); run_ready(priv.natflow->wq);
+	assert(!hardware_entries && !create_calls && ct.ct_general == 1); finish(&ct);
+
+	setup(); ct = connection(); encapsulate(&ct, 0, 7, 13);
+	ct.nf.rroute[0].vlan_proto = FF_ETH_P_8021AD;
+	natflow_qca_try(&ct, &ct.nf); assert(!priv.natflow->count);
+	ct.nf.rroute[0].vlan_proto = FF_ETH_P_8021Q;
+	struct pppoe_hdr ph; memcpy(&ph, ct.nf.rroute[0].l2_head + ETH_HLEN, sizeof(ph));
+	ph.sid = 0; memcpy(ct.nf.rroute[0].l2_head + ETH_HLEN, &ph, sizeof(ph));
+	natflow_qca_try(&ct, &ct.nf); assert(!priv.natflow->count);
+	ct.nf.rroute[0].l2_head_len = ETH_HLEN + VLAN_HLEN;
+	natflow_qca_try(&ct, &ct.nf); assert(!priv.natflow->count); finish(&ct);
+
+	/* The seventeenth session must release its temporary uplink reference. */
+	setup(); ct = connection();
+	struct ppe_flow_data data = { .pppoe_valid = true, .odev = &wan };
+	int up[16], session[16], extra_up, extra_session;
+	mutex_lock(&priv.flow_lock); mutex_lock(&priv.vlan_lock);
+	for (int i = 0; i < 16; i++) {
+		data.pppoe_sid = i + 1;
+		assert(!ppe_flow_path_get(&priv, &data, 2, &up[i], &session[i]));
+	}
+	data.pppoe_sid = 17;
+	assert(ppe_flow_path_get(&priv, &data, 2, &extra_up, &extra_session) == -ENOSPC);
+	assert(extra_up == -1 && extra_session == -1);
+	for (int i = 0; i < 16; i++) ppe_flow_path_put(&priv, up[i], session[i]);
+	mutex_unlock(&priv.vlan_lock); mutex_unlock(&priv.flow_lock); finish(&ct);
+	puts("natflow/PPE: lifecycle, NAT, VLAN/PPPoE directions, ingress preparation, MTU, session changes, rollback and capacity PASS");
 	return 0;
 }
