@@ -22,7 +22,7 @@ struct ppe_flow_data {
 	u16 ivid;
 	u16 pppoe_sid;
 	bool pppoe_valid;
-
+	u16 mtu;
 	struct net_device *odev;
 	/* The profile the entry is given; filled only where the flowtable
 	 * reports a priority, and zero means DSCP still decides.
@@ -79,11 +79,16 @@ void ppe_flow_free(struct qca_ppe_priv *priv, struct ppe_flow_entry *entry);
 int ppe_flow_poll(struct qca_ppe_priv *priv, struct ppe_flow_entry *entry,
 		  u32 *packets, u64 *bytes);
 int ppe_flow_src_if(struct qca_ppe_priv *priv, int iport, u16 vid);
+int ppe_flow_path_get(struct qca_ppe_priv *priv,
+		      const struct ppe_flow_data *data, int port,
+		      int *uplink, int *session);
+void ppe_flow_path_put(struct qca_ppe_priv *priv, int uplink, int session);
 
 int ppe_natflow_init(struct qca_ppe_priv *priv);
 void ppe_natflow_exit(struct qca_ppe_priv *priv);
 void ppe_natflow_invalidate(struct qca_ppe_priv *priv,
 			     struct ppe_natflow_pair *pair);
+void ppe_natflow_purge(struct qca_ppe_priv *priv);
 int ppe_natflow_ft_get(struct qca_ppe_priv *priv);
 void ppe_natflow_ft_put(struct qca_ppe_priv *priv);
 

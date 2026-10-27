@@ -2,6 +2,7 @@
 /* An asynchronous, bidirectional natflow front end to the shared PPE tables. */
 #include <linux/etherdevice.h>
 #include <linux/export.h>
+#include <linux/if_vlan.h>
 #include <linux/ip.h>
 #include <linux/seq_file.h>
 #include <linux/workqueue.h>
@@ -14,7 +15,10 @@
 struct ppe_natflow_pair {
 	struct list_head list;
 	struct qca_ppe_natflow_request req;
+	struct qca_ppe_natflow_path path[2];
 	struct ppe_flow_entry *entry[2];
+	int uplink[2];
+	int session[2];
 	unsigned long last_hit;
 	bool invalid;
 };
@@ -75,6 +79,11 @@ static void ppe_natflow_delete(struct ppe_natflow *nf,
 		entry->pair = NULL;
 		ppe_flow_free(nf->priv, entry);
 	}
+	for (d = 0; d < 2; d++) {
+		ppe_flow_path_put(nf->priv, pair->uplink[d], pair->session[d]);
+		pair->uplink[d] = -1;
+		pair->session[d] = -1;
+	}
 }
 
 void ppe_natflow_invalidate(struct qca_ppe_priv *priv,
@@ -85,6 +94,25 @@ void ppe_natflow_invalidate(struct qca_ppe_priv *priv,
 	ppe_natflow_delete(nf, pair);
 	if (!READ_ONCE(nf->stopping))
 		mod_delayed_work(nf->wq, &nf->poll, 0);
+}
+
+/* Logical PPP/VLAN devices are not retained in the learned physical paths.
+ * Conservatively withdraw all client entries when one changes, without
+ * waiting or invoking client callbacks from a netdev notifier under RTNL.
+ */
+void ppe_natflow_purge(struct qca_ppe_priv *priv)
+{
+	struct ppe_flow_entry *entry;
+
+	lockdep_assert_held(&priv->flow_lock);
+	lockdep_assert_held(&priv->vlan_lock);
+restart:
+	list_for_each_entry(entry, &priv->flow_list, list) {
+		if (entry->pair) {
+			ppe_natflow_invalidate(priv, entry->pair);
+			goto restart;
+		}
+	}
 }
 
 static void ppe_natflow_release(struct ppe_natflow *nf,
@@ -168,9 +196,11 @@ static void ppe_natflow_poll_work(struct work_struct *work)
 }
 
 /* Translate direction d to the inverse of the opposite conntrack tuple. */
-static void ppe_natflow_data(const struct qca_ppe_natflow_request *req, int d,
+static void ppe_natflow_data(const struct ppe_natflow_pair *pair, int d,
 			     struct ppe_flow_data *data)
 {
+	const struct qca_ppe_natflow_request *req = &pair->req;
+	const struct qca_ppe_natflow_path *path = &pair->path[d];
 	const struct qca_ppe_natflow_tuple *t = &req->tuple[d];
 	const struct qca_ppe_natflow_tuple *r = &req->tuple[!d];
 
@@ -183,6 +213,12 @@ static void ppe_natflow_data(const struct qca_ppe_natflow_request *req, int d,
 		.sport = t->sport, .dport = t->dport,
 		.sport_new = r->dport, .dport_new = r->sport,
 		.odev = req->dev[!d],
+		.ivid = pair->path[!d].vlan_id,
+		.vlan_valid = !!(path->flags & QCA_PPE_NATFLOW_VLAN),
+		.vlan_id = path->vlan_id,
+		.pppoe_valid = !!(path->flags & QCA_PPE_NATFLOW_PPPOE),
+		.pppoe_sid = path->pppoe_sid,
+		.mtu = path->mtu,
 	};
 }
 
@@ -206,6 +242,25 @@ static int ppe_natflow_install(struct ppe_natflow *nf,
 		return ret;
 	mutex_lock(&priv->flow_lock);
 	mutex_lock(&priv->vlan_lock);
+	/* Both paths must classify before any rule acquires an ingress VSI.
+	 * The seed references also outlive both entries during rollback.
+	 */
+	for (d = 0; d < 2; d++) {
+		struct dsa_port *dp = dsa_port_from_netdev(pair->req.dev[d]);
+		struct ppe_flow_data data;
+
+		if (IS_ERR(dp) || dp->ds != &priv->ds ||
+		    !netif_running(pair->req.dev[d]) ||
+		    !netif_carrier_ok(pair->req.dev[d])) {
+			ret = -ENODEV;
+			goto unlock;
+		}
+		ppe_natflow_data(pair, !d, &data);
+		ret = ppe_flow_path_get(priv, &data, dp->index,
+					&pair->uplink[!d], &pair->session[!d]);
+		if (ret)
+			goto unlock;
+	}
 	for (d = 0; d < 2; d++) {
 		struct ppe_flow_data data;
 		struct ppe_flow_entry *entry;
@@ -220,7 +275,7 @@ static int ppe_natflow_install(struct ppe_natflow *nf,
 			ret = -ENODEV;
 			break;
 		}
-		vsi = ppe_flow_src_if(priv, dp->index, 0);
+		vsi = ppe_flow_src_if(priv, dp->index, pair->path[!d].vlan_id);
 		if (vsi < 0) {
 			ret = vsi;
 			break;
@@ -246,7 +301,7 @@ static int ppe_natflow_install(struct ppe_natflow *nf,
 				}
 			}
 		}
-		ppe_natflow_data(&pair->req, d, &data);
+		ppe_natflow_data(pair, d, &data);
 		entry = ppe_flow_create(priv, &data, dp->index, 0, NULL);
 		if (IS_ERR(entry)) {
 			ret = PTR_ERR(entry);
@@ -302,7 +357,8 @@ static void ppe_natflow_add_work(struct work_struct *work)
 		queue_delayed_work(nf->wq, &nf->poll, HZ);
 }
 
-int qca_ppe_natflow_submit(const struct qca_ppe_natflow_request *req)
+static int ppe_natflow_submit(const struct qca_ppe_natflow_request *req,
+			      const struct qca_ppe_natflow_path path[2])
 {
 	struct ppe_natflow_pair *pair;
 	struct ppe_natflow *nf;
@@ -324,6 +380,26 @@ int qca_ppe_natflow_submit(const struct qca_ppe_natflow_request *req)
 		dp[d] = dsa_port_from_netdev(req->dev[d]);
 		if (IS_ERR(dp[d]) || !dsa_port_is_user(dp[d]))
 			return -EOPNOTSUPP;
+		if (path) {
+			const struct qca_ppe_natflow_path *p = &path[d];
+
+			if (p->flags & ~(QCA_PPE_NATFLOW_VLAN | QCA_PPE_NATFLOW_PPPOE) ||
+			    p->mtu < 68)
+				return -EOPNOTSUPP;
+			if (p->flags & QCA_PPE_NATFLOW_VLAN) {
+				if (p->vlan_proto != htons(ETH_P_8021Q) ||
+				    !p->vlan_id || p->vlan_id >= VLAN_VID_MASK)
+					return -EOPNOTSUPP;
+			} else if (p->vlan_id || p->vlan_proto) {
+				return -EINVAL;
+			}
+			if (p->flags & QCA_PPE_NATFLOW_PPPOE) {
+				if (!p->pppoe_sid || p->pppoe_sid == 0xffff)
+					return -EOPNOTSUPP;
+			} else if (p->pppoe_sid) {
+				return -EINVAL;
+			}
+		}
 	}
 	if (dp[0]->ds != dp[1]->ds)
 		return -EOPNOTSUPP;
@@ -331,6 +407,12 @@ int qca_ppe_natflow_submit(const struct qca_ppe_natflow_request *req)
 	if (!pair)
 		return -ENOMEM;
 	pair->req = *req;
+	if (path)
+		memcpy(pair->path, path, sizeof(pair->path));
+	for (d = 0; d < 2; d++) {
+		pair->uplink[d] = -1;
+		pair->session[d] = -1;
+	}
 	rcu_read_lock();
 	list_for_each_entry_rcu(nf, &ppe_natflow_instances, instances) {
 		if (&nf->priv->ds != dp[0]->ds)
@@ -358,7 +440,21 @@ int qca_ppe_natflow_submit(const struct qca_ppe_natflow_request *req)
 		kfree(pair);
 	return ret;
 }
+
+int qca_ppe_natflow_submit(const struct qca_ppe_natflow_request *req)
+{
+	return ppe_natflow_submit(req, NULL);
+}
 EXPORT_SYMBOL_GPL(qca_ppe_natflow_submit);
+
+int qca_ppe_natflow_submit_encap(const struct qca_ppe_natflow_request *req,
+			       const struct qca_ppe_natflow_path path[2])
+{
+	if (!path)
+		return -EINVAL;
+	return ppe_natflow_submit(req, path);
+}
+EXPORT_SYMBOL_GPL(qca_ppe_natflow_submit_encap);
 
 struct ppe_natflow_flush {
 	struct work_struct work;
