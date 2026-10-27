@@ -1,0 +1,63 @@
+From: X-WRT <dev@x-wrt.com>
+Subject: [PATCH] arm64: dts: qcom: reserve memory for ramoops
+
+Reserve 64 KiB for ramoops on IPQ5018, IPQ6018 and IPQ8074 so all
+qualcommax boards can retain panic/oops logs across a reboot. Use
+32 KiB records and exclude the region from the linear mapping.
+
+Place the buffer at 0x43ff0000, outside the existing NSS, secure-world
+and wireless firmware reservations. Keep their layouts unchanged.
+
+Signed-off-by: X-WRT <dev@x-wrt.com>
+---
+--- a/arch/arm64/boot/dts/qcom/ipq5018.dtsi
++++ b/arch/arm64/boot/dts/qcom/ipq5018.dtsi
+@@ -131,6 +131,14 @@
+ 		#size-cells = <2>;
+ 		ranges;
+ 
++		/* 64 KiB reserved for ramoops/pstore. */
++		ramoops@43ff0000 {
++			compatible = "ramoops";
++			no-map;
++			reg = <0x0 0x43ff0000 0x0 0x10000>;
++			record-size = <0x8000>;
++		};
++
+ 		tz_apps@4a400000 {
+ 			reg = <0x0 0x4a400000 0x0 0x400000>;
+ 			no-map;
+--- a/arch/arm64/boot/dts/qcom/ipq6018.dtsi
++++ b/arch/arm64/boot/dts/qcom/ipq6018.dtsi
+@@ -191,6 +191,14 @@
+ 		#size-cells = <2>;
+ 		ranges;
+ 
++		/* 64 KiB reserved for ramoops/pstore. */
++		ramoops@43ff0000 {
++			compatible = "ramoops";
++			no-map;
++			reg = <0x0 0x43ff0000 0x0 0x10000>;
++			record-size = <0x8000>;
++		};
++
+ 		rpm_msg_ram: memory@60000 {
+ 			reg = <0x0 0x00060000 0x0 0x6000>;
+ 			no-map;
+--- a/arch/arm64/boot/dts/qcom/ipq8074.dtsi
++++ b/arch/arm64/boot/dts/qcom/ipq8074.dtsi
+@@ -152,6 +152,14 @@
+ 		#size-cells = <2>;
+ 		ranges;
+ 
++		/* 64 KiB reserved for ramoops/pstore. */
++		ramoops@43ff0000 {
++			compatible = "ramoops";
++			no-map;
++			reg = <0x0 0x43ff0000 0x0 0x10000>;
++			record-size = <0x8000>;
++		};
++
+ 		nss@40000000 {
+ 			no-map;
+ 			reg = <0x0 0x40000000 0x0 0x01000000>;
