@@ -38,9 +38,17 @@ data = data_header[data_header.index("struct ppe_flow_data {"):
 backend = no_includes((driver / "qca_ppe_natflow.c").read_text())
 core = (driver / "qca_ppe_flow_offload.c").read_text()
 free = function(core, "void ppe_flow_free(struct qca_ppe_priv *priv,")
+common = "\n".join(function(core, signature) for signature in (
+    "static void ppe_flow_drop(struct qca_ppe_priv *priv,",
+    "static void ppe_flow_purge_ingress(struct qca_ppe_priv *priv,",
+    "int ppe_flow_path_get(struct qca_ppe_priv *priv,",
+    "void ppe_flow_path_put(struct qca_ppe_priv *priv,",
+    "static u32 ppe_flow_egress_mtu(const struct ppe_flow_data *data,",
+))
 client = (args.natflow / "natflow_qca.h").read_text()
 mock = (base / "ppe-natflow-mock.c").read_text()
 pre, middle, tests = mock.split("/* PRODUCTION */")
+middle = middle.replace("/* COMMON PATH */", common)
 with tempfile.TemporaryDirectory(prefix="ppe-natflow-test-") as tmp:
     cfile = Path(tmp) / "test.c"
     exe = Path(tmp) / "test"
