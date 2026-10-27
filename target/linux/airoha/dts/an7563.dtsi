@@ -26,6 +26,14 @@
 		#size-cells = <1>;
 		ranges;
 
+		/* 64 KiB reserved for ramoops/pstore. */
+		ramoops@86ff0000 {
+			compatible = "ramoops";
+			no-map;
+			reg = <0x86ff0000 0x10000>;
+			record-size = <0x8000>;
+		};
+
 		qdma0_buf: qdma0-buf {
 			no-map;
 			size = <0x01000000>;
