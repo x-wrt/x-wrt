@@ -6,8 +6,8 @@ hardware invalidation succeeds. Reserve physical FOE slots before writes
 so timed-out transactions cannot be reused by another flow.
 
 Keep AN7563's SDK-aligned SRAM setup and split-table RX learning in the
-base driver, including its DRAM safety restriction. Leave AN758x's native
-NPU, DRAM and flow-statistics initialization available to TC offload.
+base driver. The platform SRAM-only policy is applied separately before
+the optional natflow control plane.
 
 Signed-off-by: Chen Minqiang <ptpt52@gmail.com>
 ---
@@ -328,8 +328,8 @@ Signed-off-by: Chen Minqiang <ptpt52@gmail.com>
 +
 +		if (airoha_is(eth, airoha_an7563)) {
 +			/* Keep TB_BASE dynamic and use the AN7563 SDK setup, but
-+			 * leave the DRAM table disabled. Enabling it corrupts system
-+			 * RAM under load; the 512-entry SRAM table remains available.
++			 * leave the DRAM table disabled by driver policy. The
++			 * 512-entry SRAM table remains available.
 +			 */
 +			airoha_fe_wr(eth, REG_PPE_GLO_CFG(i),
 +				     AN7563_PPE_GLO_CFG & ~PPE_GLO_CFG_EN_MASK);
