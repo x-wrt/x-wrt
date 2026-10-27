@@ -1,0 +1,187 @@
+From: X-WRT <dev@x-wrt.com>
+Subject: [PATCH] net: airoha: use SRAM-only PPE on AN75xx
+
+Make SRAM-only, CPU-directed flow tables a common driver policy for
+AN7563, AN7581 and AN7583, independent of the natflow overlay. Initialize
+their PPE without attaching the NPU table-control or statistics path.
+Keep the separate NPU wireless queue interfaces available.
+
+Clear the unused DRAM table base, size, hash modes and enables. Allocate
+the SRAM software mirror as ordinary CPU memory and synchronize entries
+through MMIO. Preserve DMA allocation and DRAM programming on the other
+backends. Report actual table entry counts in initialization messages.
+
+Signed-off-by: X-WRT <dev@x-wrt.com>
+---
+--- a/drivers/net/ethernet/airoha/airoha_ppe.c
++++ b/drivers/net/ethernet/airoha/airoha_ppe.c
+@@ -10,6 +10,7 @@
+ #include <linux/of_platform.h>
+ #include <linux/platform_device.h>
+ #include <linux/rhashtable.h>
++#include <linux/slab.h>
+ #include <net/ipv6.h>
+ #include <net/flow_offload.h>
+ #include <net/netlink.h>
+@@ -81,7 +82,8 @@ static int airoha_ppe_v1_flow_offload_st
+ static void airoha_ppe_v1_hw_init(struct airoha_ppe *ppe);
+ static bool airoha_ppe_sram_only(struct airoha_eth *eth)
+ {
+-	return airoha_is(eth, airoha_an7563);
++	/* Platform policy applies equally to TC and natflow control planes. */
++	return airoha_is(eth, airoha_an7563, airoha_en7581, airoha_an7583);
+ }
+ 
+ static int airoha_ppe_smac_write(struct airoha_ppe *ppe, unsigned int id,
+@@ -218,7 +220,7 @@ static int airoha_ppe_get_num_stats_entr
+ 	if (!IS_ENABLED(CONFIG_NET_AIROHA_FLOW_STATS))
+ 		return -EOPNOTSUPP;
+ 
+-	/* AN7563 uses SRAM flows without an NPU statistics reservation. */
++	/* SRAM-only backends reserve all SRAM entries for flows. */
+ 	if (airoha_ppe_sram_only(ppe->common.eth))
+ 		return -EOPNOTSUPP;
+ 
+@@ -396,6 +398,8 @@ static void airoha_ppe_hw_init(struct ai
+ 	u32 sram_ppe_num_data_entries = ppe->common.eth->soc->ppe_sram_entries, sram_num_entries;
+ 	u32 sram_tb_size, dram_num_entries;
+ 	struct airoha_eth *eth = ppe->common.eth;
++	bool sram_only = airoha_ppe_sram_only(eth);
++	u32 sram_entry_count, dram_entry_count;
+ 	int i, sram_num_stats_entries;
+ 
+ 	switch (eth->soc->foe_format) {
+@@ -410,26 +414,30 @@ static void airoha_ppe_hw_init(struct ai
+ 	dev_info(eth->dev, "Initializing PPE Hardware\n");
+ 	sram_num_entries = airoha_ppe_get_total_sram_num_entries(ppe);
+ 	sram_tb_size = sram_num_entries * AIROHA_FOE_ENTRY_SIZE;
+-	dram_num_entries = airoha_ppe_get_num_entries_shift(eth->soc->ppe_dram_entries);
++	dram_entry_count = sram_only ? 0 : eth->soc->ppe_dram_entries;
++	dram_num_entries = dram_entry_count ?
++		airoha_ppe_get_num_entries_shift(dram_entry_count) : 0;
+ 
+ 	sram_num_stats_entries = airoha_ppe_get_num_stats_entries(ppe);
+ 	if (sram_num_stats_entries > 0)
+ 		sram_ppe_num_data_entries -= sram_num_stats_entries;
++	sram_entry_count = sram_ppe_num_data_entries;
+ 	sram_ppe_num_data_entries =
+ 		airoha_ppe_get_num_entries_shift(sram_ppe_num_data_entries);
+ 
+ 	for (i = 0; i < eth->soc->num_ppe; i++) {
+ 		dev_info(eth->dev, "Configuring PPE %d: SRAM entries %u, DRAM entries %u, stats entries %d\n",
+-			 i, sram_ppe_num_data_entries, dram_num_entries, sram_num_stats_entries);
++			 i, sram_entry_count, dram_entry_count,
++			 sram_num_stats_entries > 0 ? sram_num_stats_entries : 0);
+ 
++		if (sram_only)
++			airoha_fe_clear(eth, REG_PPE_GLO_CFG(i), PPE_GLO_CFG_EN_MASK);
+ 		airoha_fe_wr(eth, REG_PPE_TB_BASE(i),
+-			     ppe->common.foe_dma +
+-			     (airoha_ppe_sram_only(eth) ? 0 : sram_tb_size));
++			     sram_only ? 0 : ppe->common.foe_dma + sram_tb_size);
+ 
+ 		if (airoha_is(eth, airoha_an7563)) {
+-			/* Keep TB_BASE dynamic and use the AN7563 SDK setup, but
+-			 * leave the DRAM table disabled by driver policy. The
+-			 * 512-entry SRAM table remains available.
++			/* Use the AN7563 SDK setup without a DRAM table, hash mode
++			 * or size. The 512-entry SRAM table remains available.
+ 			 */
+ 			airoha_fe_wr(eth, REG_PPE_GLO_CFG(i),
+ 				     AN7563_PPE_GLO_CFG & ~PPE_GLO_CFG_EN_MASK);
+@@ -441,7 +449,11 @@ static void airoha_ppe_hw_init(struct ai
+ 				     AN7563_PPE_IP_PROTO0);
+ 			airoha_fe_wr(eth, REG_PPE_IP_PROT(i, 1),
+ 				     AN7563_PPE_IP_PROTO1);
+-			airoha_fe_wr(eth, REG_PPE_TB_CFG(i), AN7563_PPE_TB_CFG);
++			airoha_fe_wr(eth, REG_PPE_TB_CFG(i),
++				     AN7563_PPE_TB_CFG &
++				     ~(EN7523_PPE_DRAM_TABLE_EN_MASK |
++				       EN7523_PPE_DRAM_HASH0_MODE_MASK |
++				       PPE_DRAM_TB_NUM_ENTRY_MASK));
+ 			airoha_fe_wr(eth, REG_PPE_BIND_RATE(i),
+ 				     AN7563_PPE_BIND_RATE);
+ 			airoha_fe_wr(eth, REG_PPE_BIND_LIMIT0(i),
+@@ -594,15 +606,18 @@ static void airoha_ppe_hw_init(struct ai
+ 				      EN7581_PPE_SRAM_HASH0_MODE_MASK |
+ 				      EN7581_PPE_SRAM_HASH1_MODE_MASK |
+ 				      EN7581_PPE_DRAM_HASH0_MODE_MASK |
+-				      EN7581_PPE_DRAM_HASH1_MODE_MASK,
++				      EN7581_PPE_DRAM_HASH1_MODE_MASK |
++				      (sram_only ? EN7581_PPE_DRAM_HASH1_EN_MASK : 0),
+ 				      FIELD_PREP(EN7581_PPE_SRAM_TABLE_EN_MASK, 1) |
+ 				      FIELD_PREP(EN7581_PPE_SRAM_HASH1_EN_MASK, 1) |
+ 				      FIELD_PREP(EN7581_PPE_DRAM_TABLE_EN_MASK,
+-					 airoha_ppe_sram_only(eth) ? 0 : 1) |
++					 sram_only ? 0 : 1) |
+ 				      FIELD_PREP(EN7581_PPE_SRAM_HASH0_MODE_MASK, 1) |
+ 				      FIELD_PREP(EN7581_PPE_SRAM_HASH1_MODE_MASK, 1) |
+-				      FIELD_PREP(EN7581_PPE_DRAM_HASH0_MODE_MASK, 1) |
+-				      FIELD_PREP(EN7581_PPE_DRAM_HASH1_MODE_MASK, 3));
++				      FIELD_PREP(EN7581_PPE_DRAM_HASH0_MODE_MASK,
++					 sram_only ? 0 : 1) |
++				      FIELD_PREP(EN7581_PPE_DRAM_HASH1_MODE_MASK,
++					 sram_only ? 0 : 3));
+ 
+ 			airoha_fe_rmw(eth, REG_PPE_TB_CFG(i),
+ 				      PPE_TB_CFG_SEARCH_MISS_MASK |
+@@ -2511,7 +2526,8 @@ static int airoha_ppe_wait_for_npu_init(
+ 
+ static int airoha_ppe_offload_setup(struct airoha_eth *eth)
+ {
+-	struct airoha_npu *npu = airoha_ppe_npu_get(eth);
++	struct airoha_npu *npu = airoha_ppe_sram_only(eth) ?
++				 ERR_PTR(-EOPNOTSUPP) : airoha_ppe_npu_get(eth);
+ 	struct airoha_ppe *ppe = eth->ppe;
+ 	int err, ppe_num_stats_entries;
+ 
+@@ -2685,17 +2701,34 @@ static void airoha_ppe_common_init(struc
+ 	common->dev.parent = eth->dev;
+ }
+ 
++static void airoha_ppe_free_foe(void *data)
++{
++	kvfree(data);
++}
++
+ static int airoha_ppe_common_alloc_foe(struct airoha_ppe_common *common,
+ 				       size_t size)
+ {
+ 	struct device *dev = common->eth->dev;
++	bool sram_only = airoha_ppe_sram_only(common->eth);
+ 
+-	common->foe = dmam_alloc_coherent(dev, size, &common->foe_dma, GFP_KERNEL);
++	if (sram_only) {
++		/* SRAM transactions use MMIO; this is only a CPU-side mirror. */
++		common->foe = kvzalloc(size, GFP_KERNEL);
++		common->foe_dma = 0;
++	} else {
++		common->foe = dmam_alloc_coherent(dev, size, &common->foe_dma,
++						GFP_KERNEL);
++	}
+ 	if (!common->foe)
+ 		return dev_err_probe(dev, -ENOMEM,
+ 				     "failed to allocate %zu bytes for PPE FoE table\n",
+ 				     size);
+ 
++	if (sram_only)
++		return devm_add_action_or_reset(dev, airoha_ppe_free_foe,
++					       common->foe);
++
+ 	return 0;
+ }
+ 
+@@ -2800,6 +2833,13 @@ static int airoha_ppe_datapath_init(stru
+ 	}
+ 
+ 	eth->ppe = ppe;
++	if (airoha_ppe_sram_only(eth)) {
++		airoha_ppe_hw_init(ppe);
++		dma_wmb();
++		WRITE_ONCE(ppe->offload_setup_done, true);
++		dev_info(eth->dev,
++			 "PPE offload setup completed (SRAM-only, CPU-direct)\n");
++	}
+ 	airoha_ppe_common_enable(&ppe->common);
+ 	dev_info(eth->dev, "PPE Initialization completed successfully\n");
+ 	return 0;
