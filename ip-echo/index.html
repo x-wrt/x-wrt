@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IP Echo</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    }
+    body {
+      margin: 0;
+      min-height: 100dvh;
+      display: grid;
+      place-items: center;
+      background: #111417;
+      color: #e9edf1;
+    }
+    main {
+      width: min(92vw, 32rem);
+      padding: 2rem;
+      border: 1px solid #2a3037;
+      border-radius: 8px;
+      background: #181d22;
+    }
+    h1 { font-size: 1rem; margin: 0 0 1rem; }
+    #ip {
+      min-height: 2.25rem;
+      font-size: clamp(1.5rem, 5vw, 2rem);
+      overflow-wrap: anywhere;
+      color: #4ade80;
+    }
+    #status { min-height: 1.25rem; color: #8b949e; margin-top: .75rem; }
+    button {
+      margin-top: 1.5rem;
+      padding: .5rem .75rem;
+      border: 1px solid #30363d;
+      border-radius: 4px;
+      background: #21262d;
+      color: #e6edf3;
+      cursor: pointer;
+    }
+    button:hover { background: #2b3138; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Your IP Address</h1>
+    <div id="ip">Loading...</div>
+    <div id="status"></div>
+    <button id="refresh" type="button">Refresh</button>
+  </main>
+  <script>
+    const endpoints = [
+      'https://api.ipify.org?format=json',
+      'https://api64.ipify.org?format=json'
+    ];
+
+    const ipElement = document.getElementById('ip');
+    const statusElement = document.getElementById('status');
+
+    async function fetchIp(url) {
+      const response = await fetch(url, { cache: 'no-store' });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const data = await response.json();
+      if (!data.ip) {
+        throw new Error('No IP in response');
+      }
+      return data.ip;
+    }
+
+    async function loadIp() {
+      ipElement.textContent = 'Loading...';
+      statusElement.textContent = '';
+      try {
+        ipElement.textContent = await fetchIp(endpoints[0]);
+      } catch {
+        try {
+          ipElement.textContent = await fetchIp(endpoints[1]);
+        } catch (error) {
+          ipElement.textContent = 'Unavailable';
+          statusElement.textContent = `Fetch failed: ${error.message}`;
+        }
+      }
+    }
+
+    document.getElementById('refresh').addEventListener('click', loadIp);
+    loadIp();
+  </script>
+</body>
+</html>
