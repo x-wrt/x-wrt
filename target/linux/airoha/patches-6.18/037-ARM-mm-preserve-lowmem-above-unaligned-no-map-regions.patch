@@ -1,0 +1,38 @@
+Subject: [PATCH] ARM: mm: preserve lowmem above unaligned no-map regions
+
+adjust_lowmem_bounds() uses memblock_limit to constrain early page table
+allocations below the first bank boundary that is not PMD-aligned. This
+limit can be lower than arm_lowmem_limit, which describes the final
+linear mapping and is restored as the allocation limit by paging_init().
+
+With HIGHMEM disabled, removing memory above memblock_limit also drops
+usable lowmem when a small no-map reservation splits a memory bank and a
+separate reservation exists at the end of DRAM. On AN7563, the 64 KiB
+ramoops region at 0x86ff0000 and the top-of-RAM QDMA buffers cause RAM at
+0x86e00000-0xa0000000 to be discarded, leaving only 110 MiB of 512 MiB.
+
+Discard only memory above arm_lowmem_limit and report that same boundary.
+Keep the early allocation limit and the no-map reservations unchanged,
+so ramoops does not gain a cacheable alias of its write-combined mapping.
+
+---
+--- a/arch/arm/mm/mmu.c
++++ b/arch/arm/mm/mmu.c
+@@ -1267,10 +1267,15 @@
+ 			phys_addr_t end = memblock_end_of_DRAM();
+ 
+ 			pr_notice("Ignoring RAM at %pa-%pa\n",
+-				  &memblock_limit, &end);
++				  &arm_lowmem_limit, &end);
+ 			pr_notice("Consider using a HIGHMEM enabled kernel.\n");
+ 
+-			memblock_remove(memblock_limit, end - memblock_limit);
++			/*
++			 * memblock_limit can be lower to keep early page table
++			 * allocations below an unaligned bank. Only discard
++			 * memory outside the final lowmem mapping.
++			 */
++			memblock_remove(arm_lowmem_limit, end - arm_lowmem_limit);
+ 		}
+ 	}
+ 
