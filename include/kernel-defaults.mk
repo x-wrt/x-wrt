@@ -226,7 +226,7 @@ define Kernel/AppendInitrdInit
 			-A -F $(KERNEL_BUILD_DIR)/initrd$(1).cpio )
 endef
 
-# $1: Custom TARGET_DIR. If omitted TARGET_DIR is used.
+# $1: Custom TARGET_DIR. If omitted TARGET_DIR_INITRAMFS is used.
 # $2: If defined Generate Per Rootfs Kernel Directory and use it
 # For Separate Initramfs, the regular kernel is used as is, as its config
 # already has the ramdisk support (see Kernel/SetNoInitramfs)
@@ -234,14 +234,14 @@ define Kernel/CompileImage/Initramfs
 	$(if $(CONFIG_TARGET_ROOTFS_INITRAMFS_SEPARATE),, \
 		$(call Kernel/PrepareConfigPerRootfs,$(LINUX_DIR)$(if $(2),$(2),-initramfs)))
 	$(if $(CONFIG_TARGET_ROOTFS_INITRAMFS_SEPARATE),, \
-		$(call Kernel/Configure/Initramfs,$(if $(1),$(1),$(TARGET_DIR)),$(LINUX_DIR)$(if $(2),$(2),-initramfs)))
+		$(call Kernel/Configure/Initramfs,$(if $(1),$(1),$(TARGET_DIR_INITRAMFS)),$(LINUX_DIR)$(if $(2),$(2),-initramfs)))
 	$(if $(CONFIG_TARGET_ROOTFS_INITRAMFS_SEPARATE),, \
 		rm -rf $(LINUX_DIR)$(if $(2),$(2),-initramfs)/usr/initramfs_data.cpio*)
 	$(if $(CONFIG_TARGET_ROOTFS_INITRAMFS_SEPARATE), \
 			$(call locked,{ \
 				$(if $(call qstrip,$(CONFIG_EXTERNAL_CPIO)), \
 					$(CP) $(CONFIG_EXTERNAL_CPIO) $(KERNEL_BUILD_DIR)/initrd$(2).cpio;,\
-					( cd $(if $(1),$(1),$(TARGET_DIR)); find . | LC_ALL=C sort | $(STAGING_DIR_HOST)/bin/cpio --reproducible -o -H newc -R 0:0 > $(KERNEL_BUILD_DIR)/initrd$(2).cpio ); \
+					( cd $(if $(1),$(1),$(TARGET_DIR_INITRAMFS)); find . | LC_ALL=C sort | $(STAGING_DIR_HOST)/bin/cpio --reproducible -o -H newc -R 0:0 > $(KERNEL_BUILD_DIR)/initrd$(2).cpio ); \
 					$(call Kernel/AppendInitrdInit,$(2));) \
 				$(if $(SOURCE_DATE_EPOCH), \
 					touch -hcd "@$(SOURCE_DATE_EPOCH)" $(KERNEL_BUILD_DIR)/initrd$(2).cpio;) \

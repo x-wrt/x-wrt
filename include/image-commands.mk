@@ -460,7 +460,7 @@ define Build/fit-its
 		$(if $(filter external-with-rootfs external-static-with-rootfs,$(1)),-r $(IMAGE_ROOTFS)) \
 		$(if $(filter with-initrd,$(1)), \
 			$(if $(CONFIG_TARGET_ROOTFS_INITRAMFS_SEPARATE), \
-				-i $(KERNEL_BUILD_DIR)/initrd$(if $(TARGET_PER_DEVICE_ROOTFS),.$(ROOTFS_ID/$(DEVICE_NAME))).cpio$(strip $(call Build/initrd_compression)))) \
+				-i $(KERNEL_BUILD_DIR)/initrd$(if $(call initramfs_id,$(DEVICE_NAME)),.$(call initramfs_id,$(DEVICE_NAME))).cpio$(strip $(call Build/initrd_compression)))) \
 		-a $(KERNEL_LOADADDR) -e $(if $(KERNEL_ENTRY),$(KERNEL_ENTRY),$(KERNEL_LOADADDR)) \
 		$(if $(DEVICE_FDT_NUM),-n $(DEVICE_FDT_NUM)) \
 		$(if $(DEVICE_DTS_DELIMITER),-l $(DEVICE_DTS_DELIMITER)) \
