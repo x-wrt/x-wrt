@@ -140,6 +140,8 @@ APK_INSTALL_ARGS = \
 	libc=$(shell cat $(STAGING_DIR)/libc.version) \
 	kernel=$(subst -rc,_rc,$(shell cat $(STAGING_DIR)/kernel.version))
 
+INITRAMFS_INSTALL_PACKAGES = $(foreach pkg,$(sort $(INITRAMFS_PACKAGES)),$(pkg)$(call GetABISuffix,$(pkg)))
+
 define apk_install_rootfs
 	mkdir -p $(TARGET_DIR)/tmp
 	$(file >$(TMP_DIR)/apk_install_list,$(APK_INSTALL_ARGS))
@@ -177,6 +179,27 @@ else
 	done || true
 	$(CP) $(TARGET_DIR) $(TARGET_DIR_ORIG)
 	$(call prepare_rootfs,$(TARGET_DIR),$(TOPDIR)/files)
+endif
+ifneq ($(INITRAMFS_PACKAGES),)
+	rm -rf $(TARGET_DIR_INITRAMFS) $(TARGET_DIR_INITRAMFS).orig
+	$(CP) $(TARGET_DIR_ORIG) $(TARGET_DIR_INITRAMFS)
+ifneq ($(CONFIG_USE_APK),)
+	$(call apk,$(TARGET_DIR_INITRAMFS)) add --no-cache --no-scripts --arch $(ARCH_PACKAGES) \
+		--repositories-file /dev/null --repository file://$(PACKAGE_DIR_ALL)/packages.adb \
+		$(if $(CONFIG_SIGNED_PACKAGES),,--allow-untrusted) \
+		$(INITRAMFS_INSTALL_PACKAGES)
+	rm -rf $(TARGET_DIR_INITRAMFS)/run
+else
+	-mv $(TARGET_DIR_INITRAMFS)/etc/opkg $(TARGET_DIR_INITRAMFS).opkg
+	echo 'src default file://$(PACKAGE_DIR_ALL)' > $(TARGET_DIR_INITRAMFS).conf
+	$(call opkg,$(TARGET_DIR_INITRAMFS)) -f $(TARGET_DIR_INITRAMFS).conf update
+	$(call opkg,$(TARGET_DIR_INITRAMFS)) -f $(TARGET_DIR_INITRAMFS).conf install \
+		$(foreach pkg,$(INITRAMFS_INSTALL_PACKAGES),$(or $(call opkg_package_files,$(pkg)),$(pkg)))
+	-$(CP) -T $(TARGET_DIR_INITRAMFS).opkg/ $(TARGET_DIR_INITRAMFS)/etc/opkg/
+	rm -rf $(TARGET_DIR_INITRAMFS).opkg $(TARGET_DIR_INITRAMFS).conf
+endif
+	$(CP) $(TARGET_DIR_INITRAMFS) $(TARGET_DIR_INITRAMFS).orig
+	$(call prepare_rootfs,$(TARGET_DIR_INITRAMFS),$(TOPDIR)/files)
 endif
 
 $(curdir)/index: FORCE
