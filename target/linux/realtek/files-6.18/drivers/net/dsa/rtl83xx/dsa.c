@@ -79,10 +79,41 @@ static void rtldsa_port_set_salrn(struct otto_dsa_priv *priv,
 				  int port, bool enable)
 {
 	int shift = SALRN_PORT_SHIFT(port);
-	int val = enable ? SALRN_MODE_HARDWARE : SALRN_MODE_DISABLED;
+	u32 val = enable ? SALRN_MODE_HARDWARE : SALRN_MODE_DISABLED;
 
-	sw_w32_mask(SALRN_MODE_MASK << shift, val << shift,
+	sw_w32_mask((u32)SALRN_MODE_MASK << shift, val << shift,
 		    priv->r->l2_port_new_salrn(port));
+}
+
+static int rtldsa_setup_learning(struct otto_dsa_priv *priv)
+{
+	struct dsa_switch *ds = priv->ds;
+	struct dsa_port *dp;
+	int err = 0;
+
+	mutex_lock(&priv->reg_mutex);
+	priv->r->l2_learning_setup(priv);
+
+	/* Standalone ports must send all traffic to the CPU, without learned
+	 * destinations on other user ports being dropped by port isolation.
+	 */
+	dsa_switch_for_each_port(dp, ds) {
+		rtldsa_port_set_salrn(priv, dp->index, false);
+		if (priv->r->enable_learning)
+			priv->r->enable_learning(priv, dp->index, false);
+	}
+
+	/* Discard dynamic entries left by the bootloader or a previous driver. */
+	if (priv->r->fast_age) {
+		dsa_switch_for_each_user_port(dp, ds) {
+			err = priv->r->fast_age(priv, dp->index, -1);
+			if (err)
+				break;
+		}
+	}
+	mutex_unlock(&priv->reg_mutex);
+
+	return err;
 }
 
 static int rtldsa_83xx_setup(struct dsa_switch *ds)
@@ -127,9 +158,9 @@ static int rtldsa_83xx_setup(struct dsa_switch *ds)
 
 	ds->configure_vlan_while_not_filtering = true;
 
-	priv->r->l2_learning_setup(priv);
-
-	rtldsa_port_set_salrn(priv, priv->r->cpu_port, false);
+	err = rtldsa_setup_learning(priv);
+	if (err)
+		return err;
 	ds->assisted_learning_on_cpu_port = true;
 
 	/* Make sure all frames sent to the switch's MAC are trapped to the CPU-port
@@ -183,9 +214,9 @@ static int rtldsa_93xx_setup(struct dsa_switch *ds)
 
 	ds->configure_vlan_while_not_filtering = true;
 
-	priv->r->l2_learning_setup(priv);
-
-	rtldsa_port_set_salrn(priv, priv->r->cpu_port, false);
+	err = rtldsa_setup_learning(priv);
+	if (err)
+		return err;
 	ds->assisted_learning_on_cpu_port = true;
 
 	priv->r->pie_init(priv);
