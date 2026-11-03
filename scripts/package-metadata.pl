@@ -259,6 +259,21 @@ sub condition_implies {
 	return 0;
 }
 
+sub ordered_providers {
+	my ($providers) = @_;
+	my @ordered;
+
+	foreach my $pkg (@$providers) {
+		next if $pkg->{buildonly};
+		if ($pkg->{variant_default}) {
+			unshift @ordered, $pkg;
+		} else {
+			push @ordered, $pkg;
+		}
+	}
+	return @ordered;
+}
+
 sub mconf_depends {
 	my $pkgname = shift;
 	my $depends = shift;
@@ -300,16 +315,7 @@ sub mconf_depends {
 			my $rank;
 			my $negation;
 			if ($vdep) {
-				my @vdeps;
-
-				foreach my $v (@$vdep) {
-					next if $v->{buildonly};
-					if ($v->{variant_default}) {
-						unshift @vdeps, $v->{name};
-					} else {
-						push @vdeps, $v->{name};
-					}
-				}
+				my @vdeps = map { $_->{name} } ordered_providers($vdep);
 
 				$depend = shift @vdeps;
 
@@ -386,48 +392,50 @@ sub mconf_conflicts {
 	return $res;
 }
 
-sub add_implicit_provides_conflicts {
+sub resolve_provides_conflicts {
+	my %selected_provides;
+	foreach my $pkg (values %package) {
+		foreach my $entry (@{$pkg->{depends}}, @{$pkg->{mdepends}}) {
+			my $depend = $entry;
+			next unless $depend =~ s/^([@\+]+)// && $1 =~ /\+/;
+			$depend =~ s/^.*://;
+			$selected_provides{$depend} = 1;
+		}
+	}
+
 	foreach my $provide (keys %vpackage) {
 		next if $provide =~ /-any$/;
 
 		my $providers = $vpackage{$provide};
 		next unless $providers && @$providers > 1;
 
-		my $default_pkg;
-		my @non_defaults;
-
-		foreach my $pkg (@$providers) {
-			next if $pkg->{buildonly};
-			if ($pkg->{variant_default}) {
-				$default_pkg = $pkg;
-			} else {
-				push @non_defaults, $pkg;
-			}
-		}
-
-		next unless $default_pkg && @non_defaults;
+		my ($default_pkg, @non_defaults) = ordered_providers($providers);
+		next unless $default_pkg;
 
 		my %existing_conflicts;
 		if ($default_pkg->{conflicts}) {
 			%existing_conflicts = map { $_ => 1 } @{$default_pkg->{conflicts}};
 		}
 
-		foreach my $non_default (@non_defaults) {
-			next if $existing_conflicts{$non_default->{name}};
-
-			my $already_conflicts = 0;
-			if ($non_default->{conflicts}) {
-				foreach my $c (@{$non_default->{conflicts}}) {
-					if ($c eq $default_pkg->{name}) {
-						$already_conflicts = 1;
-						last;
-					}
-				}
+		foreach my $non_default (grep { !$_->{variant_default} } @non_defaults) {
+			my $reverse_conflict = grep { $_ eq $default_pkg->{name} }
+				@{$non_default->{conflicts} || []};
+			if ($reverse_conflict) {
+				next unless $selected_provides{$provide};
+				# A conditional select of the preferred provider references
+				# every alternative. A conflict in the opposite direction
+				# would close a Kconfig dependency cycle. Conflicts forbid
+				# the same y/y combination in either direction, so orient
+				# them like the select. This only affects Kconfig output.
+				@{$non_default->{conflicts}} = grep { $_ ne $default_pkg->{name} }
+					@{$non_default->{conflicts}};
 			}
-			next if $already_conflicts;
+			next if $existing_conflicts{$non_default->{name}};
+			next unless $default_pkg->{variant_default} || $reverse_conflict;
 
 			$default_pkg->{conflicts} ||= [];
 			push @{$default_pkg->{conflicts}}, $non_default->{name};
+			$existing_conflicts{$non_default->{name}} = 1;
 		}
 	}
 }
@@ -528,7 +536,7 @@ sub print_package_overrides() {
 sub gen_package_config() {
 	parse_package_metadata($ARGV[0]) or exit 1;
 	init_bool_symbols();
-	add_implicit_provides_conflicts();
+	resolve_provides_conflicts();
 	print "menuconfig IMAGEOPT\n\tbool \"Image configuration\"\n\tdefault n\n";
 	print "source \"package/*/image-config.in\"\n";
 	if (scalar glob "package/feeds/*/*/image-config.in") {
