@@ -57,6 +57,25 @@ menu "Target Images"
 			help
 			  Kernel uses specified external cpio as INITRAMFS_SOURCE.
 
+		config TARGET_INITRAMFS_PACKAGES
+			string "Additional initramfs packages"
+			depends on TARGET_ROOTFS_INITRAMFS && EXTERNAL_CPIO = ""
+			default ""
+			help
+			  Space-separated list of extra packages to install into initramfs
+			  in addition to packages selected as built-in (*) and the target's
+			  DEVICE_PACKAGES for the current device. Device packages selected as
+			  built-in (*) or module (M) are included regardless of the per-device
+			  root filesystem setting. Dependencies are installed automatically.
+			  Leave empty to add no extra packages.
+			  CONFIG_TARGET_DEVICE_PACKAGES_* does not add packages to initramfs.
+
+			  Select the listed packages as built-in (*) or module (M) so they
+			  are available during image generation. Select packages as modules
+			  to add them only to initramfs without adding them to the regular
+			  firmware.
+			  The files/ directory is applied to both root filesystems.
+
 		config TARGET_INITRAMFS_FORCE
 			bool "Force"
 			depends on TARGET_ROOTFS_INITRAMFS

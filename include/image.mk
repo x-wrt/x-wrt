@@ -13,6 +13,11 @@ ifndef IB
   ifdef CONFIG_TARGET_PER_DEVICE_ROOTFS
     TARGET_PER_DEVICE_ROOTFS := 1
   endif
+  ifdef CONFIG_TARGET_ROOTFS_INITRAMFS
+    ifeq ($(call qstrip,$(CONFIG_EXTERNAL_CPIO)),)
+      TARGET_PER_DEVICE_INITRAMFS := 1
+    endif
+  endif
 endif
 
 include $(INCLUDE_DIR)/feeds.mk
@@ -36,6 +41,7 @@ param_unmangle = $(subst _,$(space),$(1))
 
 mkfs_packages_id = $(shell echo $(sort $(1)) | $(MKHASH) md5 | cut -b1-8)
 mkfs_target_dir = $(if $(call param_get,pkg,$(1)),$(KDIR)/target-dir-$(call param_get,pkg,$(1)),$(TARGET_DIR))
+initramfs_id = $(if $(TARGET_PER_DEVICE_INITRAMFS),$(INITRAMFS_ID/$(1)),$(if $(TARGET_PER_DEVICE_ROOTFS),$(ROOTFS_ID/$(1))))
 
 KDIR=$(KERNEL_BUILD_DIR)
 KDIR_TMP=$(KDIR)/tmp
@@ -367,6 +373,7 @@ mkfs_packages = $(filter-out @%,$(PACKAGES_$(call param_get,pkg,pkg=$(target_par
 mkfs_packages_add = $(foreach pkg,$(filter-out -% ~%,$(mkfs_packages)),$(pkg)$(call GetABISuffix,$(pkg)))
 mkfs_packages_remove = $(foreach pkg,$(patsubst -%,%,$(filter -%,$(mkfs_packages))),$(pkg)$(call GetABISuffix,$(pkg)))
 mkfs_cur_target_dir = $(call mkfs_target_dir,pkg=$(target_params))
+mkfs_target_dir_orig = $(TARGET_DIR_ORIG)
 
 opkg_target = \
 	$(call opkg,$(mkfs_cur_target_dir)) \
@@ -377,17 +384,19 @@ apk_target = \
 		--repositories-file /dev/null --repository file://$(PACKAGE_DIR_ALL)/packages.adb
 
 
-target-dir-%: FORCE
 ifneq ($(CONFIG_USE_APK),)
+define prepare_target_dir
 	rm -rf $(mkfs_cur_target_dir)
-	$(CP) $(TARGET_DIR_ORIG) $(mkfs_cur_target_dir)
+	$(CP) $(mkfs_target_dir_orig) $(mkfs_cur_target_dir)
 	$(if $(mkfs_packages_remove), \
 		-$(apk_target) del $(mkfs_packages_remove))
 	$(if $(mkfs_packages_add), \
 		$(apk_target) add $(mkfs_packages_add))
+endef
 else
+define prepare_target_dir
 	rm -rf $(mkfs_cur_target_dir) $(mkfs_cur_target_dir).opkg
-	$(CP) $(TARGET_DIR_ORIG) $(mkfs_cur_target_dir)
+	$(CP) $(mkfs_target_dir_orig) $(mkfs_cur_target_dir)
 	-mv $(mkfs_cur_target_dir)/etc/opkg $(mkfs_cur_target_dir).opkg
 	echo 'src default file://$(PACKAGE_DIR_ALL)' > $(mkfs_cur_target_dir).conf
 	$(if $(mkfs_packages_remove), \
@@ -399,7 +408,18 @@ else
 			$(call opkg_package_files,$(mkfs_packages_add)))
 	-$(CP) -T $(mkfs_cur_target_dir).opkg/ $(mkfs_cur_target_dir)/etc/opkg/
 	rm -rf $(mkfs_cur_target_dir).opkg $(mkfs_cur_target_dir).conf
+endef
 endif
+
+target-dir-%: FORCE
+	$(prepare_target_dir)
+	$(call prepare_rootfs,$(mkfs_cur_target_dir),$(TOPDIR)/files)
+
+initramfs-target-dir-%: mkfs_cur_target_dir = $(KDIR)/initramfs-target-dir-$*
+initramfs-target-dir-%: mkfs_target_dir_orig = $(if $(INITRAMFS_PACKAGES),$(TARGET_DIR_INITRAMFS).orig,$(TARGET_DIR_ORIG))
+initramfs-target-dir-%: mkfs_packages = $(INITRAMFS_PACKAGES_$*)
+initramfs-target-dir-%: FORCE
+	$(prepare_target_dir)
 	$(call prepare_rootfs,$(mkfs_cur_target_dir),$(TOPDIR)/files)
 
 $(KDIR)/root.%: kernel_prepare
@@ -593,6 +613,12 @@ define Device/Check/Common
     ROOTFS_ID/$(1) := $$(if $$(_PROFILE_SET),$$(call mkfs_packages_id,$$(_PACKAGES)))
     PACKAGES_$$(ROOTFS_ID/$(1)) := $$(_PACKAGES)
   endif
+  ifdef TARGET_PER_DEVICE_INITRAMFS
+    $$(eval $$(call merge_packages,_INITRAMFS_DEVICE_PACKAGES,$$(DEVICE_PACKAGES)))
+    _INITRAMFS_PACKAGES := $$(sort $$(filter-out -% ~% @%,$$(_INITRAMFS_DEVICE_PACKAGES)))
+    INITRAMFS_ID/$(1) := $$(if $$(_PROFILE_SET),$$(call mkfs_packages_id,$$(_INITRAMFS_PACKAGES)))
+    INITRAMFS_PACKAGES_$$(INITRAMFS_ID/$(1)) := $$(_INITRAMFS_PACKAGES)
+  endif
 endef
 
 define Device/Check
@@ -605,10 +631,10 @@ define Device/Check
 endef
 
 ifndef IB
-ifdef TARGET_PER_DEVICE_ROOTFS
+ifneq ($(TARGET_PER_DEVICE_INITRAMFS)$(TARGET_PER_DEVICE_ROOTFS),)
 # Build each package-set-specific initramfs kernel only once.
-$(KDIR)/.initramfs-kernel.%: image_prepare target-dir-%
-	$(call Kernel/CompileImage/Initramfs,$(KDIR)/target-dir-$*,.$*)
+$(KDIR)/.initramfs-kernel.%: image_prepare $(if $(TARGET_PER_DEVICE_INITRAMFS),initramfs-)target-dir-%
+	$(call Kernel/CompileImage/Initramfs,$(KDIR)/$(if $(TARGET_PER_DEVICE_INITRAMFS),initramfs-)target-dir-$*,.$*)
 	@touch $@
 endif
 
@@ -618,8 +644,8 @@ define Device/Build/initramfs
 	  $$(if $$(CONFIG_JSON_OVERVIEW_IMAGE_INFO), $(BUILD_DIR)/json_info_files/$$(KERNEL_INITRAMFS_IMAGE).json,))
 
   $(KDIR)/$$(KERNEL_INITRAMFS_NAME):: image_prepare
-  ifdef TARGET_PER_DEVICE_ROOTFS
-    $(KDIR)/$$(KERNEL_INITRAMFS_NAME).$$(ROOTFS_ID/$(1)):: $(KDIR)/.initramfs-kernel.$$(ROOTFS_ID/$(1))
+  ifneq ($(TARGET_PER_DEVICE_INITRAMFS)$(TARGET_PER_DEVICE_ROOTFS),)
+    $(KDIR)/$$(KERNEL_INITRAMFS_NAME).$$(call initramfs_id,$(1)):: $(KDIR)/.initramfs-kernel.$$(call initramfs_id,$(1))
   endif
   $(1)-initramfs-images: $$(if $$(KERNEL_INITRAMFS),$(BIN_DIR)/$$(KERNEL_INITRAMFS_IMAGE))
 
@@ -629,7 +655,7 @@ define Device/Build/initramfs
 	cp $$^ $$@
 
   $(KDIR)/tmp/$$(KERNEL_INITRAMFS_IMAGE): $(KDIR)/$$(KERNEL_INITRAMFS_NAME)$$(strip \
-						$(if $(TARGET_PER_DEVICE_ROOTFS),.$$(ROOTFS_ID/$(1))) \
+						$(if $(TARGET_PER_DEVICE_INITRAMFS)$(TARGET_PER_DEVICE_ROOTFS),.$$(call initramfs_id,$(1))) \
 					) $(CURDIR)/Makefile $$(KERNEL_DEPENDS) image_prepare
 	@rm -f $$@
 	$$(call concat_cmd,$$(KERNEL_INITRAMFS))
