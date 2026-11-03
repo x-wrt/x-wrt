@@ -25,6 +25,10 @@ and no traditional RGMII/SGMII.
 It also doesn't use in-band tagging like other qca8k switches so a out of
 band based tagger is used.
 
+Keep hardware learning disabled by default on standalone user ports.
+They can only forward to the CPU port, so a destination learned on
+another user port would be filtered before reaching software forwarding.
+
 Signed-off-by: Robert Marko <robert.marko@sartura.hr>
 ---
  drivers/net/dsa/qca/Kconfig         |   8 +
@@ -753,9 +757,9 @@ Signed-off-by: Robert Marko <robert.marko@sartura.hr>
 +		if (ret)
 +			return ret;
 +
-+		/* Enable ARP Auto-learning by default */
-+		ret = regmap_set_bits(priv->regmap, QCA8K_PORT_LOOKUP_CTRL(port),
-+				      QCA8K_PORT_LOOKUP_LEARN);
++		/* Keep learning disabled while user ports are standalone. */
++		ret = regmap_clear_bits(priv->regmap, QCA8K_PORT_LOOKUP_CTRL(port),
++					QCA8K_PORT_LOOKUP_LEARN);
 +		if (ret)
 +			return ret;
 +
