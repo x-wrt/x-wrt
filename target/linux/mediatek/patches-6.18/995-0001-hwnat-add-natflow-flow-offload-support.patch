@@ -1735,7 +1735,7 @@ Signed-off-by: Chen Minqiang <ptpt52@gmail.com>
  	return 0;
 --- /dev/null
 +++ b/drivers/net/ethernet/mediatek/mtk_ppe_offload1.c
-@@ -0,0 +1,780 @@
+@@ -0,0 +1,782 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + *  Copyright (C) 2020 Felix Fietkau <nbd@nbd.name>
@@ -1843,11 +1843,13 @@ Signed-off-by: Chen Minqiang <ptpt52@gmail.com>
 +
 +#ifdef CONFIG_NET_MEDIATEK_SOC_WED
 +static int
-+mtk_flow_get_wdma_info(struct net_device *dev, const u8 *addr, struct mtk_wdma_info *info)
++mtk_flow_get_wdma_info(struct net_device *dev, const u8 *addr,
++                       struct mtk_wdma_info *info, bool rx)
 +{
 +	struct net_device_path_stack stack;
 +	struct net_device_path_ctx ctx = {
 +		.dev = dev,
++		.mtk_wdma_rx = rx,
 +	};
 +	struct net_device_path *path;
 +	int err;
@@ -1988,7 +1990,7 @@ Signed-off-by: Chen Minqiang <ptpt52@gmail.com>
 +	if (!(src->flags & FLOW_OFFLOAD_PATH_WED_DIS) && !src->dev->netdev_ops->ndo_flow_offload && src->dev->netdev_ops->ndo_fill_forward_path) {
 +		struct mtk_wdma_info info = {};
 +
-+		if (mtk_flow_get_wdma_info(src->dev, src->eth_dest, &info) == 0) {
++		if (mtk_flow_get_wdma_info(src->dev, src->eth_dest, &info, true) == 0) {
 +			wed_src = true;
 +			wed->rx_index = info.wdma_idx;
 +			wed->rx_wcid = info.wcid;
@@ -2016,7 +2018,7 @@ Signed-off-by: Chen Minqiang <ptpt52@gmail.com>
 +		int err;
 +		struct mtk_wdma_info info = {};
 +
-+		if (mtk_flow_get_wdma_info(dest->dev, dest->eth_dest, &info) == 0) {
++		if (mtk_flow_get_wdma_info(dest->dev, dest->eth_dest, &info, false) == 0) {
 +			wed->tx_index = info.wdma_idx;
 +			wed->tx_wcid = info.wcid;
 +			mtk_foe_entry_set_wdma(eth, entry, info.wdma_idx, info.queue, info.bss, info.wcid, info.amsdu);
@@ -2130,7 +2132,7 @@ Signed-off-by: Chen Minqiang <ptpt52@gmail.com>
 +	if (!(src->flags & FLOW_OFFLOAD_PATH_WED_DIS) && !src->dev->netdev_ops->ndo_flow_offload && src->dev->netdev_ops->ndo_fill_forward_path) {
 +		struct mtk_wdma_info info = {};
 +
-+		if (mtk_flow_get_wdma_info(src->dev, src->eth_dest, &info) == 0) {
++		if (mtk_flow_get_wdma_info(src->dev, src->eth_dest, &info, true) == 0) {
 +			wed_src = true;
 +			wed->rx_index = info.wdma_idx;
 +			wed->rx_wcid = info.wcid;
@@ -2158,7 +2160,7 @@ Signed-off-by: Chen Minqiang <ptpt52@gmail.com>
 +		int err;
 +		struct mtk_wdma_info info = {};
 +
-+		if (mtk_flow_get_wdma_info(dest->dev, dest->eth_dest, &info) == 0) {
++		if (mtk_flow_get_wdma_info(dest->dev, dest->eth_dest, &info, false) == 0) {
 +			wed->tx_index = info.wdma_idx;
 +			wed->tx_wcid = info.wcid;
 +			mtk_foe_entry_set_wdma(eth, entry, info.wdma_idx, info.queue, info.bss, info.wcid, info.amsdu);

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-only
-"""Run the production natflow WED ownership/flush/idle paths with mocked hardware."""
+"""Run production NATflow WED path, ownership, flush and idle code with mocks."""
 import os
 from pathlib import Path
 import shlex
@@ -36,12 +36,31 @@ for name, signature in (
     assert production == function(added_source('ramips', name), signature)
     functions.append(production)
 
-mock = (base / 'natflow-wed-mock.c').read_text()
-with tempfile.TemporaryDirectory(prefix='natflow-wed-test-') as tmp:
-    source, binary = Path(tmp) / 'test.c', Path(tmp) / 'test'
-    source.write_text(mock.replace('/* PRODUCTION */', '\n'.join(functions)))
-    subprocess.run(shlex.split(os.environ.get('CC', 'cc')) + [
-        '-std=gnu11', '-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter',
-        '-O1', '-g', '-fsanitize=address,undefined', '-fno-omit-frame-pointer',
-        str(source), '-o', str(binary)], check=True)
-    subprocess.run([str(binary)], check=True)
+
+def run(mock_name, production):
+    mock = (base / mock_name).read_text()
+    with tempfile.TemporaryDirectory(prefix='natflow-wed-test-') as tmp:
+        source, binary = Path(tmp) / 'test.c', Path(tmp) / 'test'
+        source.write_text(mock.replace('/* PRODUCTION */', '\n'.join(production)))
+        subprocess.run(shlex.split(os.environ.get('CC', 'cc')) + [
+            '-std=gnu11', '-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter',
+            '-O1', '-g', '-fsanitize=address,undefined', '-fno-omit-frame-pointer',
+            str(source), '-o', str(binary)], check=True)
+        subprocess.run([str(binary)], check=True)
+
+
+run('natflow-wed-mock.c', functions)
+
+functions = []
+for signature in (
+    'mtk_flow_get_wdma_info(',
+    'mtk_offload_prepare_v4(',
+    'mtk_offload_prepare_v6(',
+):
+    production = function(added_source('mediatek', 'mtk_ppe_offload1.c'), signature)
+    if signature == 'mtk_flow_get_wdma_info(':
+        assert production == function(added_source('ramips', 'mtk_ppe_offload1.c'),
+                                      signature)
+    functions.append('static int\n' + production)
+
+run('natflow-wed-path-mock.c', functions)
