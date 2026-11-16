@@ -1,8 +1,6 @@
 dhcp_is_on() {
-        local ifname="$1"
-        local rv=1
-        udhcpc -n -q -s /bin/true -t 3 -i "$ifname" >&- && rv=0 || rv=1
-        return $rv
+	# Always keep the wired DHCP blocking rule in place.
+	return 0
 }
 
 handle_if_event() {
