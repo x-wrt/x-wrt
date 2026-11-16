@@ -56,11 +56,12 @@ handle_if_event_net() {
 			need_reload=2;
 		else
 			uci set wireless.wifinet1.ssid="${wifinet1ssid}"
-			hidden=1
+			hidden=0
 		fi
 
-		if [ "$hidden" = "1" ]; then
-			uci set wireless.wifinet1.hidden="0"
+		# Keep the IP announcement SSID hidden.
+		if [ "$hidden" != "1" ]; then
+			uci set wireless.wifinet1.hidden="1"
 			uci commit wireless
 			need_reload=2
 			wifi_reload=1
@@ -78,7 +79,7 @@ handle_if_event_net() {
 	fi
 
 	if [ "$need_reload" = "1" ]; then
-		logger -t handle_if_event_net ifname=$ifname ACTION=$ACTION reload network set wifi off
+		logger -t handle_if_event_net ifname=$ifname ACTION=$ACTION reload network set wifi hidden
 		#ubus call network reload
 		#sleep 30
 		hostapd_cli -i ap1 set ssid "$(uci get wireless.wifinet1.ssid)"
@@ -88,11 +89,11 @@ handle_if_event_net() {
 			hostapd_cli -i ap1 enable
 		fi
 	elif [ "$need_reload" = "2" ]; then
-		logger -t handle_if_event_net ifname=$ifname ACTION=$ACTION reload network set wifi on ssid="$(uci get wireless.wifinet1.ssid)"
+		logger -t handle_if_event_net ifname=$ifname ACTION=$ACTION reload network set wifi hidden ssid="$(uci get wireless.wifinet1.ssid)"
 		#ubus call network reload
 		#sleep 30
 		hostapd_cli -i ap1 set ssid "$(uci get wireless.wifinet1.ssid)"
-		hostapd_cli -i ap1 set ignore_broadcast_ssid 0
+		hostapd_cli -i ap1 set ignore_broadcast_ssid 1
 		if [ "$wifi_reload" = "1" ]; then
 			hostapd_cli -i ap1 disable
 			hostapd_cli -i ap1 enable
