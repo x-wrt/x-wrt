@@ -956,8 +956,8 @@
 				     <GIC_SPI 122 IRQ_TYPE_LEVEL_HIGH>,
 				     <GIC_SPI 123 IRQ_TYPE_LEVEL_HIGH>;
 			airoha,scu = <&scuclk>;
-			memory-region = <&npu_binary>, <&npu_dma>, <&npu_coherent>;
-			memory-region-names = "binary", "dma", "coherent";
+			memory-region = <&npu_binary>, <&npu_dma>;
+			memory-region-names = "binary", "dma";
 
 			status = "disabled";
 		};

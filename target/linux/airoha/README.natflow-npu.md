@@ -86,14 +86,17 @@ natflow 后由接收方释放，不再进入普通 RX 转发。
   协议仍需在实际 EVB 上验证；新增 profile 属于接入配置。
 - `an758x-npu-wlan.dtsi` 共享原有无线缓冲区预留，只有无线配置包含它。
   Nokia MD/MF 等无无线设备不预留这些无线缓冲区。
-- NPU V2 的 DMA 地址限定在 `0x80000000` 至 `0xbfffffff`。所有 AN7581/
-  AN7583 配置另预留 1 MiB streaming 池与 1 MiB coherent 池；无线配置
-  分别扩大到 64 MiB 与 8 MiB。两池由内核在该窗口内动态选址，原有
-  firmware、无线缓冲区和 QDMA 预留继续保留。coherent 池供 mailbox 和
-  连续描述符使用，支持 MT7992 的单次 512 KiB 分配；streaming 池供
-  mt76 收发包映射使用。池缺失、未正确挂接或地址越界时拒绝启动 NPU，
-  池耗尽时分配失败，不向不受约束的内存回退。PPE 传给 NPU 的外部
-  缓冲区也须位于该窗口，否则拒绝对应 NPU 操作。
+- NPU V2 核心访问的主机内存限定在 `0x80000000` 至 `0xbfffffff`。
+  AN7581/AN7583 预留一个名为 `dma` 的独占 coherent 池，普通配置为
+  1 MiB，无线配置为 16 MiB，覆盖 MT7996 约 11 MiB 的 rings/RRO/TXD
+  用量和 MT7992 的单次 512 KiB 分配。池由内核在窗口内动态选址，
+  firmware、无线固定缓冲区和 QDMA 预留继续保留。池缺失、未正确挂接
+  或地址越界时拒绝启动 NPU；池耗尽时分配失败，不向全局内存回退。
+  PPE 传给 NPU 核心的缓冲区也须位于该窗口，否则拒绝对应 NPU 操作。
+  mt76 streaming 包映射由 Wi-Fi DMA 引擎使用，保留普通 32 位 DMA
+  映射，不强制进入 restricted-dma-pool。此策略参考
+  [NPU coherent 池 RFC 与实机报告](https://lkml.iu.edu/2610.3/00453.html)，
+  避免对每个包引入不必要的 SWIOTLB 搬运。
 - natflow 保持 8192 个逻辑槽、四路桶的 ABI。AN7581 的物理 PPE bank
   映射沿用现有双 PPE 实现，AN7583 使用单 PPE。AN7563、AN7581、AN7583
   均由基础驱动明确使用 SRAM-only、CPU-direct PPE，不启用 DRAM FOE
@@ -116,6 +119,8 @@ natflow 后由接收方释放，不再进入普通 RX 转发。
 - `941-06-*` 统一确定 AN7563、AN7581、AN7583 的 SRAM-only、CPU-direct
   策略，清除 DRAM 流表配置，并将 SRAM 软件镜像改为普通内存。这项
   基础策略不依赖 995；其他使用 DRAM 流表的平台继续使用 DMA 流表。
+- `942-01-*` 将 AN7581/AN7583 的 NPU DMA 策略收敛到独占 coherent
+  池，解除 streaming 包映射的受限池要求；该策略同样不依赖 995。
 - `994-01-*` 至 `994-04-*` 提供 PON 数据与控制接口、PPE 出口分类、原生
   TC 撤流和光模块 provider 检查，不依赖 natflow。
 - `995-0001-hwnat-add-natflow-flow-offload-support.patch` 集中提供 natflow

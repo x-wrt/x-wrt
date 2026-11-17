@@ -1,0 +1,121 @@
+From: X-WRT <dev@x-wrt.com>
+Subject: [PATCH] net: airoha: reserve the NPU window for coherent DMA only
+
+Use one exclusive shared DMA pool for NPU mailbox, rings and RRO/TXD
+allocations. Streaming packet mappings are consumed by the Wi-Fi DMA
+engine and must not be forced through a restricted SWIOTLB pool.
+Keep the 32-bit streaming mask and validate the NPU-visible reservations.
+
+Use the upstream proposed "dma" name for the coherent pool. The WLAN
+profiles reserve 16 MiB, covering the approximately 11 MiB used by MT7996
+and MT7992's contiguous 512 KiB descriptor allocations.
+
+Link: https://lkml.iu.edu/2610.3/00453.html
+Signed-off-by: X-WRT <dev@x-wrt.com>
+---
+diff --git a/Documentation/devicetree/bindings/net/airoha,en7581-npu.yaml b/Documentation/devicetree/bindings/net/airoha,en7581-npu.yaml
+index b692c53..78f70e1 100644
+--- a/Documentation/devicetree/bindings/net/airoha,en7581-npu.yaml
++++ b/Documentation/devicetree/bindings/net/airoha,en7581-npu.yaml
+@@ -45,26 +45,23 @@ properties:
+     oneOf:
+       - items:
+           - description: NPU firmware binary region
+-          - description: Restricted DMA pool for streaming packet mappings
+           - description: Non-reusable coherent DMA pool for mailbox and rings
+-        minItems: 1
++        minItems: 2
+       - items:
+           - description: NPU firmware binary region
+           - description: NPU wlan offload RX buffers region
+           - description: NPU wlan offload TX buffers region
+           - description: NPU wlan offload TX packet identifiers region
+           - description: NPU wlan Block Ack buffers region
+-          - description: Restricted DMA pool for streaming packet mappings
+           - description: Non-reusable coherent DMA pool for mailbox and rings
+-        minItems: 4
++        minItems: 6
+ 
+   memory-region-names:
+     oneOf:
+       - items:
+           - enum: [firmware, binary]
+           - const: dma
+-          - const: coherent
+-        minItems: 1
++        minItems: 2
+       - items:
+           - enum: [firmware, binary]
+           - const: pkt
+@@ -72,8 +69,7 @@ properties:
+           - const: tx-bufid
+           - const: ba
+           - const: dma
+-          - const: coherent
+-        minItems: 4
++        minItems: 6
+ 
+   firmware-name:
+     items:
+@@ -89,6 +85,7 @@ required:
+   - reg
+   - interrupts
+   - memory-region
++  - memory-region-names
+ 
+ additionalProperties: false
+ 
+@@ -119,7 +116,8 @@ examples:
+                      <GIC_SPI 122 IRQ_TYPE_LEVEL_HIGH>,
+                      <GIC_SPI 123 IRQ_TYPE_LEVEL_HIGH>;
+         memory-region = <&npu_firmware>, <&npu_pkt>, <&npu_txpkt>,
+-                        <&npu_txbufid>;
+-        memory-region-names = "firmware", "pkt", "tx-pkt", "tx-bufid";
++                        <&npu_txbufid>, <&npu_ba>, <&npu_dma>;
++        memory-region-names = "firmware", "pkt", "tx-pkt", "tx-bufid",
++                              "ba", "dma";
+       };
+     };
+diff --git a/drivers/net/ethernet/airoha/airoha_npu.c b/drivers/net/ethernet/airoha/airoha_npu.c
+index 0c08201..ea0b51c 100644
+--- a/drivers/net/ethernet/airoha/airoha_npu.c
++++ b/drivers/net/ethernet/airoha/airoha_npu.c
+@@ -16,7 +16,6 @@
+ #include <linux/of_reserved_mem.h>
+ #include <linux/regmap.h>
+ #include <linux/seq_file.h>
+-#include <linux/swiotlb.h>
+ #include <linux/xarray.h>
+ #include <linux/workqueue.h>
+ 
+@@ -1929,16 +1928,11 @@ static int airoha_npu_init_dma(struct airoha_npu *npu)
+ 	if (npu->soc_data->version != NPU_V2)
+ 		return 0;
+ 
+-	rmem = airoha_npu_dma_pool(npu, "dma", "restricted-dma-pool");
+-	if (IS_ERR(rmem))
+-		return dev_err_probe(dev, PTR_ERR(rmem), "Invalid NPU DMA pool\n");
+-	/* OF DMA configuration attaches this pool before the driver probes. */
+-	if (!IS_ENABLED(CONFIG_DMA_RESTRICTED_POOL) ||
+-	    !is_swiotlb_for_alloc(dev) || !rmem->priv)
+-		return dev_err_probe(dev, -ENODEV,
+-				     "NPU restricted DMA pool is not attached\n");
+-
+-	rmem = airoha_npu_dma_pool(npu, "coherent", "shared-dma-pool");
++	/* NPU cores access coherent rings, not streaming packet payloads.
++	 * Keep packet mappings on the ordinary Wi-Fi DMA path: a restricted
++	 * pool would bounce every packet through SWIOTLB unnecessarily.
++	 */
++	rmem = airoha_npu_dma_pool(npu, "dma", "shared-dma-pool");
+ 	if (IS_ERR(rmem))
+ 		return dev_err_probe(dev, PTR_ERR(rmem),
+ 				     "Invalid NPU coherent DMA pool\n");
+@@ -1947,7 +1941,7 @@ static int airoha_npu_init_dma(struct airoha_npu *npu)
+ 	 * The per-device pool is exclusive: exhaustion must fail rather than
+ 	 * fall back to an allocation outside the NPU's address window.
+ 	 */
+-	err = of_reserved_mem_device_init_by_name(dev, dev->of_node, "coherent");
++	err = of_reserved_mem_device_init_by_name(dev, dev->of_node, "dma");
+ 	if (err)
+ 		return dev_err_probe(dev, err, "Cannot attach NPU coherent DMA pool\n");
+ 
