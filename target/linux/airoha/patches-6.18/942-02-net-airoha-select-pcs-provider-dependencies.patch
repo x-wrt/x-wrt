@@ -1,0 +1,39 @@
+From: X-WRT <dev@x-wrt.com>
+Subject: [PATCH] net: airoha: select dependencies for standalone PCS consumers
+
+Follow the v21 Airoha PCS/phylink Kconfig dependencies so standalone PCS
+and Ethernet builds enable the provider and register access frameworks.
+Keep the AN7563/AN7583 and PON extensions in the existing driver.
+
+Upstream-author: Christian Marangi <ansuelsmth@gmail.com>
+Link: https://lore.kernel.org/r/20261116163412.551438-1-ansuelsmth@gmail.com
+Signed-off-by: X-WRT <dev@x-wrt.com>
+---
+diff --git a/drivers/net/ethernet/airoha/Kconfig b/drivers/net/ethernet/airoha/Kconfig
+index 2f32cbc..c0283fa 100644
+--- a/drivers/net/ethernet/airoha/Kconfig
++++ b/drivers/net/ethernet/airoha/Kconfig
+@@ -22,6 +22,7 @@ config NET_AIROHA_NPU
+ config NET_AIROHA
+ 	tristate "Airoha/EcoNet frame-engine Ethernet support"
+ 	depends on OF
++	select FWNODE_PCS
+ 	select MFD_SYSCON
+ 	select PHYLINK
+ 	select PAGE_POOL
+diff --git a/drivers/net/pcs/airoha/Kconfig b/drivers/net/pcs/airoha/Kconfig
+index dc1a3db..cd49924 100644
+--- a/drivers/net/pcs/airoha/Kconfig
++++ b/drivers/net/pcs/airoha/Kconfig
+@@ -2,7 +2,11 @@
+ 
+ config PCS_AIROHA
+ 	tristate
++	select PHYLINK
+ 	select FWNODE_PCS
++	select MFD_SYSCON
++	select REGMAP_MMIO
++	select GENERIC_PHY
+ 
+ config PCS_AIROHA_AN7581
+ 	tristate "Airoha AN7581 PCS driver"
