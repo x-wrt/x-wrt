@@ -121,6 +121,8 @@ natflow 后由接收方释放，不再进入普通 RX 转发。
   基础策略不依赖 995；其他使用 DRAM 流表的平台继续使用 DMA 流表。
 - `942-01-*` 将 AN7581/AN7583 的 NPU DMA 策略收敛到独占 coherent
   池，解除 streaming 包映射的受限池要求；该策略同样不依赖 995。
+- generic `737-11-*` 回移 PCS/phylink v21 的生命周期和能力更新修复，
+  `942-02-*` 补齐 Airoha PCS provider 的 Kconfig 依赖。
 - `994-01-*` 至 `994-04-*` 提供 PON 数据与控制接口、PPE 出口分类、原生
   TC 撤流和光模块 provider 检查，不依赖 natflow。
 - `995-0001-hwnat-add-natflow-flow-offload-support.patch` 集中提供 natflow

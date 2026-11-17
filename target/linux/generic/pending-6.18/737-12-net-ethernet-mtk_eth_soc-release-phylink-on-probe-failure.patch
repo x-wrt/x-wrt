@@ -1,0 +1,105 @@
+From: X-WRT <dev@x-wrt.com>
+Subject: [PATCH] net: ethernet: mtk_eth_soc: release phylink on probe failure
+
+MAC address NVMEM providers can defer probe after mtk_add_mac() has
+created phylink instances and attached their PCS. The early error paths
+skip mtk_free_dev(), which itself never destroys phylink. On reprobe the
+PCS remains attached to the leaked instance, so phylink_add_pcs() rejects
+it and the MAC cannot establish its SGMII/2500BASE-X link.
+
+Route all failures after MAC creation through netdev cleanup and destroy
+each phylink before freeing its netdev. Move notifier removal into the
+same cleanup path, clear failed MAC slots, and keep legacy LynxI PCS alive
+until their phylink consumers have been destroyed.
+
+Signed-off-by: X-WRT <dev@x-wrt.com>
+---
+--- a/drivers/net/ethernet/mediatek/mtk_eth_soc.c
++++ b/drivers/net/ethernet/mediatek/mtk_eth_soc.c
+@@ -4814,9 +4814,18 @@
+ 	int i;
+ 
+ 	for (i = 0; i < MTK_MAX_DEVS; i++) {
++		struct mtk_mac *mac;
++
+ 		if (!eth->netdev[i])
+ 			continue;
++
++		mac = netdev_priv(eth->netdev[i]);
++		if (MTK_HAS_CAPS(eth->soc->caps, MTK_QDMA))
++			unregister_netdevice_notifier(&mac->device_notifier);
++		phylink_destroy(mac->phylink);
+ 		free_netdev(eth->netdev[i]);
++		eth->netdev[i] = NULL;
++		eth->mac[i] = NULL;
+ 	}
+ 
+ 	for (i = 0; i < ARRAY_SIZE(eth->dsa_meta); i++) {
+@@ -4833,12 +4842,8 @@
+ 	int i;
+ 
+ 	for (i = 0; i < MTK_MAX_DEVS; i++) {
+-		struct mtk_mac *mac;
+ 		if (!eth->netdev[i])
+ 			continue;
+-		mac = netdev_priv(eth->netdev[i]);
+-		if (MTK_HAS_CAPS(eth->soc->caps, MTK_QDMA))
+-			unregister_netdevice_notifier(&mac->device_notifier);
+ 
+ 		if (eth->netdev[i]->reg_state != NETREG_REGISTERED)
+ 			continue;
+@@ -4859,9 +4864,9 @@
+ 
+ static int mtk_cleanup(struct mtk_eth *eth)
+ {
+-	mtk_sgmii_destroy(eth);
+ 	mtk_unreg_dev(eth);
+ 	mtk_free_dev(eth);
++	mtk_sgmii_destroy(eth);
+ 	cancel_work_sync(&eth->pending_work);
+ 	cancel_delayed_work_sync(&eth->reset.monitor_work);
+ 
+@@ -5469,6 +5474,8 @@
+ 
+ free_netdev:
+ 	free_netdev(eth->netdev[id]);
++	eth->netdev[id] = NULL;
++	eth->mac[id] = NULL;
+ 	return err;
+ }
+ 
+@@ -5748,7 +5755,7 @@
+ 		err = mtk_add_mac(eth, mac_np);
+ 		if (err) {
+ 			of_node_put(mac_np);
+-			goto err_deinit_hw;
++			goto err_free_dev;
+ 		}
+ 	}
+ 
+@@ -5761,7 +5768,7 @@
+ 
+ 		err = mtk_mac_assign_address(eth, i, true);
+ 		if (err)
+-			goto err_deinit_hw;
++			goto err_free_dev;
+ 	}
+ 
+ 	/* now actually assign MAC addresses to netdevs */
+@@ -5771,7 +5778,7 @@
+ 
+ 		err = mtk_mac_assign_address(eth, i, false);
+ 		if (err)
+-			goto err_deinit_hw;
++			goto err_free_dev;
+ 	}
+ 
+ 	if (MTK_HAS_CAPS(eth->soc->caps, MTK_SHARED_INT)) {
+@@ -5875,7 +5882,6 @@
+ 	mtk_mdio_cleanup(eth);
+ err_free_dev:
+ 	mtk_free_dev(eth);
+-err_deinit_hw:
+ 	mtk_hw_deinit(eth);
+ err_wed_exit:
+ 	mtk_wed_exit();

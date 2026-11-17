@@ -33,7 +33,7 @@ Signed-off-by: Jonas Jelonek <jonas@jonasjelonek.de>
  	u8 lane = pcs_to_b53_pcs(pcs)->lane;
 --- a/drivers/net/dsa/mt7530.c
 +++ b/drivers/net/dsa/mt7530.c
-@@ -3209,7 +3209,7 @@ static void mt7530_pcs_get_state(struct
+@@ -3210,7 +3210,7 @@ static void mt7530_pcs_get_state(struct
  static int mt753x_pcs_config(struct phylink_pcs *pcs, unsigned int neg_mode,
  			     phy_interface_t interface,
  			     const unsigned long *advertising,
@@ -347,7 +347,7 @@ Signed-off-by: Jonas Jelonek <jonas@jonasjelonek.de>
  
 --- a/drivers/net/phy/phylink.c
 +++ b/drivers/net/phy/phylink.c
-@@ -61,6 +61,8 @@ struct phylink {
+@@ -68,6 +68,8 @@ struct phylink {
  
  	/* The link configuration settings */
  	struct phylink_link_state link_config;
@@ -356,7 +356,7 @@ Signed-off-by: Jonas Jelonek <jonas@jonasjelonek.de>
  
  	/* List of available PCS */
  	struct list_head pcs_list;
-@@ -968,15 +970,20 @@ static int phylink_pcs_enable(struct phy
+@@ -1116,15 +1118,20 @@ static int phylink_pcs_enable(struct phy
  	return err;
  }
  
@@ -380,7 +380,7 @@ Signed-off-by: Jonas Jelonek <jonas@jonasjelonek.de>
  }
  
  static void phylink_pcs_link_up(struct phylink_pcs *pcs, unsigned int neg_mode,
-@@ -1415,7 +1422,7 @@ static void phylink_major_config(struct
+@@ -1564,7 +1571,7 @@ static void phylink_major_config(struct
  	if (pl->pcs_state == PCS_STATE_STARTING || pcs_changed)
  		phylink_pcs_enable(pl->pcs);
  
@@ -389,7 +389,7 @@ Signed-off-by: Jonas Jelonek <jonas@jonasjelonek.de>
  				 !!(pl->link_config.pause & MLO_PAUSE_AN));
  	if (err < 0) {
  		phylink_err(pl, "pcs_config failed: %pe\n", ERR_PTR(err));
-@@ -1484,7 +1491,7 @@ static int phylink_change_inband_advert(
+@@ -1633,7 +1640,7 @@ static int phylink_change_inband_advert(
  	 * restart negotiation if the pcs_config() helper indicates that
  	 * the programmed advertisement has changed.
  	 */
@@ -398,7 +398,7 @@ Signed-off-by: Jonas Jelonek <jonas@jonasjelonek.de>
  				 !!(pl->link_config.pause & MLO_PAUSE_AN));
  	if (ret < 0)
  		return ret;
-@@ -1723,6 +1730,8 @@ static void phylink_resolve(struct work_
+@@ -1872,6 +1879,8 @@ static void phylink_resolve(struct work_
  		mutex_lock(&phy->lock);
  	mutex_lock(&pl->state_mutex);
  	cur_link_state = phylink_link_is_up(pl);
@@ -407,7 +407,7 @@ Signed-off-by: Jonas Jelonek <jonas@jonasjelonek.de>
  
  	if (pl->phylink_disable_state) {
  		pl->link_failed = false;
-@@ -1877,6 +1886,12 @@ static int phylink_register_sfp(struct p
+@@ -2026,6 +2035,12 @@ static int phylink_register_sfp(struct p
  	}
  
  	pl->sfp_bus = bus;
@@ -420,7 +420,7 @@ Signed-off-by: Jonas Jelonek <jonas@jonasjelonek.de>
  
  	ret = sfp_bus_add_upstream(bus, pl, &sfp_phylink_ops);
  	sfp_bus_put(bus);
-@@ -3926,6 +3941,28 @@ int phylink_speed_up(struct phylink *pl)
+@@ -4180,6 +4195,28 @@ int phylink_speed_up(struct phylink *pl)
  }
  EXPORT_SYMBOL_GPL(phylink_speed_up);
  
@@ -449,7 +449,7 @@ Signed-off-by: Jonas Jelonek <jonas@jonasjelonek.de>
  static void phylink_sfp_attach(void *upstream, struct sfp_bus *bus)
  {
  	struct phylink *pl = upstream;
-@@ -3937,6 +3974,7 @@ static void phylink_sfp_detach(void *ups
+@@ -4191,6 +4228,7 @@ static void phylink_sfp_detach(void *ups
  {
  	struct phylink *pl = upstream;
  
@@ -457,17 +457,17 @@ Signed-off-by: Jonas Jelonek <jonas@jonasjelonek.de>
  	pl->netdev->sfp_bus = NULL;
  }
  
-@@ -4131,7 +4169,8 @@ static int phylink_sfp_config_optical(st
+@@ -4394,7 +4432,8 @@ static int phylink_sfp_config_optical(st
  
  	pl->link_port = pl->sfp_port;
  
--	phylink_sfp_set_config(pl, pl->sfp_support, &config, false);
+-	phylink_sfp_set_config(pl, sfp_supported, &config, false);
 +	/* A replacement may need setup with exactly the same interface/profile. */
-+	phylink_sfp_set_config(pl, pl->sfp_support, &config, true);
++	phylink_sfp_set_config(pl, sfp_supported, &config, true);
  
  	return 0;
  }
-@@ -4141,10 +4180,26 @@ static int phylink_sfp_module_insert(voi
+@@ -4404,10 +4443,26 @@ static int phylink_sfp_module_insert(voi
  {
  	const struct sfp_module_caps *caps;
  	struct phylink *pl = upstream;
@@ -491,10 +491,10 @@ Signed-off-by: Jonas Jelonek <jonas@jonasjelonek.de>
 +	pl->media.generation++;
 +	mutex_unlock(&pl->state_mutex);
 +
+ 	phy_interface_copy(pl->sfp_module_interfaces, caps->interfaces);
  	phy_interface_copy(pl->sfp_interfaces, caps->interfaces);
  	linkmode_copy(pl->sfp_support, caps->link_modes);
- 	pl->sfp_may_have_phy = caps->may_have_phy;
-@@ -4154,13 +4209,18 @@ static int phylink_sfp_module_insert(voi
+@@ -4418,13 +4473,18 @@ static int phylink_sfp_module_insert(voi
  	if (pl->sfp_may_have_phy)
  		return 0;
  
@@ -512,11 +512,11 @@ Signed-off-by: Jonas Jelonek <jonas@jonasjelonek.de>
  
 +	phylink_sfp_clear_media(pl);
  	phy_interface_zero(pl->sfp_interfaces);
+ 	phy_interface_zero(pl->sfp_module_interfaces);
  }
- 
 --- a/include/linux/phylink.h
 +++ b/include/linux/phylink.h
-@@ -458,6 +458,39 @@ int mac_enable_tx_lpi(struct phylink_con
+@@ -456,6 +456,39 @@ int mac_enable_tx_lpi(struct phylink_con
  struct phylink_pcs_ops;
  
  /**
@@ -556,8 +556,8 @@ Signed-off-by: Jonas Jelonek <jonas@jonasjelonek.de>
   * struct phylink_pcs - PHYLINK PCS instance
   * @supported_interfaces: describing which PHY_INTERFACE_MODE_xxx
   *                        are supported by this PCS.
-@@ -481,6 +514,8 @@ struct phylink_pcs {
- 	struct phylink *phylink;
+@@ -479,6 +512,8 @@ struct phylink_pcs {
+ 	struct phylink __rcu *phylink;
  	bool poll;
  	bool rxc_always_on;
 +	/** @media_teardown: accepts media-none configuration for attachment teardown */
@@ -565,7 +565,7 @@ Signed-off-by: Jonas Jelonek <jonas@jonasjelonek.de>
  
  	/* private: */
  	struct list_head list;
-@@ -523,7 +558,8 @@ struct phylink_pcs_ops {
+@@ -521,7 +556,8 @@ struct phylink_pcs_ops {
  	int (*pcs_config)(struct phylink_pcs *pcs, unsigned int neg_mode,
  			  phy_interface_t interface,
  			  const unsigned long *advertising,
@@ -575,7 +575,7 @@ Signed-off-by: Jonas Jelonek <jonas@jonasjelonek.de>
  	void (*pcs_an_restart)(struct phylink_pcs *pcs);
  	void (*pcs_link_up)(struct phylink_pcs *pcs, unsigned int neg_mode,
  			    phy_interface_t interface, int speed, int duplex);
-@@ -603,6 +639,7 @@ void pcs_get_state(struct phylink_pcs *p
+@@ -601,6 +637,7 @@ void pcs_get_state(struct phylink_pcs *p
   * @interface: interface mode to be used
   * @advertising: adertisement ethtool link mode mask
   * @permit_pause_to_mac: permit forwarding pause resolution to MAC
@@ -583,7 +583,7 @@ Signed-off-by: Jonas Jelonek <jonas@jonasjelonek.de>
   *
   * Configure the PCS for the operating mode, the interface mode, and set
   * the advertisement mask. @permit_pause_to_mac indicates whether the
-@@ -626,13 +663,22 @@ void pcs_get_state(struct phylink_pcs *p
+@@ -624,13 +661,22 @@ void pcs_get_state(struct phylink_pcs *p
   * or when the advertisement is possibly updated. It must not unnecessarily
   * disrupt an established link.
   *
