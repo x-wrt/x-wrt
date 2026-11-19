@@ -4,12 +4,13 @@
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/clock/en7523-clk.h>
 #include <dt-bindings/reset/airoha,an7583-reset.h>
-#include "an7583-pcie-gen3.dtsi"
 #include "an7583-npu-wlan.dtsi"
 
 &pcie0 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pcie0_rst_pins>;
+	num-lanes = <1>;
+	max-link-speed = <3>;
 	status = "okay";
 
 	pcie@0,0 {
