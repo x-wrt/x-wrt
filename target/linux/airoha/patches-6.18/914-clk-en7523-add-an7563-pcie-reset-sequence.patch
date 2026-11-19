@@ -20,7 +20,7 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
 
 --- a/Documentation/devicetree/bindings/clock/airoha,en7523-scu.yaml
 +++ b/Documentation/devicetree/bindings/clock/airoha,en7523-scu.yaml
-@@ -28,10 +28,13 @@ description: |
+@@ -28,11 +28,14 @@ description: |
  
  properties:
    compatible:
@@ -29,6 +29,7 @@ Signed-off-by: PTPT52.AI <ptpt52@gmail.com>
        - enum:
            - airoha,en7523-scu
            - airoha,en7581-scu
+           - airoha,an7583-scu
 +      - items:
 +          - const: airoha,an7563-scu
 +          - const: airoha,en7581-scu

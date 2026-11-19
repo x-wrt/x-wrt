@@ -62,11 +62,11 @@ Signed-off-by: X-WRT <dev@x-wrt.com>
  static int mtk_pcie_probe(struct platform_device *pdev)
  {
  	struct device *dev = &pdev->dev;
-@@ -1154,6 +1189,9 @@ static int mtk_pcie_probe(struct platfor
- 	if (err)
- 		goto put_resources;
+@@ -1189,6 +1224,9 @@ static int mtk_pcie_probe(struct platfor
+ 		regmap_write(pbus_regmap, args[1], GENMASK(31, __fls(size)));
+ 	}
  
-+	if (pcie->soc->is_an7563)
++	if (pcie->soc->quirks & MTK_PCIE_AN7563_SETUP)
 +		mtk_pcie_retrain_links(pcie, host->bus);
 +
  	return 0;
