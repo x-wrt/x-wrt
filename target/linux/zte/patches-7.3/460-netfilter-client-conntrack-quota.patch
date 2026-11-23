@@ -1,0 +1,664 @@
+Subject: [PATCH] netfilter: enforce SR1010 client quotas at conntrack admission
+
+--- a/net/netfilter/Kconfig
++++ b/net/netfilter/Kconfig
+@@ -144,6 +144,13 @@
+ 	  contained in different zones.
+ 
+ 	  If unsure, say `N'.
++
++config NF_CONNTRACK_CLIENT_QUOTA
++	bool "Connection quotas for configured client addresses"
++	depends on NF_CONNTRACK && PROC_FS
++	help
++	  Count and cap confirmed connections for a configured group of client
++	  IPv4 and IPv6 addresses, independent of flow offload.
+ 
+ config NF_CONNTRACK_PROCFS
+ 	bool "Supply CT list in procfs (OBSOLETE)"
+--- a/include/net/netfilter/nf_conntrack.h
++++ b/include/net/netfilter/nf_conntrack.h
+@@ -49,6 +49,10 @@
+ };
+ 
+ struct nf_conntrack_net {
++#ifdef CONFIG_NF_CONNTRACK_CLIENT_QUOTA
++	struct nf_ct_client_quota *client_quota;
++	struct ct_ip_bucket *client_ip_buckets;
++#endif
+ 	/* only used when new connection is allocated: */
+ 	atomic_t count;
+ 	unsigned int expect_count;
+--- a/net/netfilter/nf_conntrack_core.c
++++ b/net/netfilter/nf_conntrack_core.c
+@@ -207,6 +207,8 @@
+ seqcount_spinlock_t nf_conntrack_generation __read_mostly;
+ static siphash_aligned_key_t nf_conntrack_hash_rnd;
+ 
++#include "nf_conntrack_client_quota.h"
++
+ static u32 hash_conntrack_raw(const struct nf_conntrack_tuple *tuple,
+ 			      unsigned int zoneid,
+ 			      const struct net *net)
+@@ -507,6 +509,7 @@
+ static void
+ clean_from_lists(struct nf_conn *ct)
+ {
++	ct_client_release(ct);
+ 	hlist_nulls_del_rcu(&ct->tuplehash[IP_CT_DIR_ORIGINAL].hnnode);
+ 	hlist_nulls_del_rcu(&ct->tuplehash[IP_CT_DIR_REPLY].hnnode);
+ 
+@@ -900,6 +903,11 @@
+ 			goto out;
+ 		if (chainlen++ > max_chainlen)
+ 			goto chaintoolong;
++	}
++
++	if (!ct_client_admit(ct)) {
++		err = -EDQUOT;
++		goto out;
+ 	}
+ 
+ 	smp_wmb();
+@@ -1076,6 +1084,9 @@
+ 				    zone, net))
+ 			return __nf_ct_resolve_clash(skb, h);
+ 	}
++
++	if (!ct_client_admit(loser_ct))
++		return NF_DROP;
+ 
+ 	/* We want the clashing entry to go away real soon: 1 second timeout. */
+ 	WRITE_ONCE(loser_ct->timeout, nfct_time_stamp + HZ);
+@@ -1265,6 +1276,11 @@
+ 		}
+ 	}
+ 
++	if (!ct_client_admit(ct)) {
++		NF_CT_STAT_INC(net, insert_failed);
++		goto dying;
++	}
++
+ 	/* Timeout is relative to confirmation time, not original
+ 	   setting time, otherwise we'd get timer wrap in
+ 	   weird delay cases. */
+@@ -2508,6 +2524,7 @@
+ 	}
+ 
+ 	list_for_each_entry(net, net_exit_list, exit_list) {
++		ct_quota_exit(net);
+ 		warn_on_keymap_list_leak(net);
+ 		nf_conntrack_ecache_pernet_fini(net);
+ 		nf_conntrack_expect_pernet_fini(net);
+@@ -2756,9 +2773,15 @@
+ 	nf_conntrack_tstamp_pernet_init(net);
+ 	nf_conntrack_ecache_pernet_init(net);
+ 	nf_conntrack_proto_pernet_init(net);
++	ret = ct_quota_init(net);
++	if (ret)
++		goto err_quota;
+ 
+ 	return 0;
+ 
++err_quota:
++	nf_conntrack_ecache_pernet_fini(net);
++	nf_conntrack_expect_pernet_fini(net);
+ err_expect:
+ 	free_percpu(net->ct.stat);
+ 	return ret;
+--- /dev/null
++++ b/net/netfilter/nf_conntrack_client_quota.h
+@@ -0,0 +1,553 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/* Included by nf_conntrack_core.c to share its table mutation locks. */
++#ifdef CONFIG_NF_CONNTRACK_CLIENT_QUOTA
++
++#include <linux/capability.h>
++#include <linux/etherdevice.h>
++#include <linux/hashtable.h>
++#include <linux/hex.h>
++#include <linux/inet.h>
++#include <linux/jhash.h>
++#include <linux/uaccess.h>
++#include <net/ipv6.h>
++
++#define CT_QUOTA_CLIENTS 32
++#define CT_QUOTA_ADDRS 512
++#define CT_IP_BUCKETS 4096
++
++struct ct_ip_bucket {
++	spinlock_t lock;
++	struct hlist_head head;
++};
++
++struct ct_ip_count {
++	struct hlist_node node;
++	union nf_inet_addr addr;
++	u32 count;
++	u16 family;
++};
++
++static u32 ct_ip_hash(const union nf_inet_addr *addr, u16 family)
++{
++	return jhash(addr, family == NFPROTO_IPV4 ? sizeof(addr->ip) :
++		     sizeof(addr->ip6), family) & (CT_IP_BUCKETS - 1);
++}
++
++static struct ct_ip_count *ct_ip_find(struct nf_conntrack_net *cnet,
++			const union nf_inet_addr *addr, u16 family, u32 bucket)
++{
++	struct ct_ip_count *entry;
++	size_t len = family == NFPROTO_IPV4 ? sizeof(addr->ip) : sizeof(addr->ip6);
++
++	hlist_for_each_entry(entry, &cnet->client_ip_buckets[bucket].head, node)
++		if (entry->family == family && !memcmp(&entry->addr, addr, len))
++			return entry;
++	return NULL;
++}
++
++/* One constant-time bucket operation per distinct endpoint at confirmation
++ * and deletion. There is no timer or conntrack-table walk. */
++static bool ct_ip_change(struct nf_conntrack_net *cnet,
++			 const union nf_inet_addr *addr, u16 family, bool insert)
++{
++	u32 bucket = ct_ip_hash(addr, family);
++	struct ct_ip_count *entry;
++	bool ok = true;
++
++	spin_lock_bh(&cnet->client_ip_buckets[bucket].lock);
++	entry = ct_ip_find(cnet, addr, family, bucket);
++	if (insert) {
++		if (!entry) {
++			entry = kmalloc(sizeof(*entry), GFP_ATOMIC);
++			if (!entry) { ok = false; goto out; }
++			entry->addr = *addr;
++			entry->family = family;
++			entry->count = 0;
++			hlist_add_head(&entry->node, &cnet->client_ip_buckets[bucket].head);
++		}
++		if (entry->count == U32_MAX) { ok = false; goto out; }
++		entry->count++;
++	} else if (entry) {
++		if (WARN_ON_ONCE(!entry->count)) goto out;
++		if (!--entry->count) {
++			hlist_del(&entry->node);
++			kfree(entry);
++		}
++	}
++out:
++	spin_unlock_bh(&cnet->client_ip_buckets[bucket].lock);
++	return ok;
++}
++
++static u32 ct_ip_get(struct nf_conntrack_net *cnet,
++		     const union nf_inet_addr *addr, u16 family)
++{
++	u32 bucket = ct_ip_hash(addr, family), count = 0;
++	struct ct_ip_count *entry;
++
++	spin_lock_bh(&cnet->client_ip_buckets[bucket].lock);
++	entry = ct_ip_find(cnet, addr, family, bucket);
++	if (entry) count = entry->count;
++	spin_unlock_bh(&cnet->client_ip_buckets[bucket].lock);
++	return count;
++}
++
++static bool ct_ip_update(struct nf_conn *ct, bool insert)
++{
++	struct nf_conntrack_net *cnet = nf_ct_pernet(nf_ct_net(ct));
++	const struct nf_conntrack_tuple *orig = &ct->tuplehash[IP_CT_DIR_ORIGINAL].tuple;
++	const struct nf_conntrack_tuple *reply = &ct->tuplehash[IP_CT_DIR_REPLY].tuple;
++	u16 family = orig->src.l3num;
++	size_t len;
++
++	if (family != NFPROTO_IPV4 && family != NFPROTO_IPV6) return true;
++	len = family == NFPROTO_IPV4 ? sizeof(orig->src.u3.ip) : sizeof(orig->src.u3.ip6);
++	if (!ct_ip_change(cnet, &orig->src.u3, family, insert)) return false;
++	if (!memcmp(&orig->src.u3, &reply->src.u3, len)) return true;
++	if (ct_ip_change(cnet, &reply->src.u3, family, insert)) return true;
++	ct_ip_change(cnet, &orig->src.u3, family, false);
++	return false;
++}
++
++struct ct_quota_client {
++	spinlock_t lock;
++	u32 limit;
++	u32 count;
++	u8 mac[ETH_ALEN];
++};
++
++struct ct_quota_addr {
++	struct hlist_node node;
++	union nf_inet_addr addr;
++	u16 family;
++	u16 owner;
++};
++
++struct nf_ct_client_quota {
++	DECLARE_HASHTABLE(addresses, 8);
++	struct ct_quota_client clients[CT_QUOTA_CLIENTS];
++	struct ct_quota_addr keys[CT_QUOTA_ADDRS];
++	unsigned int clients_used;
++	unsigned int keys_used;
++};
++
++static int ct_quota_lookup(struct nf_ct_client_quota *quota,
++			   const union nf_inet_addr *addr, u16 family)
++{
++	struct ct_quota_addr *key;
++	size_t len = family == NFPROTO_IPV4 ? sizeof(addr->ip) : sizeof(addr->ip6);
++	u32 hash = jhash(addr, len, family);
++
++	hash_for_each_possible(quota->addresses, key, node, hash)
++		if (key->family == family && !memcmp(&key->addr, addr, len))
++			return key->owner;
++	return -1;
++}
++
++/* The source of each direction is its local endpoint on the LAN side of
++ * NAT. In particular the reply source includes the translated DNAT target.
++ */
++static void ct_quota_endpoints(struct nf_ct_client_quota *quota,
++			       const struct nf_conn *ct, int *first, int *second)
++{
++	const struct nf_conntrack_tuple *orig = &ct->tuplehash[IP_CT_DIR_ORIGINAL].tuple;
++	const struct nf_conntrack_tuple *reply = &ct->tuplehash[IP_CT_DIR_REPLY].tuple;
++	u16 family = orig->src.l3num;
++
++	*first = -1;
++	*second = -1;
++	if (family != NFPROTO_IPV4 && family != NFPROTO_IPV6)
++		return;
++
++	*first = ct_quota_lookup(quota, &orig->src.u3, family);
++	*second = ct_quota_lookup(quota, &reply->src.u3, family);
++	if (*first == *second)
++		*second = -1;
++	if (*second >= 0 && (*first < 0 || *second < *first))
++		swap(*first, *second);
++}
++
++/* Caller holds the conntrack bucket locks. A policy replacement takes the
++ * all-buckets barrier, so the address map cannot change during this call.
++ */
++static bool ct_quota_update(const struct nf_conn *ct, bool insert)
++{
++	struct nf_ct_client_quota *quota = READ_ONCE(nf_ct_pernet(nf_ct_net(ct))->client_quota);
++	struct ct_quota_client *a, *b = NULL;
++	int first, second;
++	bool allowed = true;
++
++	if (!quota)
++		return true;
++	ct_quota_endpoints(quota, ct, &first, &second);
++	if (first < 0)
++		return true;
++
++	a = &quota->clients[first];
++	if (second >= 0)
++		b = &quota->clients[second];
++
++	spin_lock(&a->lock);
++	if (b)
++		spin_lock_nested(&b->lock, SINGLE_DEPTH_NESTING);
++
++	if (insert) {
++		allowed = a->count < a->limit && (!b || b->count < b->limit);
++		if (allowed) {
++			a->count++;
++			if (b)
++				b->count++;
++		}
++	} else {
++		if (!WARN_ON_ONCE(!a->count))
++			a->count--;
++		if (b && !WARN_ON_ONCE(!b->count))
++			b->count--;
++	}
++
++	if (b)
++		spin_unlock(&b->lock);
++	spin_unlock(&a->lock);
++	return allowed;
++}
++
++static bool ct_client_admit(struct nf_conn *ct)
++{
++	if (!ct_quota_update(ct, true)) return false;
++	if (ct_ip_update(ct, true)) return true;
++	ct_quota_update(ct, false);
++	return false;
++}
++
++static void ct_client_release(struct nf_conn *ct)
++{
++	ct_quota_update(ct, false);
++	ct_ip_update(ct, false);
++}
++
++static int ct_quota_add(struct nf_ct_client_quota *quota, char *mac_text,
++			char *limit_text, char *address)
++{
++	struct ct_quota_client *client;
++	struct ct_quota_addr *key;
++	const char *end;
++	union nf_inet_addr addr = {};
++	u8 mac[ETH_ALEN];
++	unsigned int limit, owner;
++	size_t len;
++	u16 family;
++
++	if (strlen(mac_text) != 17 || !mac_pton(mac_text, mac) ||
++	    !is_valid_ether_addr(mac) || kstrtouint(limit_text, 10, &limit) ||
++	    !limit || limit > U16_MAX)
++		return -EINVAL;
++
++	if (in4_pton(address, -1, (u8 *)&addr.ip, -1, &end) && !*end) {
++		if (!addr.ip || ipv4_is_multicast(addr.ip) || ipv4_is_lbcast(addr.ip))
++			return -EINVAL;
++		family = NFPROTO_IPV4;
++		len = sizeof(addr.ip);
++	} else if (in6_pton(address, -1, (u8 *)&addr.in6, -1, &end) && !*end) {
++		if (ipv6_addr_any(&addr.in6) || ipv6_addr_is_multicast(&addr.in6) ||
++		    (addr.in6.s6_addr[0] == 0xfe && (addr.in6.s6_addr[1] & 0xc0) == 0x80))
++			return -EINVAL;
++		family = NFPROTO_IPV6;
++		len = sizeof(addr.ip6);
++	} else {
++		return -EINVAL;
++	}
++
++	for (owner = 0; owner < quota->clients_used; owner++)
++		if (ether_addr_equal(quota->clients[owner].mac, mac))
++			break;
++
++	if (owner == CT_QUOTA_CLIENTS || quota->keys_used == CT_QUOTA_ADDRS)
++		return -E2BIG;
++	if (ct_quota_lookup(quota, &addr, family) >= 0)
++		return -EEXIST;
++
++	client = &quota->clients[owner];
++	if (owner == quota->clients_used) {
++		ether_addr_copy(client->mac, mac);
++		client->limit = limit;
++		spin_lock_init(&client->lock);
++		quota->clients_used++;
++	} else if (client->limit != limit) {
++		return -EINVAL;
++	}
++
++	key = &quota->keys[quota->keys_used++];
++	key->addr = addr;
++	key->family = family;
++	key->owner = owner;
++	hash_add(quota->addresses, &key->node, jhash(&addr, len, family));
++	return 0;
++}
++
++static void ct_quota_replace(struct net *net, struct nf_ct_client_quota *next)
++{
++	struct nf_conntrack_net *cnet = nf_ct_pernet(net);
++	struct nf_ct_client_quota *old;
++	unsigned int i;
++
++	mutex_lock(&nf_conntrack_mutex);
++	old = cnet->client_quota;
++	if (!next && !old)
++		goto unlock;
++
++	/* Ordered control rows allow the common threshold-only update to keep
++	 * live counters with no traversal of existing connections.
++	 */
++	if (old && next && old->keys_used == next->keys_used &&
++	    old->clients_used == next->clients_used) {
++		bool same_bindings = true, same_limits = true;
++
++		for (i = 0; i < old->clients_used; i++) {
++			same_bindings &= ether_addr_equal(old->clients[i].mac,
++						  next->clients[i].mac);
++			same_limits &= old->clients[i].limit == next->clients[i].limit;
++		}
++		for (i = 0; i < old->keys_used && same_bindings; i++)
++			same_bindings = old->keys[i].family == next->keys[i].family &&
++				old->keys[i].owner == next->keys[i].owner &&
++				!memcmp(&old->keys[i].addr, &next->keys[i].addr,
++					sizeof(old->keys[i].addr));
++		if (same_bindings && same_limits) {
++			old = next;
++			goto unlock;
++		}
++		if (same_bindings) {
++			local_bh_disable();
++			nf_conntrack_all_lock();
++			for (i = 0; i < old->clients_used; i++)
++				old->clients[i].limit = next->clients[i].limit;
++			nf_conntrack_all_unlock();
++			local_bh_enable();
++			old = next;
++			goto unlock;
++		}
++	}
++
++	local_bh_disable();
++	nf_conntrack_all_lock();
++	/* Seed from incrementally maintained address totals, never from the
++	 * conntrack table. The all-buckets barrier freezes confirm/deletion.
++	 */
++	if (next)
++		for (i = 0; i < next->keys_used; i++) {
++			struct ct_quota_addr *key = &next->keys[i];
++			u32 count = ct_ip_get(cnet, &key->addr, key->family);
++
++			next->clients[key->owner].count =
++				min_t(u64, (u64)next->clients[key->owner].count + count, U32_MAX);
++		}
++	WRITE_ONCE(cnet->client_quota, next);
++	nf_conntrack_all_unlock();
++	local_bh_enable();
++unlock:
++	mutex_unlock(&nf_conntrack_mutex);
++	kvfree(old);
++}
++
++static int ct_quota_write(struct file *file, char *buf, size_t count)
++{
++	struct net *net = seq_file_single_net(file->private_data);
++	struct nf_ct_client_quota *next;
++	char *line;
++	int ret = -EINVAL;
++
++	if (!ns_capable(net->user_ns, CAP_NET_ADMIN))
++		return -EPERM;
++	if (!count || count >= PAGE_SIZE || memchr(buf, '\0', count))
++		return -EINVAL;
++	line = strsep(&buf, "\n");
++	if (strcmp(line, "replace"))
++		return -EINVAL;
++	if (!buf || !*buf) {
++		ct_quota_replace(net, NULL);
++		return 0;
++	}
++	next = kvzalloc(sizeof(*next), GFP_KERNEL);
++	if (!next)
++		return -ENOMEM;
++	hash_init(next->addresses);
++	while ((line = strsep(&buf, "\n"))) {
++		char *mac, *limit;
++
++		if (!*line && !buf)
++			break;
++		mac = strsep(&line, " ");
++		limit = strsep(&line, " ");
++		if (!limit || !line)
++			goto fail;
++		ret = ct_quota_add(next, mac, limit, line);
++		if (ret)
++			goto fail;
++		ret = -EINVAL;
++	}
++	ct_quota_replace(net, next);
++	return 0;
++fail:
++	kvfree(next);
++	return ret;
++}
++
++static int ct_quota_show(struct seq_file *seq, void *unused)
++{
++	struct nf_ct_client_quota *quota;
++	unsigned int i;
++
++	mutex_lock(&nf_conntrack_mutex);
++	quota = nf_ct_pernet(seq_file_single_net(seq))->client_quota;
++	seq_puts(seq, "version=1 quota=conntrack-total\n");
++	for (i = 0; quota && i < quota->clients_used; i++) {
++		const struct ct_quota_client *c = &quota->clients[i];
++
++		seq_printf(seq, "client_mac=%pM limit=%u total=%u\n",
++			   c->mac, c->limit, READ_ONCE(c->count));
++	}
++	mutex_unlock(&nf_conntrack_mutex);
++	return 0;
++}
++
++struct ct_ip_query {
++	struct net *net;
++	size_t len;
++	char reply[PAGE_SIZE];
++};
++
++static int ct_ip_query_open(struct inode *inode, struct file *file)
++{
++	struct ct_ip_query *query = kzalloc(sizeof(*query), GFP_KERNEL);
++
++	if (!query) return -ENOMEM;
++	query->net = get_net(pde_data(inode));
++	file->private_data = query;
++	return 0;
++}
++
++static int ct_ip_query_release(struct inode *inode, struct file *file)
++{
++	struct ct_ip_query *query = file->private_data;
++
++	put_net(query->net);
++	kfree(query);
++	return 0;
++}
++
++static ssize_t ct_ip_query_read(struct file *file, char __user *buffer,
++				size_t count, loff_t *position)
++{
++	struct ct_ip_query *query = file->private_data;
++
++	return simple_read_from_buffer(buffer, count, position,
++				       query->reply, query->len);
++}
++
++/* A single write can request several client addresses. Reads look up only
++ * those addresses; neither procfs nor rpcd enumerates conntrack entries.
++ */
++static ssize_t ct_ip_query_write(struct file *file, const char __user *buffer,
++				 size_t count, loff_t *position)
++{
++	struct ct_ip_query *query = file->private_data;
++	struct nf_conntrack_net *cnet = nf_ct_pernet(query->net);
++	char *input, *cursor, *line;
++	ssize_t result = count;
++
++	if (!count || count > PAGE_SIZE - 128) return -E2BIG;
++	input = memdup_user_nul(buffer, count);
++	if (IS_ERR(input)) return PTR_ERR(input);
++	query->len = scnprintf(query->reply, sizeof(query->reply),
++			      "version=1 source=conntrack-ip\n");
++	cursor = input;
++	while ((line = strsep(&cursor, "\n"))) {
++		union nf_inet_addr addr = {};
++		const char *end;
++		u16 family;
++		u32 value;
++
++		if (!*line) continue;
++		if (in4_pton(line, -1, (u8 *)&addr.ip, -1, &end) && !*end)
++			family = NFPROTO_IPV4;
++		else if (in6_pton(line, -1, (u8 *)&addr.in6, -1, &end) && !*end)
++			family = NFPROTO_IPV6;
++		else { result = -EINVAL; break; }
++		value = ct_ip_get(cnet, &addr, family);
++		if (query->len + strlen(line) + 32 >= sizeof(query->reply)) {
++			result = -E2BIG;
++			break;
++		}
++		query->len += scnprintf(query->reply + query->len,
++					 sizeof(query->reply) - query->len,
++					 "ip=%s count=%u\n", line, value);
++	}
++	kfree(input);
++	*position = 0;
++	return result;
++}
++
++static const struct proc_ops ct_ip_query_ops = {
++	.proc_open = ct_ip_query_open,
++	.proc_read = ct_ip_query_read,
++	.proc_write = ct_ip_query_write,
++	.proc_release = ct_ip_query_release,
++};
++
++static int ct_quota_init(struct net *net)
++{
++	struct nf_conntrack_net *cnet = nf_ct_pernet(net);
++	unsigned int i;
++
++	cnet->client_ip_buckets = kvcalloc(CT_IP_BUCKETS,
++					 sizeof(*cnet->client_ip_buckets), GFP_KERNEL);
++	if (!cnet->client_ip_buckets) return -ENOMEM;
++	for (i = 0; i < CT_IP_BUCKETS; i++) {
++		INIT_HLIST_HEAD(&cnet->client_ip_buckets[i].head);
++		spin_lock_init(&cnet->client_ip_buckets[i].lock);
++	}
++	if (!proc_create_data("nf_conntrack_ip_count", 0600, net->proc_net,
++			      &ct_ip_query_ops, net)) goto fail;
++	if (!proc_create_net_single_write("nf_conntrack_client_limits", 0600,
++				  net->proc_net, ct_quota_show, ct_quota_write, NULL)) {
++		remove_proc_entry("nf_conntrack_ip_count", net->proc_net);
++		goto fail;
++	}
++	return 0;
++fail:
++	kvfree(cnet->client_ip_buckets);
++	cnet->client_ip_buckets = NULL;
++	return -ENOMEM;
++}
++
++static void ct_quota_exit(struct net *net)
++{
++	struct nf_conntrack_net *cnet = nf_ct_pernet(net);
++	struct ct_ip_count *entry;
++	struct hlist_node *tmp;
++	unsigned int i;
++
++	remove_proc_entry("nf_conntrack_ip_count", net->proc_net);
++	remove_proc_entry("nf_conntrack_client_limits", net->proc_net);
++	/* The conntrack table for this namespace has drained. */
++	kvfree(xchg(&nf_ct_pernet(net)->client_quota, NULL));
++	for (i = 0; i < CT_IP_BUCKETS; i++)
++		hlist_for_each_entry_safe(entry, tmp, &cnet->client_ip_buckets[i].head, node) {
++			hlist_del(&entry->node);
++			kfree(entry);
++		}
++	kvfree(cnet->client_ip_buckets);
++}
++
++#else
++static inline bool ct_quota_update(const struct nf_conn *ct, bool insert)
++{
++	return true;
++}
++
++static inline bool ct_client_admit(struct nf_conn *ct) { return true; }
++static inline void ct_client_release(struct nf_conn *ct) {}
++
++static inline int ct_quota_init(struct net *net) { return 0; }
++static inline void ct_quota_exit(struct net *net) {}
++#endif

@@ -1,0 +1,3 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# A PPPoE or VLAN device of a WAN network may only exist once it is up.
+[ "$ACTION" = ifup ] && /usr/libexec/zx279133-wan-ports

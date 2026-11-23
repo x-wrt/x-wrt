@@ -1,0 +1,3 @@
+#!/bin/sh
+/etc/init.d/zx279133-wan-ports enable
+exit 0

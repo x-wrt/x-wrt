@@ -1,0 +1,1057 @@
+Subject: [PATCH] zte: retain optional SR1010 board diagnostics
+
+--- /dev/null
++++ b/Documentation/devicetree/bindings/net/zte,sr1010-rtl8372n-id-audit.yaml
+@@ -0,0 +1,42 @@
++# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/net/zte,sr1010-rtl8372n-id-audit.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: ZTE SR1010 RTL8372N read-only chip ID audit
++
++maintainers:
++  - cnjn <1779895255@qq.com>
++
++description:
++  A test-only, non-PHY MDIO child used to perform two fixed read-only chip ID
++  transactions against the RTL8372N switch. The audit is not present in normal
++  SR1010 device trees.
++
++properties:
++  compatible:
++    const: zte,sr1010-rtl8372n-id-audit
++
++  reg:
++    const: 29
++
++required:
++  - compatible
++  - reg
++
++additionalProperties: false
++
++examples:
++  - |
++    mdio {
++        #address-cells = <1>;
++        #size-cells = <0>;
++
++        switch-id-audit@1d {
++            compatible = "zte,sr1010-rtl8372n-id-audit";
++            reg = <0x1d>;
++        };
++    };
++
++...
+--- /dev/null
++++ b/Documentation/devicetree/bindings/net/zte,sr1010-zx279051-audit.yaml
+@@ -0,0 +1,42 @@
++# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/net/zte,sr1010-zx279051-audit.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: ZTE SR1010 ZX279051 read-only identification audit
++
++maintainers:
++  - cnjn <1779895255@qq.com>
++
++description:
++  A test-only MDIO child used to perform two fixed Clause 45 identification
++  reads from the ZX279051 WAN PHY. The audit has no write or reset operation
++  and is not present in normal SR1010 device trees.
++
++properties:
++  compatible:
++    const: zte,sr1010-zx279051-audit
++
++  reg:
++    const: 1
++
++required:
++  - compatible
++  - reg
++
++additionalProperties: false
++
++examples:
++  - |
++    mdio {
++        #address-cells = <1>;
++        #size-cells = <0>;
++
++        wan-audit@1 {
++            compatible = "zte,sr1010-zx279051-audit";
++            reg = <1>;
++        };
++    };
++
++...
+--- /dev/null
++++ b/Documentation/devicetree/bindings/soc/zte,zx279133-pwm-audit.yaml
+@@ -0,0 +1,50 @@
++# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/soc/zte,zx279133-pwm-audit.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: ZTE ZX279133 PWM read-only audit
++
++maintainers:
++  - ZTE Linux Team <zte.linux@gmail.com>
++
++description: |
++  This diagnostic node reads the raw MODE, PERIOD, and DUTY registers of the
++  firmware-configured PWM controller. It does not register a PWM provider,
++  prepare or enable clocks, request resets, select pinctrl, or modify controller
++  state. The clock references let the driver refuse MMIO access unless firmware
++  has already enabled both controller gates at their expected rates.
++
++properties:
++  compatible:
++    const: zte,zx279133-pwm-audit
++
++  reg:
++    maxItems: 1
++
++  clocks:
++    maxItems: 2
++
++  clock-names:
++    items:
++      - const: pclk
++      - const: wclk
++
++required:
++  - compatible
++  - reg
++  - clocks
++  - clock-names
++
++additionalProperties: false
++
++examples:
++  - |
++    pwm-audit@14f10000 {
++        compatible = "zte,zx279133-pwm-audit";
++        reg = <0x14f10000 0x1000>;
++        clocks = <&lsp1_clk 6>, <&lsp1_clk 7>;
++        clock-names = "pclk", "wclk";
++    };
++...
+--- /dev/null
++++ b/Documentation/devicetree/bindings/soc/zte,zx279133-xpcs-nppt-audit.yaml
+@@ -0,0 +1,63 @@
++# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/soc/zte,zx279133-xpcs-nppt-audit.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: ZTE ZX279133 XPCS and NPPT read-only audit
++
++maintainers:
++  - cnjn <1779895255@qq.com>
++
++description: |
++  This diagnostic-only node is instantiated only by a dedicated diagnostic
++  overlay supplied by an external build, never by a normal system DTS. It
++  takes a single, read-only snapshot of firmware-configured XPCS identification
++  and state registers and NPPT shadow registers when userspace first reads its
++  snapshot attribute. It does not provide an XPCS, PCS, PHY, MAC, or packet
++  processor and must not be used as a functional hardware description.
++
++properties:
++  compatible:
++    const: zte,zx279133-xpcs-nppt-audit
++
++  reg:
++    minItems: 3
++    maxItems: 3
++
++  reg-names:
++    items:
++      - const: xpcs0
++      - const: xpcs1
++      - const: nppt
++
++  clocks:
++    minItems: 2
++    maxItems: 2
++
++  clock-names:
++    items:
++      - const: xpcs-pclk
++      - const: nppt-wclk
++
++required:
++  - compatible
++  - reg
++  - reg-names
++  - clocks
++  - clock-names
++
++additionalProperties: false
++
++examples:
++  - |
++    audit@1a000000 {
++        compatible = "zte,zx279133-xpcs-nppt-audit";
++        reg = <0x1a000000 0x00200000>,
++              <0x1b000000 0x00200000>,
++              <0x19000000 0x00001000>;
++        reg-names = "xpcs0", "xpcs1", "nppt";
++        clocks = <&topcrm 18>, <&topcrm 20>;
++        clock-names = "xpcs-pclk", "nppt-wclk";
++    };
++...
+--- /dev/null
++++ b/drivers/net/mdio/mdio-sr1010-rtl8372n-audit.c
+@@ -0,0 +1,172 @@
++// SPDX-License-Identifier: GPL-2.0-only
++
++#include <linux/atomic.h>
++#include <linux/bitops.h>
++#include <linux/delay.h>
++#include <linux/mdio.h>
++#include <linux/module.h>
++#include <linux/mutex.h>
++#include <linux/of_address.h>
++#include <linux/of.h>
++#include <linux/phy.h>
++
++#define SR1010_RTL8372N_MDIO_BASE	0x14f01000
++#define SR1010_RTL8372N_MDIO_SIZE	0x1000
++#define SR1010_RTL8372N_ADDR		0x1d
++
++#define SR1010_RTL8372N_SMI_CTRL		0x15
++#define SR1010_RTL8372N_SMI_BUSY		BIT(2)
++#define SR1010_RTL8372N_SMI_ADDR		0x16
++#define SR1010_RTL8372N_SMI_DATA_LOW	0x17
++#define SR1010_RTL8372N_SMI_DATA_HIGH	0x18
++
++#define SR1010_RTL8372N_ID_REG		0x0004
++#define SR1010_RTL8372N_READ_CMD		0x001b
++#define SR1010_RTL8372N_ID_PREFIX	0x837270
++#define SR1010_RTL8372N_POLL_MAX		32
++
++struct sr1010_rtl8372n_counts {
++	unsigned int reads;
++	unsigned int writes;
++	unsigned int polls[4];
++};
++
++static atomic_t sr1010_rtl8372n_audit_attempted = ATOMIC_INIT(0);
++
++static int rtl8372n_read(struct mdio_device *mdiodev, u32 reg,
++			 struct sr1010_rtl8372n_counts *counts)
++{
++	counts->reads++;
++	return __mdiodev_read(mdiodev, reg);
++}
++
++static int rtl8372n_write(struct mdio_device *mdiodev, u32 reg, u16 value,
++			  struct sr1010_rtl8372n_counts *counts)
++{
++	counts->writes++;
++	return __mdiodev_write(mdiodev, reg, value);
++}
++
++static int sr1010_rtl8372n_wait_ready(struct mdio_device *mdiodev,
++				      struct sr1010_rtl8372n_counts *counts,
++				      unsigned int poll)
++{
++	unsigned int i;
++	int value;
++
++	for (i = 0; i < SR1010_RTL8372N_POLL_MAX; i++) {
++		counts->polls[poll]++;
++		value = rtl8372n_read(mdiodev, SR1010_RTL8372N_SMI_CTRL, counts);
++		if (value < 0)
++			return value;
++		if (!(value & SR1010_RTL8372N_SMI_BUSY))
++			return 0;
++		if (i + 1 < SR1010_RTL8372N_POLL_MAX)
++			usleep_range(100, 200);
++	}
++
++	return -ETIMEDOUT;
++}
++
++static int sr1010_rtl8372n_read_id(struct mdio_device *mdiodev,
++				   struct sr1010_rtl8372n_counts *counts,
++				   unsigned int first_poll, u32 *id)
++{
++	int high;
++	int low;
++	int ret;
++
++	ret = sr1010_rtl8372n_wait_ready(mdiodev, counts, first_poll);
++	if (ret)
++		return ret;
++
++	ret = rtl8372n_write(mdiodev, SR1010_RTL8372N_SMI_ADDR,
++			     SR1010_RTL8372N_ID_REG, counts);
++	if (ret)
++		return ret;
++
++	ret = rtl8372n_write(mdiodev, SR1010_RTL8372N_SMI_CTRL,
++			     SR1010_RTL8372N_READ_CMD, counts);
++	if (ret)
++		return ret;
++
++	ret = sr1010_rtl8372n_wait_ready(mdiodev, counts, first_poll + 1);
++	if (ret)
++		return ret;
++
++	low = rtl8372n_read(mdiodev, SR1010_RTL8372N_SMI_DATA_LOW, counts);
++	if (low < 0)
++		return low;
++
++	high = rtl8372n_read(mdiodev, SR1010_RTL8372N_SMI_DATA_HIGH, counts);
++	if (high < 0)
++		return high;
++
++	*id = (u32)high << 16 | low;
++
++	return 0;
++}
++
++static int sr1010_rtl8372n_audit_probe(struct mdio_device *mdiodev)
++{
++	struct sr1010_rtl8372n_counts counts = { };
++	struct device *parent = mdiodev->bus->parent;
++	struct resource resource;
++	u32 first;
++	u32 second;
++	int ret;
++
++	if (mdiodev->addr != SR1010_RTL8372N_ADDR || !parent ||
++	    !of_device_is_compatible(parent->of_node, "zte,zx279133-mdio") ||
++	    of_address_to_resource(parent->of_node, 0, &resource) ||
++	    resource.start != SR1010_RTL8372N_MDIO_BASE ||
++	    resource_size(&resource) != SR1010_RTL8372N_MDIO_SIZE)
++		return -EINVAL;
++
++	if (atomic_xchg(&sr1010_rtl8372n_audit_attempted, 1))
++		return -EBUSY;
++
++	mutex_lock(&mdiodev->bus->mdio_lock);
++	ret = sr1010_rtl8372n_read_id(mdiodev, &counts, 0, &first);
++	if (!ret)
++		ret = sr1010_rtl8372n_read_id(mdiodev, &counts, 2, &second);
++	mutex_unlock(&mdiodev->bus->mdio_lock);
++	if (ret) {
++		dev_err(&mdiodev->dev, "chip ID read failed: %d\n", ret);
++		return ret;
++	}
++
++	if (first != second || (first >> 8) != SR1010_RTL8372N_ID_PREFIX) {
++		dev_err(&mdiodev->dev,
++			"unexpected chip ID first=0x%08x second=0x%08x\n",
++			first, second);
++		return -ENODEV;
++	}
++
++	dev_info(&mdiodev->dev,
++		 "read-only chip ID reg=0x4 first=0x%08x second=0x%08x reads=%u writes=%u polls=%u,%u,%u,%u\n",
++		 first, second, counts.reads, counts.writes, counts.polls[0],
++		 counts.polls[1], counts.polls[2], counts.polls[3]);
++
++	return 0;
++}
++
++static const struct of_device_id sr1010_rtl8372n_audit_of_match[] = {
++	{ .compatible = "zte,sr1010-rtl8372n-id-audit" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, sr1010_rtl8372n_audit_of_match);
++
++static struct mdio_driver sr1010_rtl8372n_audit_driver = {
++	.mdiodrv.driver = {
++		.name = "sr1010-rtl8372n-id-audit",
++		.of_match_table = sr1010_rtl8372n_audit_of_match,
++		.suppress_bind_attrs = true,
++	},
++	.probe = sr1010_rtl8372n_audit_probe,
++};
++
++mdio_module_driver(sr1010_rtl8372n_audit_driver);
++
++MODULE_DESCRIPTION("ZTE SR1010 RTL8372N read-only chip ID audit");
++MODULE_LICENSE("GPL");
+--- /dev/null
++++ b/drivers/net/mdio/mdio-sr1010-rtl8372n-port-audit.c
+@@ -0,0 +1,173 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * ZTE SR1010 RTL8372N read-only port status audit.
++ *
++ * This is a bounded bring-up diagnostic. It performs no switch
++ * configuration writes; the only writes are the RTL8372N SMI address and
++ * command registers required to issue read transactions.
++ */
++
++#include <linux/atomic.h>
++#include <linux/bitops.h>
++#include <linux/delay.h>
++#include <linux/mdio.h>
++#include <linux/module.h>
++#include <linux/mutex.h>
++#include <linux/of_address.h>
++#include <linux/of.h>
++#include <linux/phy.h>
++
++#define SR1010_RTL8372N_MDIO_BASE	0x14f01000
++#define SR1010_RTL8372N_MDIO_SIZE	0x1000
++#define SR1010_RTL8372N_ADDR		0x1d
++
++#define SR1010_RTL8372N_SMI_CTRL		0x15
++#define SR1010_RTL8372N_SMI_BUSY		BIT(2)
++#define SR1010_RTL8372N_SMI_ADDR		0x16
++#define SR1010_RTL8372N_SMI_DATA_LOW	0x17
++#define SR1010_RTL8372N_SMI_DATA_HIGH	0x18
++#define SR1010_RTL8372N_READ_CMD		0x001b
++#define SR1010_RTL8372N_POLL_MAX		32
++#define SR1010_RTL8372N_ID_REG		0x0004
++#define SR1010_RTL8372N_ID_PREFIX		0x837270
++
++#define SR1010_RTL8372N_LINK_STATUS	0x63e8
++#define SR1010_RTL8372N_MEDIA_STATUS	0x63ec
++#define SR1010_RTL8372N_SPEED_STATUS0	0x63f0
++#define SR1010_RTL8372N_SPEED_STATUS1	0x63f4
++#define SR1010_RTL8372N_DUPLEX_STATUS	0x63f8
++
++static atomic_t sr1010_rtl8372n_status_attempted = ATOMIC_INIT(0);
++
++static int sr1010_rtl8372n_wait_ready(struct mdio_device *mdiodev)
++{
++	int value;
++	unsigned int i;
++
++	for (i = 0; i < SR1010_RTL8372N_POLL_MAX; i++) {
++		value = __mdiodev_read(mdiodev, SR1010_RTL8372N_SMI_CTRL);
++		if (value < 0)
++			return value;
++		if (!(value & SR1010_RTL8372N_SMI_BUSY))
++			return 0;
++		if (i + 1 < SR1010_RTL8372N_POLL_MAX)
++			usleep_range(100, 200);
++	}
++
++	return -ETIMEDOUT;
++}
++
++static int sr1010_rtl8372n_read_reg(struct mdio_device *mdiodev, u16 reg,
++					    u32 *value)
++{
++	int low, high, ret;
++
++	ret = sr1010_rtl8372n_wait_ready(mdiodev);
++	if (ret)
++		return ret;
++
++	ret = __mdiodev_write(mdiodev, SR1010_RTL8372N_SMI_ADDR, reg);
++	if (ret)
++		return ret;
++	ret = __mdiodev_write(mdiodev, SR1010_RTL8372N_SMI_CTRL,
++				      SR1010_RTL8372N_READ_CMD);
++	if (ret)
++		return ret;
++
++	ret = sr1010_rtl8372n_wait_ready(mdiodev);
++	if (ret)
++		return ret;
++
++	low = __mdiodev_read(mdiodev, SR1010_RTL8372N_SMI_DATA_LOW);
++	if (low < 0)
++		return low;
++	high = __mdiodev_read(mdiodev, SR1010_RTL8372N_SMI_DATA_HIGH);
++	if (high < 0)
++		return high;
++
++	*value = (u32)low | (u32)high << 16;
++	return 0;
++}
++
++static int sr1010_rtl8372n_status_probe(struct mdio_device *mdiodev)
++{
++	struct device *parent = mdiodev->bus->parent;
++	struct resource resource;
++	u32 id1, id2, link, media, speed0, speed1, duplex;
++	unsigned int port;
++	int ret;
++
++	if (mdiodev->addr != SR1010_RTL8372N_ADDR || !parent ||
++	    !of_device_is_compatible(parent->of_node, "zte,zx279133-mdio") ||
++	    of_address_to_resource(parent->of_node, 0, &resource) ||
++	    resource.start != SR1010_RTL8372N_MDIO_BASE ||
++	    resource_size(&resource) != SR1010_RTL8372N_MDIO_SIZE)
++		return -EINVAL;
++
++	if (atomic_xchg(&sr1010_rtl8372n_status_attempted, 1))
++		return -EBUSY;
++
++	mutex_lock(&mdiodev->bus->mdio_lock);
++	ret = sr1010_rtl8372n_read_reg(mdiodev, SR1010_RTL8372N_ID_REG, &id1);
++	if (!ret)
++		ret = sr1010_rtl8372n_read_reg(mdiodev, SR1010_RTL8372N_ID_REG, &id2);
++	if (!ret && (id1 != id2 || (id1 >> 8) != SR1010_RTL8372N_ID_PREFIX))
++		ret = -ENODEV;
++	if (!ret)
++		ret = sr1010_rtl8372n_read_reg(mdiodev, SR1010_RTL8372N_LINK_STATUS,
++					&link);
++	if (!ret)
++		ret = sr1010_rtl8372n_read_reg(mdiodev,
++					SR1010_RTL8372N_MEDIA_STATUS, &media);
++	if (!ret)
++		ret = sr1010_rtl8372n_read_reg(mdiodev,
++					SR1010_RTL8372N_SPEED_STATUS0, &speed0);
++	if (!ret)
++		ret = sr1010_rtl8372n_read_reg(mdiodev,
++					SR1010_RTL8372N_SPEED_STATUS1, &speed1);
++	if (!ret)
++		ret = sr1010_rtl8372n_read_reg(mdiodev,
++					SR1010_RTL8372N_DUPLEX_STATUS, &duplex);
++	mutex_unlock(&mdiodev->bus->mdio_lock);
++	if (ret) {
++		dev_err(&mdiodev->dev, "port status read failed: %d\n", ret);
++		return ret;
++	}
++
++	dev_info(&mdiodev->dev,
++		 "read-only chip ID first=%#010x second=%#010x\n", id1, id2);
++	dev_info(&mdiodev->dev,
++		 "read-only port status raw link=%#010x media=%#010x speed0=%#010x speed1=%#010x duplex=%#010x\n",
++		 link, media, speed0, speed1, duplex);
++
++	for (port = 3; port <= 8; port++) {
++		u32 speed = port < 8 ? speed0 >> ((port & 7) * 4) : speed1;
++
++		dev_info(&mdiodev->dev,
++			 "port%u link=%u speed_code=%u duplex=%u media=%u\n",
++			 port, !!(link & BIT(port)), speed & 0xf,
++			 !!(duplex & BIT(port)), !!(media & BIT(port)));
++	}
++
++	return 0;
++}
++
++static const struct of_device_id sr1010_rtl8372n_status_of_match[] = {
++	{ .compatible = "zte,sr1010-rtl8372n-port-status-audit" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, sr1010_rtl8372n_status_of_match);
++
++static struct mdio_driver sr1010_rtl8372n_status_driver = {
++	.mdiodrv.driver = {
++		.name = "sr1010-rtl8372n-port-status-audit",
++		.of_match_table = sr1010_rtl8372n_status_of_match,
++		.suppress_bind_attrs = true,
++	},
++	.probe = sr1010_rtl8372n_status_probe,
++};
++
++mdio_module_driver(sr1010_rtl8372n_status_driver);
++
++MODULE_DESCRIPTION("ZTE SR1010 RTL8372N read-only port status audit");
++MODULE_LICENSE("GPL");
+--- /dev/null
++++ b/drivers/net/mdio/mdio-sr1010-zx279051-audit.c
+@@ -0,0 +1,79 @@
++// SPDX-License-Identifier: GPL-2.0-only
++
++#include <linux/atomic.h>
++#include <linux/mdio.h>
++#include <linux/module.h>
++#include <linux/of_address.h>
++#include <linux/of.h>
++#include <linux/phy.h>
++
++#define SR1010_ZX279051_MDIO_BASE	0x14f02000
++#define SR1010_ZX279051_ADDR		1
++#define SR1010_ZX279051_ID_DEVAD		7
++#define SR1010_ZX279051_ID_REG		2
++#define SR1010_ZX279051_ID_EXPECTED	0x84b9
++
++static atomic_t sr1010_zx279051_audit_attempted = ATOMIC_INIT(0);
++
++static int sr1010_zx279051_audit_probe(struct mdio_device *mdiodev)
++{
++	struct resource resource;
++	int first;
++	int second;
++
++	if (mdiodev->addr != SR1010_ZX279051_ADDR)
++		return -EINVAL;
++	if (!mdiodev->bus->parent ||
++	    of_address_to_resource(mdiodev->bus->parent->of_node, 0, &resource) ||
++	    resource.start != SR1010_ZX279051_MDIO_BASE)
++		return -EINVAL;
++	if (atomic_xchg(&sr1010_zx279051_audit_attempted, 1))
++		return -EBUSY;
++
++	first = mdiobus_c45_read(mdiodev->bus, mdiodev->addr,
++				 SR1010_ZX279051_ID_DEVAD,
++				 SR1010_ZX279051_ID_REG);
++	second = mdiobus_c45_read(mdiodev->bus, mdiodev->addr,
++				  SR1010_ZX279051_ID_DEVAD,
++				  SR1010_ZX279051_ID_REG);
++
++	if (first < 0 || second < 0) {
++		dev_err(&mdiodev->dev, "read failed: first=%d second=%d\n",
++			first, second);
++		return first < 0 ? first : second;
++	}
++
++	if (first != SR1010_ZX279051_ID_EXPECTED || first != second) {
++		dev_err(&mdiodev->dev,
++			"unexpected ID: first=%#x second=%#x expected=%#x\n",
++			first, second, SR1010_ZX279051_ID_EXPECTED);
++		return -ENODEV;
++	}
++
++	dev_info(&mdiodev->dev,
++		 "read-only ID devad=%u reg=%u first=%#x second=%#x\n",
++		 SR1010_ZX279051_ID_DEVAD, SR1010_ZX279051_ID_REG,
++		 first, second);
++
++	return 0;
++}
++
++static const struct of_device_id sr1010_zx279051_audit_of_match[] = {
++	{ .compatible = "zte,sr1010-zx279051-audit" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, sr1010_zx279051_audit_of_match);
++
++static struct mdio_driver sr1010_zx279051_audit_driver = {
++	.mdiodrv.driver = {
++		.name = "sr1010-zx279051-audit",
++		.of_match_table = sr1010_zx279051_audit_of_match,
++		.suppress_bind_attrs = true,
++	},
++	.probe = sr1010_zx279051_audit_probe,
++};
++
++mdio_module_driver(sr1010_zx279051_audit_driver);
++
++MODULE_DESCRIPTION("ZTE SR1010 ZX279051 read-only identification audit");
++MODULE_LICENSE("GPL");
+--- /dev/null
++++ b/drivers/soc/zte/zx279133-pwm-audit.c
+@@ -0,0 +1,87 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Read-only audit support for the firmware-configured ZX279133 PWM block.
++ */
++
++#include <linux/clk.h>
++#include <linux/clk-provider.h>
++#include <linux/io.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++
++#define ZX279133_PWM_CHANNELS	4
++#define ZX279133_PWM_CHANNEL_STRIDE	0x10
++#define ZX279133_PWM_CHANNEL_BASE	0x10
++#define ZX279133_PWM_MODE		0x0
++#define ZX279133_PWM_PERIOD		0x4
++#define ZX279133_PWM_DUTY		0x8
++#define ZX279133_PWM_PCLK_RATE		125000000
++#define ZX279133_PWM_WCLK_RATE		25000000
++
++static int zx279133_pwm_audit_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct clk *pclk, *wclk;
++	void __iomem *base;
++	unsigned int channel;
++	unsigned long pclk_rate, wclk_rate;
++
++	pclk = devm_clk_get(dev, "pclk");
++	if (IS_ERR(pclk))
++		return dev_err_probe(dev, PTR_ERR(pclk), "failed to get PCLK\n");
++
++	wclk = devm_clk_get(dev, "wclk");
++	if (IS_ERR(wclk))
++		return dev_err_probe(dev, PTR_ERR(wclk), "failed to get WCLK\n");
++
++	pclk_rate = clk_get_rate(pclk);
++	wclk_rate = clk_get_rate(wclk);
++	if (pclk_rate != ZX279133_PWM_PCLK_RATE ||
++	    wclk_rate != ZX279133_PWM_WCLK_RATE)
++		return dev_err_probe(dev, -EINVAL,
++				     "unexpected clock rates pclk=%lu wclk=%lu\n",
++				     pclk_rate, wclk_rate);
++
++	/* Never enable a gate merely to inspect firmware-owned controller state. */
++	if (!__clk_is_enabled(pclk) || !__clk_is_enabled(wclk))
++		return dev_err_probe(dev, -EBUSY,
++				     "firmware clock gate is disabled\n");
++
++	base = devm_platform_ioremap_resource(pdev, 0);
++	if (IS_ERR(base))
++		return PTR_ERR(base);
++
++	dev_info(dev, "firmware clocks pclk=%lu:Y wclk=%lu:Y\n",
++		 pclk_rate, wclk_rate);
++
++	for (channel = 0; channel < ZX279133_PWM_CHANNELS; channel++) {
++		void __iomem *regs = base + ZX279133_PWM_CHANNEL_BASE +
++			channel * ZX279133_PWM_CHANNEL_STRIDE;
++
++		dev_info(dev, "channel%u mode=%#x period=%#x duty=%#x\n", channel,
++			 readl(regs + ZX279133_PWM_MODE),
++			 readl(regs + ZX279133_PWM_PERIOD),
++			 readl(regs + ZX279133_PWM_DUTY));
++	}
++
++	return 0;
++}
++
++static const struct of_device_id zx279133_pwm_audit_of_match[] = {
++	{ .compatible = "zte,zx279133-pwm-audit" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, zx279133_pwm_audit_of_match);
++
++static struct platform_driver zx279133_pwm_audit_driver = {
++	.probe = zx279133_pwm_audit_probe,
++	.driver = {
++		.name = "zx279133-pwm-audit",
++		.of_match_table = zx279133_pwm_audit_of_match,
++	},
++};
++module_platform_driver(zx279133_pwm_audit_driver);
++
++MODULE_DESCRIPTION("ZTE ZX279133 PWM read-only audit driver");
++MODULE_LICENSE("GPL");
+--- /dev/null
++++ b/drivers/soc/zte/zx279133-xpcs-nppt-audit.c
+@@ -0,0 +1,320 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/* Read-only, trigger-once audit of firmware-configured ZX279133 blocks. */
++
++#include <linux/atomic.h>
++#include <linux/bitfield.h>
++#include <linux/clk.h>
++#include <linux/clk-provider.h>
++#include <linux/device.h>
++#include <linux/io.h>
++#include <linux/mutex.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++
++#define ZX279133_XPCS0_BASE	0x1a000000
++#define ZX279133_XPCS1_BASE	0x1b000000
++#define ZX279133_XPCS_SIZE	0x00200000
++#define ZX279133_NPPT_BASE	0x19000000
++#define ZX279133_NPPT_SIZE	0x00001000
++
++#define ZX279133_XPCS_PCLK_RATE	125000000
++#define ZX279133_NPPT_WCLK_RATE	416666666
++
++#define ZX279133_NPPT_SHADOW84	0x84
++#define ZX279133_NPPT_SHADOW90	0x90
++#define ZX279133_NPPT_SHADOW94	0x94
++
++struct zx279133_xpcs_snapshot {
++	u16 pma_id[2];
++	u16 pcs_id[2];
++	u16 an_id[2];
++	u16 pma_devs[2];
++	u16 dig_sts;
++};
++
++struct zx279133_audit_snapshot {
++	struct zx279133_xpcs_snapshot xpcs[2];
++	u32 nppt[3];
++};
++
++enum zx279133_audit_state {
++	ZX279133_AUDIT_IDLE,
++	ZX279133_AUDIT_SUCCESS,
++	ZX279133_AUDIT_FAILURE,
++};
++
++struct zx279133_audit {
++	struct device *dev;
++	struct clk *xpcs_pclk;
++	struct clk *nppt_wclk;
++	void __iomem *xpcs[2];
++	void __iomem *nppt;
++	/* Serializes the trigger and cached result access. */
++	struct mutex lock;
++	enum zx279133_audit_state state;
++	int error;
++	struct zx279133_audit_snapshot snapshot;
++};
++
++/*
++ * A permanent claim prevents a second target read after removal and reprobe;
++ * the cached result is valid only while the original device exists.
++ */
++static atomic_t zx279133_audit_claimed = ATOMIC_INIT(0);
++
++static int zx279133_audit_clocks_valid(struct zx279133_audit *audit)
++{
++	if (clk_get_rate(audit->xpcs_pclk) != ZX279133_XPCS_PCLK_RATE ||
++	    clk_get_rate(audit->nppt_wclk) != ZX279133_NPPT_WCLK_RATE)
++		return -EINVAL;
++
++	/* No stable accessor exists for the framework prepare count. */
++	if (__clk_get_enable_count(audit->xpcs_pclk) ||
++	    __clk_get_enable_count(audit->nppt_wclk))
++		return -EBUSY;
++
++	if (!__clk_is_enabled(audit->xpcs_pclk) ||
++	    !__clk_is_enabled(audit->nppt_wclk))
++		return -EBUSY;
++
++	return 0;
++}
++
++static int zx279133_xpcs_read_stable(void __iomem *base, u16 devad, u16 reg,
++				     u16 *value)
++{
++	u32 offset = ((((u32)devad << 16) | reg) * 4);
++	u32 first, second;
++
++	first = readl(base + offset);
++	second = readl(base + offset);
++	if (first != second)
++		return -EIO;
++	if (first & GENMASK(31, 16))
++		return -ERANGE;
++
++	*value = first;
++	return 0;
++}
++
++static int zx279133_nppt_read_stable(void __iomem *base, u32 offset, u32 *value)
++{
++	u32 first, second;
++
++	first = readl(base + offset);
++	second = readl(base + offset);
++	if (first != second)
++		return -EIO;
++
++	*value = first;
++	return 0;
++}
++
++static int zx279133_read_xpcs(struct zx279133_audit *audit, unsigned int id)
++{
++	struct zx279133_xpcs_snapshot *snapshot = &audit->snapshot.xpcs[id];
++	void __iomem *base = audit->xpcs[id];
++	int ret;
++
++	ret = zx279133_xpcs_read_stable(base, 1, 2, &snapshot->pma_id[0]);
++	if (ret)
++		return ret;
++	ret = zx279133_xpcs_read_stable(base, 1, 3, &snapshot->pma_id[1]);
++	if (ret)
++		return ret;
++	ret = zx279133_xpcs_read_stable(base, 3, 2, &snapshot->pcs_id[0]);
++	if (ret)
++		return ret;
++	ret = zx279133_xpcs_read_stable(base, 3, 3, &snapshot->pcs_id[1]);
++	if (ret)
++		return ret;
++	ret = zx279133_xpcs_read_stable(base, 7, 2, &snapshot->an_id[0]);
++	if (ret)
++		return ret;
++	ret = zx279133_xpcs_read_stable(base, 7, 3, &snapshot->an_id[1]);
++	if (ret)
++		return ret;
++	ret = zx279133_xpcs_read_stable(base, 1, 5, &snapshot->pma_devs[0]);
++	if (ret)
++		return ret;
++	ret = zx279133_xpcs_read_stable(base, 1, 6, &snapshot->pma_devs[1]);
++	if (ret)
++		return ret;
++
++	return zx279133_xpcs_read_stable(base, 3, 0x8010,
++					   &snapshot->dig_sts);
++}
++
++static int zx279133_take_snapshot(struct zx279133_audit *audit)
++{
++	int ret;
++
++	if (atomic_cmpxchg(&zx279133_audit_claimed, 0, 1))
++		return -EBUSY;
++
++	ret = zx279133_audit_clocks_valid(audit);
++	if (ret)
++		return ret;
++
++	ret = zx279133_read_xpcs(audit, 0);
++	if (ret)
++		return ret;
++	ret = zx279133_read_xpcs(audit, 1);
++	if (ret)
++		return ret;
++	ret = zx279133_nppt_read_stable(audit->nppt, ZX279133_NPPT_SHADOW84,
++					&audit->snapshot.nppt[0]);
++	if (ret)
++		return ret;
++	ret = zx279133_nppt_read_stable(audit->nppt, ZX279133_NPPT_SHADOW90,
++					&audit->snapshot.nppt[1]);
++	if (ret)
++		return ret;
++	ret = zx279133_nppt_read_stable(audit->nppt, ZX279133_NPPT_SHADOW94,
++					&audit->snapshot.nppt[2]);
++	if (ret)
++		return ret;
++
++	return zx279133_audit_clocks_valid(audit);
++}
++
++static ssize_t snapshot_show(struct device *dev,
++			     struct device_attribute *attr, char *buf)
++{
++	struct zx279133_audit *audit = dev_get_drvdata(dev);
++	struct zx279133_xpcs_snapshot *xpcs0 = &audit->snapshot.xpcs[0];
++	struct zx279133_xpcs_snapshot *xpcs1 = &audit->snapshot.xpcs[1];
++	u32 pseq0, pseq1;
++	int ret;
++
++	mutex_lock(&audit->lock);
++	if (audit->state == ZX279133_AUDIT_IDLE) {
++		ret = zx279133_take_snapshot(audit);
++		if (ret) {
++			audit->error = ret;
++			audit->state = ZX279133_AUDIT_FAILURE;
++		} else {
++			audit->state = ZX279133_AUDIT_SUCCESS;
++			dev_info(audit->dev,
++				 "snapshot captured: data_reads=42 target_writes=0\n");
++		}
++	}
++
++	if (audit->state == ZX279133_AUDIT_FAILURE) {
++		ret = audit->error;
++		goto out_unlock;
++	}
++
++	pseq0 = FIELD_GET(GENMASK(4, 2), xpcs0->dig_sts);
++	pseq1 = FIELD_GET(GENMASK(4, 2), xpcs1->dig_sts);
++	ret = sysfs_emit(buf,
++			 "xpcs0 base=0x1a000000 pma_id=%04x:%04x pcs_id=%04x:%04x an_id=%04x:%04x pma_devs=%04x:%04x dig_sts=0x%04x pseq=%u power_good=%c samples=2\n"
++			 "xpcs1 base=0x1b000000 pma_id=%04x:%04x pcs_id=%04x:%04x an_id=%04x:%04x pma_devs=%04x:%04x dig_sts=0x%04x pseq=%u power_good=%c samples=2\n"
++			 "nppt base=0x19000000 shadow84=0x%08x shadow90=0x%08x shadow94=0x%08x samples=2\n"
++			 "summary data_reads=42 target_writes=0 xpcs_pclk=125000000:Y nppt_wclk=416666666:Y mode=read-only\n",
++			 xpcs0->pma_id[0], xpcs0->pma_id[1],
++			 xpcs0->pcs_id[0], xpcs0->pcs_id[1],
++			 xpcs0->an_id[0], xpcs0->an_id[1],
++			 xpcs0->pma_devs[0], xpcs0->pma_devs[1],
++			 xpcs0->dig_sts, pseq0, pseq0 == 4 ? 'Y' : 'N',
++			 xpcs1->pma_id[0], xpcs1->pma_id[1],
++			 xpcs1->pcs_id[0], xpcs1->pcs_id[1],
++			 xpcs1->an_id[0], xpcs1->an_id[1],
++			 xpcs1->pma_devs[0], xpcs1->pma_devs[1],
++			 xpcs1->dig_sts, pseq1, pseq1 == 4 ? 'Y' : 'N',
++			 audit->snapshot.nppt[0], audit->snapshot.nppt[1],
++			 audit->snapshot.nppt[2]);
++
++out_unlock:
++	mutex_unlock(&audit->lock);
++	return ret;
++}
++static DEVICE_ATTR_RO(snapshot);
++
++static struct attribute *zx279133_audit_attrs[] = {
++	&dev_attr_snapshot.attr,
++	NULL,
++};
++
++static const struct attribute_group zx279133_audit_group = {
++	.attrs = zx279133_audit_attrs,
++};
++
++static void __iomem *zx279133_map_resource(struct platform_device *pdev,
++					   const char *name,
++					   resource_size_t start,
++					   resource_size_t size)
++{
++	struct resource *resource;
++
++	resource = platform_get_resource_byname(pdev, IORESOURCE_MEM, name);
++	if (!resource)
++		return ERR_PTR(-EINVAL);
++	if (resource->start != start || resource_size(resource) != size) {
++		dev_err(&pdev->dev, "invalid %s resource\n", name);
++		return ERR_PTR(-EINVAL);
++	}
++
++	return devm_ioremap_resource(&pdev->dev, resource);
++}
++
++static int zx279133_audit_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct zx279133_audit *audit;
++	int ret;
++
++	audit = devm_kzalloc(dev, sizeof(*audit), GFP_KERNEL);
++	if (!audit)
++		return -ENOMEM;
++
++	audit->dev = dev;
++	audit->xpcs_pclk = devm_clk_get(dev, "xpcs-pclk");
++	if (IS_ERR(audit->xpcs_pclk))
++		return dev_err_probe(dev, PTR_ERR(audit->xpcs_pclk),
++				     "failed to get XPCS PCLK\n");
++	audit->nppt_wclk = devm_clk_get(dev, "nppt-wclk");
++	if (IS_ERR(audit->nppt_wclk))
++		return dev_err_probe(dev, PTR_ERR(audit->nppt_wclk),
++				     "failed to get NPPT WCLK\n");
++
++	audit->xpcs[0] = zx279133_map_resource(pdev, "xpcs0",
++					       ZX279133_XPCS0_BASE,
++					       ZX279133_XPCS_SIZE);
++	if (IS_ERR(audit->xpcs[0]))
++		return PTR_ERR(audit->xpcs[0]);
++	audit->xpcs[1] = zx279133_map_resource(pdev, "xpcs1",
++					       ZX279133_XPCS1_BASE,
++					       ZX279133_XPCS_SIZE);
++	if (IS_ERR(audit->xpcs[1]))
++		return PTR_ERR(audit->xpcs[1]);
++	audit->nppt = zx279133_map_resource(pdev, "nppt", ZX279133_NPPT_BASE,
++					    ZX279133_NPPT_SIZE);
++	if (IS_ERR(audit->nppt))
++		return PTR_ERR(audit->nppt);
++
++	mutex_init(&audit->lock);
++	platform_set_drvdata(pdev, audit);
++
++	ret = devm_device_add_group(dev, &zx279133_audit_group);
++	if (ret)
++		return dev_err_probe(dev, ret,
++				     "failed to add snapshot attribute\n");
++
++	return 0;
++}
++
++static const struct of_device_id zx279133_audit_of_match[] = {
++	{ .compatible = "zte,zx279133-xpcs-nppt-audit" },
++	{ }
++};
++
++static struct platform_driver zx279133_audit_driver = {
++	.probe = zx279133_audit_probe,
++	.driver = {
++		.name = "zx279133-xpcs-nppt-audit",
++		.of_match_table = zx279133_audit_of_match,
++		.suppress_bind_attrs = true,
++	},
++};
++builtin_platform_driver(zx279133_audit_driver);

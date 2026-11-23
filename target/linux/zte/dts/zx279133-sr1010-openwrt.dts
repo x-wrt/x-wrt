@@ -1,0 +1,19 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * OpenWrt view of the ZXSLC SR1010 flash.
+ *
+ * The vendor configuration partition stays read-only so that the vendor
+ * firmware keeps its settings.
+ */
+
+#include "zte/zx279133-sr1010.dts"
+
+&spifc {
+	flash@0 {
+		partitions {
+			partition@200000 {
+				read-only;
+			};
+		};
+	};
+};

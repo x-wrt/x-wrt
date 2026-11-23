@@ -1,0 +1,17 @@
+#!/bin/sh /etc/rc.common
+# SPDX-License-Identifier: GPL-2.0-only
+
+START=21
+USE_PROCD=1
+
+start_service() {
+	/usr/libexec/zx279133-wan-ports
+}
+
+reload_service() {
+	/usr/libexec/zx279133-wan-ports
+}
+
+service_triggers() {
+	procd_add_reload_trigger firewall network
+}

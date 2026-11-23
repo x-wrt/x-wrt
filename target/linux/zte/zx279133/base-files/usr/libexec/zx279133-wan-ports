@@ -1,0 +1,82 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Switch the LAN ports that the firewall puts in a WAN zone to WAN-type in the
+# NP, and the others back. Only a WAN-type port has the PPPoE header added and
+# removed by the hardware, so a second WAN on a LAN port is offloaded only as
+# WAN-type; a LAN port must stay LAN-type, or its traffic to the WAN would be
+# WAN to WAN and stay on the CPU.
+#
+# A WAN zone is one named "wan" or one that masquerades.
+
+ATTR=/sys/class/net/eth0/device/wan_ports
+[ -w "$ATTR" ] || exit 0
+
+. /lib/functions.sh
+
+WAN_PORTS=" "
+
+# The switch port under a device: follow VLANs and macvlans down to the port
+# whose lower device is the DSA conduit. Print nothing for anything else.
+switch_port() {
+	local dev=$1 lower
+
+	while [ -d "/sys/class/net/$dev" ]; do
+		# The members of a bridge are LAN ports.
+		[ -d "/sys/class/net/$dev/bridge" ] && return
+		lower=$(ls -d /sys/class/net/$dev/lower_* 2>/dev/null | head -n 1)
+		[ -n "$lower" ] || return
+		lower=${lower##*/lower_}
+		if [ -d "/sys/class/net/$lower/dsa" ]; then
+			echo "$dev"
+			return
+		fi
+		dev=$lower
+	done
+}
+
+add_device() {
+	local port
+
+	[ -n "$1" ] || return
+	port=$(switch_port "$1")
+	[ -n "$port" ] && WAN_PORTS="$WAN_PORTS$port "
+}
+
+add_network() {
+	local net=$1 dev
+
+	dev=$(ifstatus "$net" 2>/dev/null | jsonfilter -q -e '@.device')
+	[ -n "$dev" ] || dev=$(uci -q get "network.$net.device")
+	add_device "$dev"
+}
+
+add_zone() {
+	local zone=$1 name masq net dev
+
+	config_get name "$zone" name
+	config_get_bool masq "$zone" masq 0
+	[ "$name" = wan ] || [ "$masq" = 1 ] || return
+
+	config_get net "$zone" network
+	for net in $net; do
+		add_network "$net"
+	done
+	config_get dev "$zone" device
+	for dev in $dev; do
+		add_device "$dev"
+	done
+}
+
+config_load firewall
+config_foreach add_zone zone
+
+for dev in /sys/class/net/*; do
+	dev=${dev##*/}
+	# Only the switch's own ports: their lower device is the conduit.
+	[ "$(switch_port "$dev")" = "$dev" ] || continue
+	case "$WAN_PORTS" in
+	*" $dev "*) echo "$dev 1" > "$ATTR" ;;
+	*) echo "$dev 0" > "$ATTR" ;;
+	esac
+done
