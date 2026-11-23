@@ -115,7 +115,7 @@ KERNEL_MAKE_FLAGS = \
 	CONFIG_SHELL="$(BASH)" \
 	$(if $(findstring c,$(OPENWRT_VERBOSE)),V=1,V='') \
 	$(if $(PKG_BUILD_ID),LDFLAGS_MODULE=--build-id=0x$(PKG_BUILD_ID)) \
-	cmd_syscalls= \
+	$(if $(call kernel_patchver_lt,7.3),cmd_syscalls=) \
 	$(if $(__package_mk),KBUILD_EXTRA_SYMBOLS="$(wildcard $(PKG_SYMVERS_DIR)/*.symvers)")
 
 ifneq (,$(KERNEL_CC))
