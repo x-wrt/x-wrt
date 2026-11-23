@@ -1,0 +1,109 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Called by mount_root when the overlay was written for a different root
+# filesystem, for example after the firmware was replaced from the vendor web
+# interface. Stale files in the overlay would shadow the new root filesystem,
+# so keep only the settings that sysupgrade keeps, drop everything else, and
+# stage the settings as sysupgrade.tgz. Preinit restores that file on this
+# boot, exactly as it does after a sysupgrade.
+#
+# usage: zte-overlay-rescue <overlay directory, ending in /.owrt>
+#
+# Keep this out of /lib/upgrade and keep the name free of ".sh": sysupgrade
+# sources every /lib/upgrade/*.sh into its own shell, and this script exits.
+
+KEEP_D=${KEEP_D:-/lib/upgrade/keep.d}
+dir=$1
+
+case "$dir" in
+*/.owrt) ;;
+*)
+	echo "refusing to reset '$dir'" >&2
+	exit 1
+	;;
+esac
+[ -d "$dir" ] && [ ! -L "$dir" ] || exit 1
+
+pending="$dir/sysupgrade.tgz.tmp"
+staging="$dir/sysupgrade.tgz.copy"
+legacy="$dir/.sysupgrade.pending"
+[ ! -L "$pending" ] && [ ! -L "$staging" ] || exit 1
+[ ! -e "$pending" ] || [ -f "$pending" ] || exit 1
+
+# Older sysupgrade code used a different staging name.
+if [ ! -f "$pending" ] && { [ -e "$legacy" ] || [ -L "$legacy" ]; }; then
+	[ -f "$legacy" ] && [ ! -L "$legacy" ] || exit 1
+	tar -tzf "$legacy" >/dev/null || exit 1
+	mv "$legacy" "$pending" || exit 1
+	sync
+fi
+
+list_keep_files() {
+	local base=$1 pattern=$2 component rest entry IFS=''
+	component=${pattern%%/*}
+	rest=${pattern#"$component"}
+	while [ "${rest#/}" != "$rest" ]; do rest=${rest#/}; done
+
+	# Expand one component at a time so a wildcard in sysupgrade.conf
+	# cannot descend through a symlink outside the old upper directory.
+	for entry in "$base"/$component; do
+		case "${entry##*/}" in ..) continue;; .) [ "$component" = . ] || continue;; esac
+		if [ -n "$rest" ]; then
+			[ -d "$entry" ] && [ ! -L "$entry" ] || continue
+			list_keep_files "$entry" "$rest" || return 1
+		elif [ -e "$entry" ] || [ -L "$entry" ]; then
+			find "$entry" \( -type f -o -type l \) -print || return 1
+		fi
+	done
+	return 0
+}
+
+# Only a renamed, complete archive is used to resume an interrupted cleanup.
+if [ ! -f "$pending" ]; then
+	tmp=$(mktemp -d "${TMPDIR:-/tmp}/zte-overlay.XXXXXX") || exit 1
+	trap 'rm -rf "$tmp"' EXIT
+	upper=$dir/upper
+	list=$tmp/keep.list
+
+	if [ -d "$upper" ] && [ ! -L "$upper" ]; then
+		{
+			sed -ne '/^[[:space:]]*$/d; /^#/d; p' "$KEEP_D"/* 2>/dev/null
+			if [ ! -L "$upper/etc" ] && [ ! -L "$upper/etc/sysupgrade.conf" ]; then
+				sed -ne '/^[[:space:]]*$/d; /^#/d; p' "$upper/etc/sysupgrade.conf" 2>/dev/null
+			fi
+			echo /etc/sysupgrade.conf
+		} | (
+			cd "$upper" || exit 1
+			while read -r p; do
+				case "$p" in /*) ;; *) continue ;; esac
+				case "/$p/" in */../*) continue ;; esac
+				while [ "${p#/}" != "$p" ]; do p=${p#/}; done
+				list_keep_files . "${p:-.}" || exit 1
+			done
+		) > "$tmp/matches" || exit 1
+		sort -u "$tmp/matches" > "$list" || exit 1
+	fi
+
+	if [ -s "$list" ]; then
+		rm -f "$staging" || exit 1
+		tar -C "$upper" -czf "$staging" -T "$list" || exit 1
+		sync
+		mv "$staging" "$pending" || exit 1
+		sync
+	fi
+fi
+
+[ ! -f "$pending" ] || tar -tzf "$pending" >/dev/null || exit 1
+
+for e in "$dir"/* "$dir"/.[!.]* "$dir"/..?*; do
+	[ -e "$e" ] || [ -L "$e" ] || continue
+	[ "$e" = "$pending" ] || rm -rf "$e" || exit 1
+done
+
+if [ -f "$pending" ]; then
+	sync
+	mv "$pending" "$dir/sysupgrade.tgz" || exit 1
+fi
+sync
+exit 0

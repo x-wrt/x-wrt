@@ -1,0 +1,158 @@
+From: Claude <noreply@anthropic.com>
+Subject: fstools: let extroot find its configuration in a shared overlay
+
+extroot reads the configuration of the internal overlay from
+<overlay>/upper: /etc/config/fstab in block, and lib, sbin/block and the kernel
+modules in libfstools. When the overlay is kept in the .owrt directory of a
+shared volume, all of these are in <overlay>/.owrt/upper, so a configured
+extroot was never seen.
+
+Look there instead. fs_overlay_path() builds the path without creating the
+directory, because these are lookups that must not change a volume. The two
+32-byte buffers in mount_extroot() were also too short for the longer paths
+and are enlarged.
+
+The extroot file system itself is used the same way as the internal one: its
+overlay is in the .owrt directory too, so copying the whole /overlay to the new
+partition, as the documentation says, works.
+
+diff --git a/block.c b/block.c
+index e2e5c69..cfb1bab 100644
+--- a/block.c
++++ b/block.c
+@@ -46,6 +46,9 @@
+ 
+ #include "probe.h"
+ 
++/* libfstools.h also declares mount_extroot(), which block implements separately. */
++const char *fs_overlay_path(const char *mp, char *buf, size_t len);
++
+ #define AUTOFS_MOUNT_PATH       "/tmp/run/blockd/"
+ #define NETMOUNT_STATE          "/var/run/blockd.netmounts"
+ 
+@@ -555,18 +558,19 @@ static int config_load(char *cfg)
+ 	struct uci_context *ctx = uci_alloc_context();
+ 	struct uci_package *pkg = NULL;
+ 	struct uci_element *e;
+-	char path[64];
++	char path[96], base[48];
+ 
+ 	vlist_init(&mounts, avl_strcmp, mounts_update);
+ 
+ 	config_file_found = false;
+ 
+ 	if (cfg) {
+-		snprintf(path, sizeof(path), "%s/upper/etc/config/fstab", cfg);
++		fs_overlay_path(cfg, base, sizeof(base));
++		snprintf(path, sizeof(path), "%s/upper/etc/config/fstab", base);
+ 		pkg = config_try_load(ctx, path);
+ 
+ 		if (!pkg) {
+-			snprintf(path, sizeof(path), "%s/etc/config/fstab", cfg);
++			snprintf(path, sizeof(path), "%s/etc/config/fstab", base);
+ 			pkg = config_try_load(ctx, path);
+ 		}
+ 	}
+diff --git a/libfstools/extroot.c b/libfstools/extroot.c
+index 7cc0b19..002111f 100644
+--- a/libfstools/extroot.c
++++ b/libfstools/extroot.c
+@@ -29,23 +29,27 @@
+  */
+ int mount_extroot(char const *extroot_prefix)
+ {
+-	char ldlib_path[32];
+-	char block_path[32];
+-	char kmod_loader[64];
++	char ldlib_path[64];
++	char block_path[64];
++	char kmod_loader[96];
++	char base[48];
+ 	struct stat s;
+ 	pid_t pid;
+ 
++	/* the overlay of a shared volume lives in a sub-directory of it */
++	fs_overlay_path(extroot_prefix, base, sizeof(base));
++
+ 	/* try finding the library directory */
+-	snprintf(ldlib_path, sizeof(ldlib_path), "%s/upper/lib", extroot_prefix);
++	snprintf(ldlib_path, sizeof(ldlib_path), "%s/upper/lib", base);
+ 
+ 	if (stat(ldlib_path, &s) || !S_ISDIR(s.st_mode))
+-		snprintf(ldlib_path, sizeof(ldlib_path), "%s/lib", extroot_prefix);
++		snprintf(ldlib_path, sizeof(ldlib_path), "%s/lib", base);
+ 
+ 	/* try finding the block executable */
+-	snprintf(block_path, sizeof(block_path), "%s/upper/sbin/block", extroot_prefix);
++	snprintf(block_path, sizeof(block_path), "%s/upper/sbin/block", base);
+ 
+ 	if (stat(block_path, &s) || !S_ISREG(s.st_mode))
+-		snprintf(block_path, sizeof(block_path), "%s/sbin/block", extroot_prefix);
++		snprintf(block_path, sizeof(block_path), "%s/sbin/block", base);
+ 
+ 	if (stat(block_path, &s) || !S_ISREG(s.st_mode))
+ 		snprintf(block_path, sizeof(block_path), "/sbin/block");
+diff --git a/libfstools/libfstools.h b/libfstools/libfstools.h
+index b6c6d6f..2ded7d7 100644
+--- a/libfstools/libfstools.h
++++ b/libfstools/libfstools.h
+@@ -66,6 +66,7 @@ int fs_state_set(const char *dir, enum fs_state state);
+ bool fs_shared_overlay(void);
+ const char *fs_shared_volume(void);
+ const char *fs_overlay_dir(const char *mp, char *buf, size_t len);
++const char *fs_overlay_path(const char *mp, char *buf, size_t len);
+ void selinux_restorecon(char *overlaydir);
+ 
+ #endif
+diff --git a/libfstools/mount.c b/libfstools/mount.c
+index 3e29183..8d4f417 100644
+--- a/libfstools/mount.c
++++ b/libfstools/mount.c
+@@ -147,17 +147,28 @@ bool fs_shared_overlay(void)
+ }
+ 
+ /**
+- * fs_overlay_dir - directory under @mp holding the overlay state and trees
++ * fs_overlay_path - where the overlay state and trees are under @mp
++ *
++ * Only builds the path, for looking at a volume without changing it. An empty
++ * @mp stays empty: it stands for the root file system.
+  */
+-const char *fs_overlay_dir(const char *mp, char *buf, size_t len)
++const char *fs_overlay_path(const char *mp, char *buf, size_t len)
+ {
+-	if (!fs_shared_overlay()) {
++	if (fs_shared_overlay() && mp[0])
++		snprintf(buf, len, "%s/.owrt", mp);
++	else
+ 		snprintf(buf, len, "%s", mp);
+-		return buf;
+-	}
++	return buf;
++}
+ 
+-	snprintf(buf, len, "%s/.owrt", mp);
+-	mkdir(buf, 0755);
++/**
++ * fs_overlay_dir - directory under @mp holding the overlay state and trees
++ */
++const char *fs_overlay_dir(const char *mp, char *buf, size_t len)
++{
++	fs_overlay_path(mp, buf, len);
++	if (fs_shared_overlay())
++		mkdir(buf, 0755);
+ 	return buf;
+ }
+ 
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index e138f98..4ca9a52 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -78,6 +78,7 @@ TARGET_LINK_LIBRARIES(blockd fstools ubus blobmsg_json ${json})
+ INSTALL(TARGETS blockd RUNTIME DESTINATION sbin)
+ 
+ ADD_EXECUTABLE(block block.c probe.c probe-libblkid.c)
++TARGET_LINK_LIBRARIES(block fstools)
+ IF(DEFINED CMAKE_UBIFS_EXTROOT)
+ 	ADD_DEFINITIONS(-DUBIFS_EXTROOT)
+ 	TARGET_LINK_LIBRARIES(block blkid-tiny dl uci ubox ubus blobmsg_json ubi-utils ${json})

@@ -1,0 +1,292 @@
+Subject: fstools: keep shared overlay recovery inside its directory
+
+diff --git a/block.c b/block.c
+index cfb1bab..d46ff9c 100644
+--- a/block.c
++++ b/block.c
+@@ -564,8 +564,7 @@ static int config_load(char *cfg)
+ 
+ 	config_file_found = false;
+ 
+-	if (cfg) {
+-		fs_overlay_path(cfg, base, sizeof(base));
++	if (cfg && fs_overlay_path(cfg, base, sizeof(base))) {
+ 		snprintf(path, sizeof(path), "%s/upper/etc/config/fstab", base);
+ 		pkg = config_try_load(ctx, path);
+ 
+diff --git a/factoryreset.c b/factoryreset.c
+index b728e93..28ba284 100644
+--- a/factoryreset.c
++++ b/factoryreset.c
+@@ -51,7 +51,10 @@ static int jffs2_reset(struct volume *v, int reset, int keep)
+ 	if (mp) {
+ 		char dir[64];
+ 
+-		fs_overlay_dir(mp, dir, sizeof(dir));
++		if (!fs_overlay_dir(mp, dir, sizeof(dir))) {
++			ULOG_ERR("invalid overlay directory: %m\n");
++			return -1;
++		}
+ 		ULOG_INFO("%s is mounted as %s, only erasing files\n", v->blk, mp);
+ 		fs_state_set(dir, FS_STATE_PENDING);
+ 		overlay_delete(dir, keep);
+diff --git a/libfstools/extroot.c b/libfstools/extroot.c
+index 002111f..9d07b54 100644
+--- a/libfstools/extroot.c
++++ b/libfstools/extroot.c
+@@ -37,7 +37,8 @@ int mount_extroot(char const *extroot_prefix)
+ 	pid_t pid;
+ 
+ 	/* the overlay of a shared volume lives in a sub-directory of it */
+-	fs_overlay_path(extroot_prefix, base, sizeof(base));
++	if (!fs_overlay_path(extroot_prefix, base, sizeof(base)))
++		return -1;
+ 
+ 	/* try finding the library directory */
+ 	snprintf(ldlib_path, sizeof(ldlib_path), "%s/upper/lib", base);
+diff --git a/libfstools/mount.c b/libfstools/mount.c
+index 5bcc635..063c814 100644
+--- a/libfstools/mount.c
++++ b/libfstools/mount.c
+@@ -21,6 +21,7 @@
+ #include <errno.h>
+ #include <stdio.h>
+ #include <unistd.h>
++#include <fcntl.h>
+ #include <string.h>
+ 
+ #include "libfstools.h"
+@@ -146,6 +147,34 @@ bool fs_shared_overlay(void)
+ 	return fs_shared_volume() != NULL;
+ }
+ 
++static bool shared_overlay_paths_valid(const char *path)
++{
++	static const char *const trees[] = { "upper", "work" };
++	struct stat st;
++	size_t i;
++	int fd, err = 0;
++
++	fd = open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
++	if (fd < 0)
++		return errno == ENOENT;
++	for (i = 0; i < sizeof(trees) / sizeof(trees[0]); i++) {
++		if (fstatat(fd, trees[i], &st, AT_SYMLINK_NOFOLLOW)) {
++			if (errno == ENOENT)
++				continue;
++			err = errno;
++		} else if (!S_ISDIR(st.st_mode)) {
++			err = ENOTDIR;
++		}
++		if (err)
++			break;
++	}
++	close(fd);
++	if (!err)
++		return true;
++	errno = err;
++	return false;
++}
++
+ /**
+  * fs_overlay_path - where the overlay state and trees are under @mp
+  *
+@@ -154,10 +183,16 @@ bool fs_shared_overlay(void)
+  */
+ const char *fs_overlay_path(const char *mp, char *buf, size_t len)
+ {
+-	if (fs_shared_overlay() && mp[0])
+-		snprintf(buf, len, "%s/.owrt", mp);
+-	else
+-		snprintf(buf, len, "%s", mp);
++	bool shared = fs_shared_overlay() && mp[0];
++	int n;
++
++	n = snprintf(buf, len, shared ? "%s/.owrt" : "%s", mp);
++	if (n < 0 || (size_t)n >= len) {
++		errno = ENAMETOOLONG;
++		return NULL;
++	}
++	if (shared && !shared_overlay_paths_valid(buf))
++		return NULL;
+ 	return buf;
+ }
+ 
+@@ -166,10 +201,15 @@ const char *fs_overlay_path(const char *mp, char *buf, size_t len)
+  */
+ const char *fs_overlay_dir(const char *mp, char *buf, size_t len)
+ {
+-	fs_overlay_path(mp, buf, len);
+-	if (fs_shared_overlay())
+-		mkdir(buf, 0755);
+-	return buf;
++	if (!fs_overlay_path(mp, buf, len))
++		return NULL;
++	if (!fs_shared_overlay() || !mp[0])
++		return buf;
++	if (!mkdir(buf, 0755))
++		return buf;
++	if (errno != EEXIST)
++		return NULL;
++	return fs_overlay_path(mp, buf, len);
+ }
+ 
+ /**
+@@ -193,8 +233,11 @@ fopivot(char *rw_root, char *ro_root)
+ 		return -1;
+ 	}
+ 
+-	if (!strcmp(rw_root, "/overlay"))
++	if (!strcmp(rw_root, "/overlay")) {
+ 		rw_root = (char *)fs_overlay_dir(rw_root, rwsub, sizeof(rwsub));
++		if (!rw_root)
++			return -1;
++	}
+ 
+ 	/* The mount source is only a label. Keep the stock one when the upper dir
+ 	 * moves into a subdirectory of a shared volume: LuCI offers its reset button
+diff --git a/libfstools/overlay.c b/libfstools/overlay.c
+index c8d6777..ab4d906 100644
+--- a/libfstools/overlay.c
++++ b/libfstools/overlay.c
+@@ -366,7 +366,8 @@ jffs2_switch(struct volume *v)
+ 	{
+ 		char dir[64];
+ 
+-		fs_overlay_dir("/overlay", dir, sizeof(dir));
++		if (!fs_overlay_dir("/overlay", dir, sizeof(dir)))
++			return -1;
+ 		fs_state_set(dir, FS_STATE_READY);
+ 	}
+ 	return 0;
+@@ -489,7 +490,7 @@ static int load_rom_id(const char *dir, unsigned char *id)
+ 	int fd;
+ 
+ 	snprintf(path, sizeof(path), "%s/.rom_id", dir);
+-	fd = open(path, O_RDONLY);
++	fd = open(path, O_RDONLY | O_NOFOLLOW);
+ 	if (fd >= 0) {
+ 		n = read(fd, id, ROM_ID_LEN);
+ 		close(fd);
+@@ -498,6 +499,35 @@ static int load_rom_id(const char *dir, unsigned char *id)
+ 	return n == ROM_ID_LEN ? 0 : -1;
+ }
+ 
++static bool shared_overlay_rescue(const char *dir)
++{
++	char cmd[160];
++
++	snprintf(cmd, sizeof(cmd), "/usr/libexec/zte-overlay-rescue %s", dir);
++	if (system(cmd)) {
++		ULOG_ERR("could not reset the shared overlay\n");
++		return false;
++	}
++	return true;
++}
++
++static bool shared_overlay_recover_pending(const char *dir)
++{
++	static const char *const names[] = { "sysupgrade.tgz.tmp", ".sysupgrade.pending" };
++	char path[96];
++	struct stat st;
++	size_t i;
++
++	for (i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
++		snprintf(path, sizeof(path), "%s/%s", dir, names[i]);
++		if (!lstat(path, &st))
++			return S_ISREG(st.st_mode) && shared_overlay_rescue(dir);
++		if (errno != ENOENT)
++			return false;
++	}
++	return true;
++}
++
+ /*
+  * The overlay may have been written for a different root filesystem, for
+  * example after the firmware was replaced by another system sharing the volume.
+@@ -507,7 +537,7 @@ static int load_rom_id(const char *dir, unsigned char *id)
+ static bool shared_rom_check(const char *dir, const unsigned char *cur)
+ {
+ 	unsigned char old[ROM_ID_LEN];
+-	char path[96], cmd[160];
++	char path[96];
+ 	struct stat st;
+ 
+ 	if (load_rom_id(dir, old) || !memcmp(old, cur, ROM_ID_LEN))
+@@ -519,13 +549,7 @@ static bool shared_rom_check(const char *dir, const unsigned char *cur)
+ 		return true;
+ 
+ 	ULOG_INFO("root filesystem changed, keeping only the settings\n");
+-	snprintf(cmd, sizeof(cmd), "/usr/libexec/zte-overlay-rescue %s", dir);
+-	if (system(cmd)) {
+-		ULOG_ERR("could not reset the overlay, stale files may remain\n");
+-		return false;
+-	}
+-
+-	return true;
++	return shared_overlay_rescue(dir);
+ }
+ 
+ static void shared_rom_record(const char *dir, const unsigned char *cur)
+@@ -538,7 +562,7 @@ static void shared_rom_record(const char *dir, const unsigned char *cur)
+ 		return;
+ 
+ 	snprintf(path, sizeof(path), "%s/.rom_id", dir);
+-	fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
++	fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600);
+ 	if (fd < 0) {
+ 		ULOG_ERR("cannot record the root filesystem id: %m\n");
+ 		return;
+@@ -576,7 +600,10 @@ int mount_overlay(struct volume *v)
+ 	}
+ 
+ 	/* The state and upper/work trees live here (a sub-directory if shared). */
+-	fs_overlay_dir(overlay_mp, ovl_data, sizeof(ovl_data));
++	if (!fs_overlay_dir(overlay_mp, ovl_data, sizeof(ovl_data)))
++		goto invalid_overlay;
++	if (fs_shared_overlay() && !shared_overlay_recover_pending(ovl_data))
++		goto invalid_overlay;
+ 
+ 	/*
+ 	 * Check for extroot config in overlay (rootfs_data) and if present then
+@@ -588,8 +615,11 @@ int mount_overlay(struct volume *v)
+ 	}
+ 
+ 	/* Settings only: drop an overlay that belongs to another root filesystem. */
+-	if (fs_shared_overlay() && !read_rom_id(rom_id))
+-		record = shared_rom_check(ovl_data, rom_id);
++	if (fs_shared_overlay() && !read_rom_id(rom_id)) {
++		if (!shared_rom_check(ovl_data, rom_id))
++			goto invalid_overlay;
++		record = true;
++	}
+ 
+ 	switch (fs_state_get(ovl_data)) {
+ 	case FS_STATE_UNKNOWN:
+@@ -617,5 +647,12 @@ int mount_overlay(struct volume *v)
+ 		return ramoverlay();
+ 	}
+ 
++	return -1;
++invalid_overlay:
++	umount(overlay_mp);
++	if (fs_shared_overlay()) {
++		ULOG_ERR("shared overlay is unusable, using a temporary overlay in RAM\n");
++		return ramoverlay();
++	}
+ 	return -1;
+ }
+diff --git a/mount_root.c b/mount_root.c
+index f44fe54..42f9d42 100644
+--- a/mount_root.c
++++ b/mount_root.c
+@@ -139,7 +139,8 @@ done(int argc, char *argv[1])
+ 		{
+ 			char dir[64];
+ 
+-			fs_overlay_dir("/overlay", dir, sizeof(dir));
++			if (!fs_overlay_dir("/overlay", dir, sizeof(dir)))
++				return -1;
+ 			fs_state_set(dir, FS_STATE_READY);
+ 		}
+ 		break;

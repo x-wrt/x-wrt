@@ -14,6 +14,10 @@ COMMAND=/lib/upgrade/do_stage2
 ADD_PROVISIONING=1
 SAVE_OVERLAY=0
 SAVE_OVERLAY_PATH=
+OVERLAY_UPPER=/overlay/upper
+if [ -f /etc/fstools-shared-overlay ] && [ -d /overlay/.owrt/upper ]; then
+	OVERLAY_UPPER=/overlay/.owrt/upper
+fi
 export SAVE_PARTITIONS=1
 SAVE_INSTALLED_PKGS=0
 SKIP_UNCHANGED=0
@@ -224,7 +228,7 @@ build_list_of_backup_overlay_files() {
 	# busybox grep bug when file is empty
 	[ -s "$packagesfiles" ] || echo > $packagesfiles
 
-	( cd /overlay/upper/; find .$SAVE_OVERLAY_PATH \( -type f -o -type l \) $find_filter | sed \
+	( cd "$OVERLAY_UPPER" || exit 1; find .$SAVE_OVERLAY_PATH \( -type f -o -type l \) $find_filter | sed \
 		-e 's,^\.,,' \
 		-e '\,^/etc/board.json$,d' \
 		-e '\,^/etc/board-base.json$,d' \
@@ -246,8 +250,8 @@ build_list_of_backup_overlay_files() {
 }
 
 if [ $SAVE_OVERLAY = 1 ]; then
-	[ ! -d /overlay/upper/etc ] && {
-		echo "Cannot find '/overlay/upper/etc', required for '-c' or '-o'" >&2
+	[ ! -d "$OVERLAY_UPPER/etc" ] && {
+		echo "Cannot find '$OVERLAY_UPPER/etc', required for '-c' or '-o'" >&2
 		exit 1
 	}
 	sysupgrade_init_conffiles="build_list_of_backup_overlay_files"
@@ -306,13 +310,13 @@ create_backup_archive() {
 				if [ -d "/usr/lib/opkg/info" ]; then
 					tar_print_member "$INSTALLED_PACKAGES" "$(find /usr/lib/opkg/info -name "*.control" \( \
 						\( -exec test -f /rom/{} \; -exec echo {} rom \; \) -o \
-						\( -exec test -f /overlay/upper/{} \; -exec echo {} overlay \; \) -o \
+						\( -exec test -f "$OVERLAY_UPPER/{}" \; -exec echo {} overlay \; \) -o \
 						\( -exec echo {} unknown \; \) \
 						\) | sed -e 's,.*/,,;s/\.control /\t/')" || ret=1
 				elif [ -d "/lib/apk/packages" ]; then
 					tar_print_member "$INSTALLED_PACKAGES" "$(find /lib/apk/packages -name "*.list" \( \
 						\( -exec test -f /rom/{} \; -exec echo {} rom \; \) -o \
-						\( -exec test -f /overlay/upper/{} \; -exec echo {} overlay \; \) -o \
+						\( -exec test -f "$OVERLAY_UPPER/{}" \; -exec echo {} overlay \; \) -o \
 						\( -exec echo {} unknown \; \) \
 						\) | sed -e 's,.*/,,;s/\.list /\t/')" || ret=1
 				else

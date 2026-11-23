@@ -1,0 +1,21 @@
+Subject: libfstools: fall back to RAM if a shared volume fails to mount
+
+diff --git a/libfstools/overlay.c b/libfstools/overlay.c
+index deb01b6..c8d6777 100644
+--- a/libfstools/overlay.c
++++ b/libfstools/overlay.c
+@@ -568,8 +568,12 @@ int mount_overlay(struct volume *v)
+ 	}
+ 
+ 	err = overlay_mount_fs(v, overlay_mp);
+-	if (err)
+-		return err;
++	if (err) {
++		if (!fs_shared_overlay())
++			return err;
++		ULOG_ERR("cannot mount the shared overlay, using a temporary overlay in RAM\n");
++		return ramoverlay();
++	}
+ 
+ 	/* The state and upper/work trees live here (a sub-directory if shared). */
+ 	fs_overlay_dir(overlay_mp, ovl_data, sizeof(ovl_data));

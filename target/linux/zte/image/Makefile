@@ -25,7 +25,7 @@ define Device/zte_zxslc-sr1010
   DEVICE_DTS_DIR := $(TOPDIR)/target/linux/zte/dts
   SUPPORTED_DEVICES := zte,zx279133-sr1010
   DEVICE_PACKAGES := kmod-gpio-button-hotplug kmod-zte-npu kmod-zte-rtl8372n \
-	kmod-usb-storage kmod-usb-storage-uas
+	kmod-usb-storage kmod-usb-storage-uas block-mount
 endef
 TARGET_DEVICES += zte_zxslc-sr1010
 

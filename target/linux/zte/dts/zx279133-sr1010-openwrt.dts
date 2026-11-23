@@ -3,7 +3,10 @@
  * OpenWrt view of the ZXSLC SR1010 flash.
  *
  * The vendor configuration partition stays read-only so that the vendor
- * firmware keeps its settings.
+ * firmware keeps its settings. OpenWrt keeps its overlay on the Plugin
+ * partition, in the .owrt directory next to the files the vendor firmware
+ * wrote there. The partition keeps its name: fstools looks for it by the name
+ * in /etc/fstools-shared-overlay.
  */
 
 #include "zte/zx279133-sr1010.dts"
