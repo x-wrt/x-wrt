@@ -8,6 +8,15 @@ DTC_WARN_FLAGS := $(filter-out -Wno-graph_child_address,$(DTC_WARN_FLAGS))
 KERNEL_LOADADDR := 0x80200000
 KERNEL_ENTRY := 0x80200000
 
+SR1010_OPENSSL := $(if $(wildcard $(STAGING_DIR_HOST)/bin/openssl),$(STAGING_DIR_HOST)/bin/openssl,openssl)
+
+define Build/sr1010-firmware
+	python3 $(PLATFORM_DIR)/mkfw/sr1010-mkfw.py \
+		"$(IMAGE_KERNEL)" "$(IMAGE_ROOTFS)" "$@" \
+		--openssl "$(SR1010_OPENSSL)" \
+		-v "$(VERSION_DIST) $(VERSION_NUMBER)"
+endef
+
 define Device/Default
   PROFILES := Default
   KERNEL_NAME := Image
@@ -24,8 +33,10 @@ define Device/zte_zxslc-sr1010
   DEVICE_DTS := zx279133-sr1010-openwrt
   DEVICE_DTS_DIR := $(TOPDIR)/target/linux/zte/dts
   SUPPORTED_DEVICES := zte,zx279133-sr1010
-  DEVICE_PACKAGES := kmod-gpio-button-hotplug kmod-zte-npu kmod-zte-rtl8372n \
+  DEVICE_PACKAGES := zte-fwslot kmod-gpio-button-hotplug kmod-zte-npu kmod-zte-rtl8372n \
 	kmod-usb-storage kmod-usb-storage-uas block-mount
+  IMAGES := sysupgrade.bin
+  IMAGE/sysupgrade.bin := sr1010-firmware
 endef
 TARGET_DEVICES += zte_zxslc-sr1010
 

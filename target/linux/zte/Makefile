@@ -5,7 +5,7 @@ include $(TOPDIR)/rules.mk
 BOARD:=zte
 BOARDNAME:=ZTE SoCs
 SUBTARGETS:=zx279133
-FEATURES:=dt gpio ramdisk cpiogz usb
+FEATURES:=dt gpio ramdisk squashfs usb
 KERNEL_PATCHVER:=7.3
 
 include $(INCLUDE_DIR)/target.mk

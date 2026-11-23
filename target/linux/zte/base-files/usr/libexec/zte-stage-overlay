@@ -1,0 +1,48 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+
+. /lib/functions.sh
+
+# Empty the overlay so stale files cannot shadow the new root filesystem, and
+# stage the settings backup for restore on the next boot.
+stage_settings() {
+	local dir entry pending staging
+
+	dir="$mnt/.owrt"
+	[ ! -L "$dir" ] || return 1
+	if [ -z "$UPGRADE_BACKUP" ]; then
+		rm -rf "$dir"
+		return
+	fi
+
+	mkdir -p "$dir" || return 1
+	pending="$dir/sysupgrade.tgz.tmp"
+	staging="$dir/sysupgrade.tgz.copy"
+	[ ! -L "$pending" ] || return 1
+	[ ! -e "$pending" ] || [ -f "$pending" ] || return 1
+	rm -f "$staging" || return 1
+	cp "$UPGRADE_BACKUP" "$staging" || return 1
+	tar -tzf "$staging" >/dev/null || return 1
+	sync
+	mv "$staging" "$pending" || return 1
+	sync
+	for entry in "$dir"/* "$dir"/.[!.]* "$dir"/..?*; do
+		[ "$entry" = "$pending" ] || rm -rf "$entry" || return 1
+	done
+	sync
+	mv "$pending" "$dir/$BACKUP_FILE" || return 1
+	sync
+}
+
+part=$(find_mtd_part Plugin)
+[ -n "$part" ] || exit 1
+mnt=$(mktemp -d /tmp/zte-overlay.XXXXXX) || exit 1
+mount -t jffs2 "$part" "$mnt" || {
+	rmdir "$mnt"
+	exit 1
+}
+stage_settings
+rc=$?
+umount "$mnt" || exit 1
+rmdir "$mnt"
+exit "$rc"
