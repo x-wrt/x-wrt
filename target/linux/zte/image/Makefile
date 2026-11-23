@@ -34,7 +34,8 @@ define Device/zte_zxslc-sr1010
   DEVICE_DTS_DIR := $(TOPDIR)/target/linux/zte/dts
   SUPPORTED_DEVICES := zte,zx279133-sr1010
   DEVICE_PACKAGES := zte-fwslot kmod-gpio-button-hotplug kmod-zte-npu kmod-zte-rtl8372n \
-	kmod-usb-storage kmod-usb-storage-uas block-mount
+	kmod-usb-storage kmod-usb-storage-uas \
+	block-mount luci luci-app-zte-fwslot
   IMAGES := sysupgrade.bin
   IMAGE/sysupgrade.bin := sr1010-firmware
 endef

@@ -1,0 +1,48 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# rpcd plugin for the firmware slot page: shows the two firmware slots of the
+# ZXSLC SR1010 and starts the other one.
+#
+#   ubus call luci.zte-fwslot info
+#   ubus call luci.zte-fwslot switch '{"reboot":true}'
+
+. /usr/share/libubox/jshn.sh
+
+FWSLOT=${ZTE_FWSLOT:-/usr/sbin/zte-fwslot}
+
+case "$1" in
+list)
+	printf '{ "info": {}, "switch": { "reboot": true } }\n'
+	;;
+call)
+	case "$2" in
+	info)
+		if out=$("$FWSLOT" info -j 2>&1); then
+			printf '%s\n' "$out"
+		else
+			json_init
+			json_add_string error "$out"
+			json_dump
+		fi
+		;;
+	switch)
+		read -r input
+		json_load "$input"
+		json_get_var reboot_requested reboot
+		msg=$("$FWSLOT" switch 2>&1)
+		rc=$?
+		json_init
+		json_add_int result "$rc"
+		json_add_string message "$msg"
+		json_dump
+
+		# Give rpcd time to hand the answer to the browser first. The
+		# subshell must not keep rpcd's pipes open.
+		if [ "$rc" -eq 0 ] && [ "$reboot_requested" = 1 ]; then
+			( sleep 3; sync; reboot ) >/dev/null 2>&1 </dev/null &
+		fi
+		;;
+	esac
+	;;
+esac
