@@ -1,0 +1,144 @@
+Subject: tests: model absent offload modules and cover SR1010 natflow
+
+diff --git a/tests/01_configuration/01_ruleset b/tests/01_configuration/01_ruleset
+index e93dd17..eaadf3f 100644
+--- a/tests/01_configuration/01_ruleset
++++ b/tests/01_configuration/01_ruleset
+@@ -312,6 +312,8 @@ table inet fw4 {
+ [call] fs.glob pattern </usr/share/nftables.d/table-post/*.nft>
+ [call] fs.lsdir path </usr/share/nftables.d/chain-pre>
+ [call] fs.lsdir path </usr/share/nftables.d/chain-post>
++[call] fs.stat path </sys/module/fnoffload>
++[call] fs.stat path </sys/module/natflow>
+ [call] ctx.call object <network.device> method <status> args <null>
+ [call] fs.opendir path </sys/class/net/br-lan>
+ [call] fs.opendir path </sys/class/net/eth0>
+diff --git a/tests/01_configuration/02_rule_order b/tests/01_configuration/02_rule_order
+index c5c52a4..b612102 100644
+--- a/tests/01_configuration/02_rule_order
++++ b/tests/01_configuration/02_rule_order
+@@ -235,5 +235,7 @@ table inet fw4 {
+ [call] fs.glob pattern </usr/share/nftables.d/table-post/*.nft>
+ [call] fs.lsdir path </usr/share/nftables.d/chain-pre>
+ [call] fs.lsdir path </usr/share/nftables.d/chain-post>
++[call] fs.stat path </sys/module/fnoffload>
++[call] fs.stat path </sys/module/natflow>
+ [call] fs.popen cmdline </usr/sbin/nft --terse --json list flowtables inet> mode <r>
+ -- End --
+diff --git a/tests/01_configuration/03_flow_offloading b/tests/01_configuration/03_flow_offloading
+index 9d0dc05..426ebeb 100644
+--- a/tests/01_configuration/03_flow_offloading
++++ b/tests/01_configuration/03_flow_offloading
+@@ -221,6 +221,8 @@ table inet fw4 {
+ [call] fs.glob pattern </usr/share/nftables.d/table-post/*.nft>
+ [call] fs.lsdir path </usr/share/nftables.d/chain-pre>
+ [call] fs.lsdir path </usr/share/nftables.d/chain-post>
++[call] fs.stat path </sys/module/fnoffload>
++[call] fs.stat path </sys/module/natflow>
+ [call] ctx.call object <network.device> method <status> args <null>
+ [call] fs.opendir path </sys/class/net/br-lan>
+ [call] fs.opendir path </sys/class/net/eth0>
+diff --git a/tests/01_configuration/08_flow_offloading_zone_devices b/tests/01_configuration/08_flow_offloading_zone_devices
+index 0240054..6e071a5 100644
+--- a/tests/01_configuration/08_flow_offloading_zone_devices
++++ b/tests/01_configuration/08_flow_offloading_zone_devices
+@@ -280,6 +280,8 @@ table inet fw4 {
+ [call] fs.glob pattern </usr/share/nftables.d/table-post/*.nft>
+ [call] fs.lsdir path </usr/share/nftables.d/chain-pre>
+ [call] fs.lsdir path </usr/share/nftables.d/chain-post>
++[call] fs.stat path </sys/module/fnoffload>
++[call] fs.stat path </sys/module/natflow>
+ [call] ctx.call object <network.device> method <status> args <null>
+ [call] fs.opendir path </sys/class/net/br-lan>
+ [call] fs.opendir path </sys/class/net/eth0>
+diff --git a/tests/01_configuration/11_flow_offloading_encaps b/tests/01_configuration/11_flow_offloading_encaps
+index 0eb646e..5d53a07 100644
+--- a/tests/01_configuration/11_flow_offloading_encaps
++++ b/tests/01_configuration/11_flow_offloading_encaps
+@@ -844,6 +844,8 @@ table inet fw4 {
+ [call] fs.glob pattern </usr/share/nftables.d/table-post/*.nft>
+ [call] fs.lsdir path </usr/share/nftables.d/chain-pre>
+ [call] fs.lsdir path </usr/share/nftables.d/chain-post>
++[call] fs.stat path </sys/module/fnoffload>
++[call] fs.stat path </sys/module/natflow>
+ [call] ctx.call object <network.device> method <status> args <null>
+ [call] fs.opendir path </sys/class/net/br-lan>
+ [call] fs.opendir path </sys/class/net/eth0>
+diff --git a/tests/01_configuration/12_flow_offloading_hw_encaps b/tests/01_configuration/12_flow_offloading_hw_encaps
+index 11e4970..2d595cf 100644
+--- a/tests/01_configuration/12_flow_offloading_hw_encaps
++++ b/tests/01_configuration/12_flow_offloading_hw_encaps
+@@ -844,6 +844,8 @@ table inet fw4 {
+ [call] fs.glob pattern </usr/share/nftables.d/table-post/*.nft>
+ [call] fs.lsdir path </usr/share/nftables.d/chain-pre>
+ [call] fs.lsdir path </usr/share/nftables.d/chain-post>
++[call] fs.stat path </sys/module/fnoffload>
++[call] fs.stat path </sys/module/natflow>
+ [call] ctx.call object <network.device> method <status> args <null>
+ [call] fs.opendir path </sys/class/net/br-lan>
+ [call] fs.opendir path </sys/class/net/eth0>
+diff --git a/tests/01_configuration/13_zte_natflow b/tests/01_configuration/13_zte_natflow
+new file mode 100644
+index 0000000..3ebebd1
+--- /dev/null
++++ b/tests/01_configuration/13_zte_natflow
+@@ -0,0 +1,30 @@
++SR1010 natflow handles forwarding even when both nft offload options are enabled.
++
++-- Testcase --
++{%
++	fw4.load(false);
++	print(fw4.resolve_offload_devices(), "\n");
++	print([ fw4.default_option("flow_offloading"), fw4.default_option("flow_offloading_hw") ], "\n");
++%}
++-- End --
++
++-- File uci/firewall.json --
++{ "defaults": [ { "flow_offloading": 1, "flow_offloading_hw": 1 } ] }
++-- End --
++
++-- File uci/helpers.json --
++{}
++-- End --
++
++-- File fs/stat~_sys_module_natflow.json --
++{ "type": "directory" }
++-- End --
++
++-- File fs/open~_tmp_sysinfo_board_name.txt --
++zte,zx279133-sr1010
++-- End --
++
++-- Expect stdout --
++[ ]
++[ false, false ]
++-- End --
+diff --git a/tests/lib/mocklib/fs.uc b/tests/lib/mocklib/fs.uc
+index 6482e6a..81d8978 100644
+--- a/tests/lib/mocklib/fs.uc
++++ b/tests/lib/mocklib/fs.uc
+@@ -12,7 +12,9 @@ return {
+ 		let file = sprintf("fs/stat~%s.json", replace(path, /[^A-Za-z0-9_-]+/g, '_')),
+ 		    mock = mocklib.read_json_file(file);
+ 
+-		if (!mock || mock != mock) {
++		if (mock === false)
++			mock = null;
++		else if (!mock || mock != mock) {
+ 			mocklib.I("No stat result fixture defined for fs.stat() call on %s.", path);
+ 			mocklib.I("Provide a mock result through the following JSON file:\n%s\n", file);
+ 
+diff --git a/tests/mocks/fs/stat~_sys_module_fnoffload.json b/tests/mocks/fs/stat~_sys_module_fnoffload.json
+new file mode 100644
+index 0000000..c508d53
+--- /dev/null
++++ b/tests/mocks/fs/stat~_sys_module_fnoffload.json
+@@ -0,0 +1 @@
++false
+diff --git a/tests/mocks/fs/stat~_sys_module_natflow.json b/tests/mocks/fs/stat~_sys_module_natflow.json
+new file mode 100644
+index 0000000..c508d53
+--- /dev/null
++++ b/tests/mocks/fs/stat~_sys_module_natflow.json
+@@ -0,0 +1 @@
++false

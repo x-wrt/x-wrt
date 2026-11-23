@@ -1,0 +1,36 @@
+Subject: fw4: resolve macvlans and retry hardware offload on capable devices
+
+diff --git a/root/usr/share/ucode/fw4.uc b/root/usr/share/ucode/fw4.uc
+index c1ab2f5..4b3235a 100644
+--- a/root/usr/share/ucode/fw4.uc
++++ b/root/usr/share/ucode/fw4.uc
+@@ -478,12 +478,14 @@ function resolve_lower_devices(devstatus, devname, use_prefix) {
+ 	let devs = [];
+ 
+ 	if (dir) {
+-		let devtype = devstatus[devname]?.devtype ??
+-			match(fs.readfile(`/sys/class/net/${devname}/uevent`), /DEVTYPE=([^\n]+)/)?.[1];
++		let status = devstatus?.[devname];
++		let devtype = status?.type == 'macvlan' ? 'macvlan' : (status?.devtype ??
++			match(fs.readfile(`/sys/class/net/${devname}/uevent`), /DEVTYPE=([^\n]+)/)?.[1]);
+ 
+ 		switch (devtype) {
+ 		case 'vlan':
+ 		case 'bridge':
++		case 'macvlan':
+ 			let e;
+ 
+ 			while ((e = dir.read()) != null)
+@@ -597,6 +599,12 @@ return {
+ 		// takes the flows the hardware does not
+ 		if (this.default_option("flow_offloading_hw") &&
+ 		    length(devices) && !nft_try_hw_offload(devices)) {
++			let capable = filter(devices, device => nft_try_hw_offload([device]));
++
++			if (length(capable) && length(capable) < length(devices) &&
++			    nft_try_hw_offload(capable))
++				return capable;
++
+ 			this.warn('Hardware flow offloading unavailable, falling back to software offloading');
+ 			this.state.defaults.flow_offloading_hw = false;
+ 		}

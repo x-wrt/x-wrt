@@ -1,0 +1,21 @@
+Subject: fw4: disable flowtable when SR1010 runs natflow
+
+diff --git a/root/usr/share/ucode/fw4.uc b/root/usr/share/ucode/fw4.uc
+index 4b3235a..c440177 100644
+--- a/root/usr/share/ucode/fw4.uc
++++ b/root/usr/share/ucode/fw4.uc
+@@ -561,6 +561,14 @@ return {
+ 	},
+ 
+ 	resolve_offload_devices: function() {
++		if (fs.stat('/sys/module/fnoffload') ||
++		    (fs.stat('/sys/module/natflow') &&
++		     trim(fs.readfile('/tmp/sysinfo/board_name') ?? '') == 'zte,zx279133-sr1010')) {
++			this.state.defaults.flow_offloading = false;
++			this.state.defaults.flow_offloading_hw = false;
++			return [];
++		}
++
+ 		if (!this.default_option("flow_offloading"))
+ 			return [];
+ 
