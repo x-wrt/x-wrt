@@ -1,0 +1,1470 @@
+Subject: net: zte: program paired NPPT hardware NAT rules for natflow
+
+Translate both IPv4 directions directly into NPPT keys and responses.
+Allocate directional aging and counter slots, and report IP byte deltas.
+Publish paired rules only to natflow through its asynchronous API.
+
+--- a/drivers/net/ethernet/zte/Kconfig
++++ b/drivers/net/ethernet/zte/Kconfig
+@@ -40,6 +40,13 @@
+ 	  polling are performed. Writes require CAP_SYS_RAWIO and can affect
+ 	  live forwarding. The npu-debug command supplies the user interface.
+ 
++config ZTE_ZX279133_FNOFFLOAD
++	tristate "ZTE ZX279133 natflow hardware NAT"
++	depends on ZTE_ZX279133_ETH
++	help
++	  Install paired IPv4 NAT rules for natflow in the NPPT engine.
++	  The Ethernet driver also provides software forwarding on its own.
++
+ config ZTE_ZX279133_LAN_CONDUIT
+ 	tristate "ZTE ZX279133 XMAC0 LAN conduit"
+ 	depends on ZTE_ZX279133_ETH
+--- a/drivers/net/ethernet/zte/Makefile
++++ b/drivers/net/ethernet/zte/Makefile
+@@ -18,3 +18,5 @@
+ obj-$(CONFIG_ZTE_ZX279133_LAN_CONDUIT) += zx279133-lan-conduit.o
+ obj-$(CONFIG_ZTE_ZX279133_RTL8372N) += zx279133-rtl8372n.o
+ 
++obj-$(CONFIG_ZTE_ZX279133_FNOFFLOAD) += fnoffload.o
++fnoffload-y := zx279133-offload.o
+--- /dev/null
++++ b/drivers/net/ethernet/zte/zx279133-offload.c
+@@ -0,0 +1,951 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/* ZTE ZX279133 NPPT paired IPv4 NAT rule engine. */
++
++#include <linux/bitmap.h>
++#include <linux/debugfs.h>
++#include <linux/etherdevice.h>
++#include <linux/if_pppox.h>
++#include <linux/if_vlan.h>
++#include <linux/ip.h>
++#include <linux/jiffies.h>
++#include <linux/kref.h>
++#include <linux/module.h>
++#include <linux/rhashtable.h>
++#include <linux/seq_file.h>
++#include <linux/slab.h>
++#include <linux/unaligned.h>
++#include <linux/workqueue.h>
++#include <linux/xarray.h>
++#include <linux/zte_nppt_natflow.h>
++#include <linux/zte_nppt_offload.h>
++
++#include "zx279133-policy.h"
++
++static bool vlan_offload;
++module_param(vlan_offload, bool, 0444);
++MODULE_PARM_DESC(vlan_offload, "Admit single-tag IPv4 rules when the NPU VID keys are active");
++
++static bool zx279133_vlan_enabled(struct zte_nppt *np)
++{
++	struct zte_nppt_info info;
++
++	zte_nppt_get_info(np, &info);
++	return READ_ONCE(vlan_offload) &&
++		(info.capabilities & ZTE_NPPT_CAP_LAN_VID_KEY);
++}
++
++static bool zx279133_wan_vlan_enabled(struct zte_nppt *np)
++{
++	struct zte_nppt_info info;
++
++	zte_nppt_get_info(np, &info);
++	return READ_ONCE(vlan_offload) &&
++		(info.capabilities & ZTE_NPPT_CAP_WAN_VID_KEY);
++}
++
++#define ZX279133_FAST_KEY_SIZE		16
++#define ZX279133_FAST_DATA_SIZE		32
++#define ZX279133_FAST_IKEY_SIZE		16
++#define ZX279133_FAST_IKEY_DEPTH	ZTE_NPPT_FAST_IKEY_DEPTH
++#define ZX279133_ZCAM_ENTRY_SIZE	64
++/* np.ko core_sdt_init() gives SDT14 256 ZCAM entries before DDR overflow. */
++#define ZX279133_FAST_FULL_ZCAM_LIMIT	256
++#define ZX279133_DDR_BUCKET_SHIFT	6
++#define ZX279133_DDR_BUCKET_SIZE		BIT(ZX279133_DDR_BUCKET_SHIFT)
++#define ZX279133_DDR_BUCKETS		(ZTE_NPPT_DDR_BYTES >> \
++					 ZX279133_DDR_BUCKET_SHIFT)
++#define ZX279133_HASH_CRC32_POLY		0x04c11db7
++
++#define ZX279133_FAST_MULTI_SELECTOR	0x01
++#define ZX279133_FAST_MULTI_FOOTER	0xc1
++#define ZX279133_FAST_FULL_SELECTOR	0x00
++#define ZX279133_FAST_FULL_FOOTER	0xe0
++
++struct zx279133_flow_tuple {
++	__be32 src_addr;
++	__be32 dst_addr;
++	__be16 src_port;
++	__be16 dst_port;
++};
++
++struct zx279133_flow_data {
++	struct ethhdr eth;
++	struct zx279133_flow_tuple tuple;
++	struct zx279133_vlan_plan vlan;
++};
++
++struct zx279133_flow_spec {
++	struct zx279133_flow_data data;
++	struct zx279133_flow_tuple xlate;
++	enum zx279133_flow_port ingress;
++	enum zx279133_flow_port egress;
++	u16 gemport;
++	u16 pppoe_sid;
++	u16 mtu;
++	u8 ip_proto;
++};
++
++struct zx279133_flow_counters {
++	u64 packets;
++	u64 bytes;
++};
++
++struct zx279133_flow_entry {
++	struct zx279133_flow_counters final_stats;
++	struct rhash_head key_node;
++	u8 key[ZX279133_FAST_KEY_SIZE];
++	u8 zblock;
++	u8 zcell;
++	u8 zaddr;
++	u32 ddr_bucket;
++	u32 age;
++	u16 ikey;
++	u16 stat;
++	u8 wanid;
++	struct zte_nppt_host *host;
++	struct zte_nppt_vlan *vlan_in;
++	struct zte_nppt_vlan *vlan_out;
++	u64 packets;
++	u64 bytes;
++	bool retired;
++	bool stale;
++	bool snat;
++	bool pppoe;
++	bool wan_vlan;
++	bool upstream;
++	bool full;
++	bool in_ddr;
++};
++
++struct zx279133_flow_offload {
++	struct zte_nppt *np;
++	struct device *dev;
++	struct kref ref;
++	struct dentry *debugfs;
++	bool detached;
++	/* Serializes software flow state and SE indirect accesses. */
++	struct mutex lock;
++	struct xarray flows;
++	struct rhashtable key_flows;
++	unsigned long *ddr_used;
++	DECLARE_BITMAP(ikey_used, ZX279133_FAST_IKEY_DEPTH);
++	DECLARE_BITMAP(age_used, ZX279133_FAST_AGE_DEPTH);
++	DECLARE_BITMAP(stat_used, ZX279133_FAST_STAT_DEPTH);
++	u32 ddr_entries;
++	u16 fast_full_zcam_used;
++};
++
++static const struct rhashtable_params zx279133_flow_key_ht_params = {
++	.head_offset = offsetof(struct zx279133_flow_entry, key_node),
++	.key_offset = offsetof(struct zx279133_flow_entry, key),
++	.key_len = ZX279133_FAST_KEY_SIZE,
++	.automatic_shrinking = true,
++};
++
++static int zx279133_fast_index_alloc(unsigned long *used,
++				      unsigned int depth, u16 *index)
++{
++	unsigned long bit;
++
++	bit = find_first_zero_bit(used, depth);
++	if (bit == depth)
++		return -ENOSPC;
++	__set_bit(bit, used);
++	*index = bit;
++
++	return 0;
++}
++
++static int
++zx279133_fast_age_alloc(struct zx279133_flow_offload *offload, u32 *index)
++{
++	unsigned long bit;
++
++	bit = find_first_zero_bit(offload->age_used, ZX279133_FAST_AGE_DEPTH);
++	if (bit == ZX279133_FAST_AGE_DEPTH)
++		return -ENOSPC;
++	__set_bit(bit, offload->age_used);
++	*index = bit;
++
++	return 0;
++}
++
++static u32 zx279133_crc32(u32 poly, const u8 *data, size_t len)
++{
++	u32 crc = 0;
++	int bit;
++
++	while (len--) {
++		crc ^= (u32)data[len] << 24;
++		for (bit = 0; bit < 8; bit++)
++			crc = crc & BIT(31) ? (crc << 1) ^ poly : crc << 1;
++	}
++
++	return crc;
++}
++
++static int zx279133_ddr_alloc(struct zx279133_flow_offload *offload,
++			      struct zx279133_flow_entry *entry, u8 selector)
++{
++	u8 hash_input[49] = {};
++	u32 crc;
++
++	hash_input[0] = selector;
++	memcpy(hash_input + 1, entry->key, ZX279133_FAST_KEY_SIZE);
++	crc = zx279133_crc32(ZX279133_HASH_CRC32_POLY, hash_input, sizeof(hash_input));
++	entry->ddr_bucket = crc & (ZX279133_DDR_BUCKETS - 1);
++	if (test_and_set_bit(entry->ddr_bucket, offload->ddr_used))
++		return -ENOSPC;
++	entry->in_ddr = true;
++	if (!offload->ddr_entries)
++		dev_info(offload->dev,
++			 "SDT14 fast-flow overflow entered DDR bulk 0 at bucket %u\n",
++			 entry->ddr_bucket);
++	offload->ddr_entries++;
++
++	return 0;
++}
++
++static int zx279133_flow_slot_alloc(struct zx279133_flow_offload *offload,
++				    struct zx279133_flow_entry *entry,
++				    u8 selector)
++{
++	int ret;
++
++	if (!entry->full ||
++	    offload->fast_full_zcam_used < ZX279133_FAST_FULL_ZCAM_LIMIT) {
++		ret = zte_nppt_zcam_alloc(offload->np, entry->key, selector,
++					  &entry->zblock, &entry->zcell,
++					  &entry->zaddr);
++		if (!ret) {
++			if (entry->full)
++				offload->fast_full_zcam_used++;
++			return 0;
++		}
++		if (!entry->full)
++			return ret;
++	}
++
++	ret = zx279133_ddr_alloc(offload, entry, selector);
++	if (ret != -ENOSPC)
++		return ret;
++
++	/* The external table has one 512-bit slot per CRC32 result.  Resolve a
++	 * collision through the ZCAM's 4 blocks x 5 CRC16 candidates.
++	 */
++	ret = zte_nppt_zcam_alloc(offload->np, entry->key, selector,
++				  &entry->zblock, &entry->zcell, &entry->zaddr);
++	if (!ret)
++		offload->fast_full_zcam_used++;
++
++	return ret;
++}
++
++static void zx279133_flow_slot_release(struct zx279133_flow_offload *offload,
++				       const struct zx279133_flow_entry *entry)
++{
++	if (entry->in_ddr) {
++		__clear_bit(entry->ddr_bucket, offload->ddr_used);
++		offload->ddr_entries--;
++		return;
++	}
++
++	zte_nppt_zcam_release(offload->np, entry->zblock, entry->zcell, entry->zaddr);
++	if (entry->full)
++		offload->fast_full_zcam_used--;
++}
++
++/*
++ * As np.ko's fast_table_write(): a multi entry, whose response starts in the
++ * IKEY table, while the ZCAM and the 4096 IKEYs have room, else a full SDT14
++ * entry, which can overflow into the DDR bulk. The LAN entry program adds a
++ * PPPoE header from either.
++ */
++static int zx279133_flow_storage_alloc(struct zx279133_flow_offload *offload,
++				       struct zx279133_flow_entry *entry)
++{
++	int ret;
++
++	if (!entry->full) {
++		ret = zx279133_flow_slot_alloc(offload, entry,
++					       ZX279133_FAST_MULTI_SELECTOR);
++		if (!ret) {
++			ret = zx279133_fast_index_alloc(offload->ikey_used,
++							ZX279133_FAST_IKEY_DEPTH,
++							&entry->ikey);
++			if (!ret)
++				return 0;
++			zx279133_flow_slot_release(offload, entry);
++		}
++		if (ret != -ENOSPC)
++			return ret;
++		entry->full = true;
++	}
++
++	return zx279133_flow_slot_alloc(offload, entry,
++					ZX279133_FAST_FULL_SELECTOR);
++}
++
++static int zx279133_flow_table_write(struct zx279133_flow_offload *offload,
++				     const struct zx279133_flow_entry *entry,
++				     const u32 *table, unsigned int words)
++{
++	if (entry->in_ddr) {
++		return zte_nppt_ddr_write(offload->np, entry->ddr_bucket, table);
++	}
++
++	return zte_nppt_zcam_write(offload->np, entry->zblock, entry->zcell,
++				    entry->zaddr, table, words);
++}
++
++static void zx279133_put_ipv4(u8 *dst, __be32 addr)
++{
++	put_unaligned(be32_to_cpu(addr), (u32 *)dst);
++}
++
++static void zx279133_fast_key_build(u8 *key,
++				    const struct zx279133_flow_tuple *tuple,
++				    u8 ip_proto)
++{
++	memset(key, 0, ZX279133_FAST_KEY_SIZE);
++	put_unaligned(ntohs(tuple->dst_port), (u16 *)(key + 3));
++	put_unaligned(ntohs(tuple->src_port), (u16 *)(key + 5));
++	zx279133_put_ipv4(key + 7, tuple->dst_addr);
++	zx279133_put_ipv4(key + 11, tuple->src_addr);
++	key[15] = ip_proto;
++}
++
++static u16 zx279133_vlan_egress_vid(const struct zx279133_flow_data *data)
++{
++	if (data->vlan.edit == ZX_VLAN_POP)
++		return 0;
++	if (data->vlan.edit == ZX_VLAN_PUSH || data->vlan.edit == ZX_VLAN_REPLACE)
++		return data->vlan.tci & VLAN_VID_MASK;
++	return data->vlan.tagged ? data->vlan.vid : 0;
++}
++
++static void zx279133_fast_key_vid(u8 *key, u16 vid)
++{
++	/* R16: query tail 00:VIDhi:VIDlo is Linux key VIDlo:VIDhi:00. */
++	put_unaligned_le16(vid, key);
++}
++
++static void zx279133_fast_response_build(u8 *fast,
++					 const struct zx279133_flow_data *data,
++					 const struct zx279133_flow_tuple *xlate,
++					 enum zx279133_flow_port ingress,
++					 u16 gemport, u16 ikey, u16 stat,
++					 bool pppoe, u8 wanid)
++{
++	int i;
++
++	/* The response stores MAC addresses and IPv4 values least-significant
++	 * byte first, exactly as np.ko's fast_hashinfo_set() emits them.
++	 */
++	memset(fast, 0, ZX279133_FAST_DATA_SIZE);
++	if (pppoe)
++		put_unaligned(4, (u32 *)(fast + 16));
++	put_unaligned(stat, (u16 *)(fast + 2));
++	for (i = 0; i < ETH_ALEN; i++)
++		fast[8 + i] = data->eth.h_dest[ETH_ALEN - 1 - i];
++
++	put_unaligned(gemport, (u16 *)(fast + 20));
++	/* Bits 4:0 select the WANID entry that supplies the source MAC. */
++	fast[23] = wanid;
++	put_unaligned(ikey, (u16 *)(fast + 26));
++	fast[29] |= BIT(4);
++	fast[30] = BIT(5) | BIT(4) | BIT(3);
++	if (ingress == ZX279133_FLOW_PORT_LAN) {
++		/*
++		 * The LAN entry program has already removed the RTL8372N
++		 * transport tag. In the default response only a PPPoE push changes
++		 * its length (eight bytes, stored halved); a requested user VLAN
++		 * push is applied below.
++		 * wan_mode (bit 1) sends it out the WAN path, where the push
++		 * takes the session from the WANID entry and the frame leaves
++		 * by the port at byte 20. Without it the egress
++		 * port is cleared and the frame is lost, whichever port it is
++		 * for.
++		 */
++		put_unaligned(pppoe ? 4 : 0, (u32 *)(fast + 16));
++		fast[29] |= BIT(1);
++	}
++	/*
++	 * np.ko fast_hashinfo_set(): action 1 at byte 30 [7:6] inserts an
++	 * 802.1Q tag and byte 24 holds its TCI. Keep the OEM software response's
++	 * abs(delta)/2 field too; its low bits are not part of the packed entry.
++	 */
++	zx279133_vlan_response(fast, &data->vlan);
++
++	if (xlate->src_addr != data->tuple.src_addr)
++		fast[29] |= BIT(7);
++	if (xlate->dst_addr != data->tuple.dst_addr) {
++		zx279133_put_ipv4(fast + 4, xlate->dst_addr);
++		fast[30] |= BIT(0);
++	}
++	/* Always rewrite the port on the WAN side. */
++	if (ingress == ZX279133_FLOW_PORT_LAN ||
++	    xlate->src_port != data->tuple.src_port) {
++		put_unaligned(ntohs(xlate->src_port), (u16 *)fast);
++		fast[30] |= BIT(1);
++	}
++	if (ingress == ZX279133_FLOW_PORT_WAN ||
++	    xlate->dst_port != data->tuple.dst_port) {
++		put_unaligned(ntohs(xlate->dst_port), (u16 *)(fast + 14));
++		fast[30] |= BIT(2);
++	}
++}
++
++static void zx279133_fast_multi_table_build(u32 *table, const u8 *fast,
++					    const u8 *key, u32 age)
++{
++	u8 packed[18] = {};
++	u8 *bytes = (u8 *)table;
++	u32 tail;
++	int i;
++
++	/* fast_table_write() packs response bytes 17..31 around the age index. */
++	for (i = 0; i < 14; i++) {
++		packed[i] |= (fast[17 + i] & 0x3) << 6;
++		packed[i + 1] |= fast[17 + i] >> 2;
++	}
++	tail = (u32)age << 8 | (fast[31] & 0x3) << 6 |
++	       (u32)(fast[31] & ~0x3) << 24;
++	packed[14] |= tail;
++	packed[15] = tail >> 8;
++	packed[16] = tail >> 16;
++	packed[17] = tail >> 24;
++
++	memset(table, 0, ZX279133_ZCAM_ENTRY_SIZE / 2);
++	memcpy(bytes, packed + 3, 15);
++	memcpy(bytes + 15, key, ZX279133_FAST_KEY_SIZE);
++	bytes[31] = ZX279133_FAST_MULTI_FOOTER;
++}
++
++static void zx279133_fast_full_table_build(u32 *table, const u8 *fast,
++					   const u8 *key, u32 age)
++{
++	u32 response[ZX279133_FAST_DATA_SIZE / sizeof(u32)];
++	u8 packed[ZX279133_FAST_DATA_SIZE + 3] = {};
++	u8 *bytes = (u8 *)table;
++	u8 *response_bytes = (u8 *)response;
++	unsigned int i;
++	u32 tail;
++
++	/* fast_table_write() applies this conversion and the 18-bit age prefix
++	 * before its age-enabled SDT14 fallback.
++	 */
++	memcpy(response, fast, sizeof(response));
++	swap(response[0], response[4]);
++	response_bytes[26] = 0;
++	response_bytes[27] &= 0xe0;
++	for (i = 0; i < ZX279133_FAST_DATA_SIZE - 1; i++) {
++		packed[i] |= (response_bytes[i] & 0x3) << 6;
++		packed[i + 1] |= response_bytes[i] >> 2;
++	}
++	tail = (age & GENMASK(17, 0)) << 13 |
++	       (response_bytes[31] & GENMASK(6, 0)) << 6;
++	for (i = 0; i < sizeof(tail); i++)
++		packed[31 + i] += tail >> (8 * i);
++	memset(table, 0, ZX279133_ZCAM_ENTRY_SIZE);
++	memcpy(bytes + 15, packed + 3, ZX279133_FAST_DATA_SIZE);
++	memcpy(bytes + 47, key, ZX279133_FAST_KEY_SIZE);
++	bytes[63] = ZX279133_FAST_FULL_FOOTER;
++}
++
++/* The counters observe bytes on the WAN wire, including the MAC and FCS. */
++static u64 zx279133_flow_ip_bytes(const struct zx279133_flow_entry *entry,
++				  u64 packets, u64 bytes)
++{
++	u64 frame = ETH_HLEN + ETH_FCS_LEN;
++
++	if (entry->pppoe)
++		frame += PPPOE_SES_HLEN;
++	if (entry->wan_vlan)
++		frame += VLAN_HLEN;
++	frame *= packets;
++
++	return bytes > frame ? bytes - frame : 0;
++}
++
++static int zx279133_flow_counter_collect(struct zx279133_flow_offload *offload,
++					 struct zx279133_flow_entry *entry,
++					 struct zx279133_flow_counters *stats)
++{
++	u64 packets, bytes;
++	int ret;
++
++	ret = zte_nppt_stats_read(offload->np, entry->stat, &packets, &bytes);
++	if (ret)
++		return ret;
++	/* A reset must not become a large unsigned delta. */
++	if (packets < entry->packets || bytes < entry->bytes)
++		return -EIO;
++	stats->bytes += zx279133_flow_ip_bytes(entry, packets - entry->packets,
++					      bytes - entry->bytes);
++	stats->packets += packets - entry->packets;
++	entry->packets = packets;
++	entry->bytes = bytes;
++	return 0;
++}
++
++static int
++zx279133_flow_entry_hw_clear(struct zx279133_flow_offload *offload,
++			     const struct zx279133_flow_entry *entry)
++{
++	u32 ikey[ZX279133_FAST_IKEY_SIZE / sizeof(u32)] = {};
++	u32 table[ZX279133_ZCAM_ENTRY_SIZE / sizeof(u32)] = {};
++	int ret;
++
++	if (entry->in_ddr) {
++		ret = zte_nppt_ddr_clear(offload->np, entry->ddr_bucket);
++	} else {
++		ret = zte_nppt_zcam_write(offload->np, entry->zblock, entry->zcell,
++					  entry->zaddr, table,
++					  entry->full ? ARRAY_SIZE(table) :
++							 ARRAY_SIZE(ikey) * 2);
++	}
++	if (ret)
++		return ret;
++	if (!entry->full) {
++		ret = zte_nppt_ikey_write(offload->np, entry->ikey, ikey);
++		if (ret)
++			return ret;
++	}
++
++	return 0;
++}
++
++/* offload->lock and the supplier datapath lock are held. */
++static int zx279133_flow_entry_remove(struct zx279133_flow_offload *offload,
++				      struct zx279133_flow_entry *entry,
++				      unsigned long cookie,
++				      struct zx279133_flow_counters *stats,
++				      bool retire)
++{
++	int ret;
++
++	if (!entry->retired) {
++		ret = zx279133_flow_entry_hw_clear(offload, entry);
++		if (ret)
++			goto quarantine;
++		ret = zx279133_flow_counter_collect(offload, entry, &entry->final_stats);
++		if (ret)
++			dev_warn_ratelimited(offload->dev, "NPPT final counter read failed: %d\n", ret);
++		if (entry->vlan_out) {
++			ret = zte_nppt_vlan_put(offload->np, entry->vlan_out);
++			if (ret)
++				goto quarantine;
++			entry->vlan_out = NULL;
++		}
++		if (entry->vlan_in) {
++			ret = zte_nppt_vlan_put(offload->np, entry->vlan_in);
++			if (ret)
++				goto quarantine;
++			entry->vlan_in = NULL;
++		}
++		rhashtable_remove_fast(&offload->key_flows, &entry->key_node,
++				       zx279133_flow_key_ht_params);
++		zx279133_flow_slot_release(offload, entry);
++		if (!entry->full)
++			__clear_bit(entry->ikey, offload->ikey_used);
++		__clear_bit(entry->age, offload->age_used);
++		__clear_bit(entry->stat, offload->stat_used);
++		zte_nppt_wanid_put(offload->np, entry->wanid, entry->snat);
++		if (entry->host && zte_nppt_host_put(offload->np, entry->host))
++			dev_warn(offload->dev, "Host deletion failed; npu retained the slot\n");
++		entry->retired = true;
++	}
++	if (retire)
++		return 0;
++	if (stats) {
++		stats->bytes += entry->final_stats.bytes;
++		stats->packets += entry->final_stats.packets;
++	}
++	xa_erase(&offload->flows, cookie);
++	kfree(entry);
++	module_put(THIS_MODULE);
++	return 0;
++
++quarantine:
++	entry->stale = true;
++	return ret;
++}
++
++static int zx279133_flow_install(struct zx279133_flow_offload *offload,
++				 const struct zx279133_flow_spec *spec,
++				 unsigned long *cookie)
++{
++	const struct zx279133_flow_data *data = &spec->data;
++	struct zx279133_wanid_profile profile = {};
++	struct zx279133_flow_entry *entry;
++	u32 ikey[ZX279133_FAST_IKEY_SIZE / sizeof(u32)];
++	u32 table[ZX279133_ZCAM_ENTRY_SIZE / sizeof(u32)];
++	u8 fast[ZX279133_FAST_DATA_SIZE];
++	u16 vlan_egress = zx279133_vlan_egress_vid(data);
++	u32 id;
++	int ret;
++
++	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
++	if (!entry)
++		return -ENOMEM;
++
++	zx279133_fast_key_build(entry->key, &data->tuple, spec->ip_proto);
++	if (data->vlan.tagged)
++		zx279133_fast_key_vid(entry->key, data->vlan.vid);
++	entry->upstream = spec->ingress == ZX279133_FLOW_PORT_LAN;
++	entry->snat = spec->xlate.src_addr != data->tuple.src_addr;
++	entry->pppoe = spec->pppoe_sid != 0;
++	entry->wan_vlan = entry->upstream ? vlan_egress != 0 : data->vlan.tagged;
++	/* Use a full entry for PPPoE pop, which cannot use the LAN IKEY format. */
++	entry->full = entry->pppoe && !entry->upstream;
++
++	mutex_lock(&offload->lock);
++	if (rhashtable_lookup_fast(&offload->key_flows, entry->key,
++				  zx279133_flow_key_ht_params)) {
++		ret = -EEXIST;
++		goto free_entry;
++	}
++	if (data->vlan.tagged) {
++		entry->vlan_in = zte_nppt_vlan_get(offload->np, data->vlan.vid);
++		if (IS_ERR(entry->vlan_in)) {
++			ret = PTR_ERR(entry->vlan_in);
++			goto free_entry;
++		}
++	}
++	if (vlan_egress && vlan_egress != data->vlan.vid) {
++		entry->vlan_out = zte_nppt_vlan_get(offload->np, vlan_egress);
++		if (IS_ERR(entry->vlan_out)) {
++			ret = PTR_ERR(entry->vlan_out);
++			entry->vlan_out = NULL;
++			goto put_vlans;
++		}
++	}
++	ret = zx279133_flow_storage_alloc(offload, entry);
++	if (ret)
++		goto put_vlans;
++	ret = zx279133_fast_age_alloc(offload, &entry->age);
++	if (ret)
++		goto put_storage;
++	ret = zx279133_fast_index_alloc(offload->stat_used, ZX279133_FAST_STAT_DEPTH,
++					&entry->stat);
++	if (ret)
++		goto put_age;
++	ret = zte_nppt_stats_read(offload->np, entry->stat, &entry->packets, &entry->bytes);
++	if (ret)
++		goto put_stat;
++
++	ether_addr_copy(profile.mac, data->eth.h_source);
++	profile.mtu = spec->mtu;
++	if (entry->snat)
++		profile.sip = be32_to_cpu(spec->xlate.src_addr);
++	if (entry->pppoe) {
++		profile.pppoe = entry->upstream ? ZX279133_WANID_PPPOE_PUSH :
++						ZX279133_WANID_PPPOE_POP;
++		if (entry->upstream)
++			profile.sid = spec->pppoe_sid;
++	}
++	ret = zte_nppt_wanid_get(offload->np, !entry->upstream, &profile, &entry->wanid);
++	if (ret)
++		goto put_stat;
++	if (spec->egress == ZX279133_FLOW_PORT_LAN) {
++		entry->host = zte_nppt_host_get(offload->np, data->eth.h_dest, spec->gemport);
++		if (IS_ERR(entry->host)) {
++			ret = PTR_ERR(entry->host);
++			goto put_wanid;
++		}
++	}
++	zx279133_fast_response_build(fast, data, &spec->xlate, spec->ingress,
++				     spec->gemport, entry->ikey, entry->stat,
++				     entry->pppoe, entry->wanid);
++	if (entry->full) {
++		zx279133_fast_full_table_build(table, fast, entry->key, entry->age);
++	} else {
++		memcpy(ikey, fast, sizeof(ikey));
++		zx279133_fast_multi_table_build(table, fast, entry->key, entry->age);
++		ret = zte_nppt_ikey_write(offload->np, entry->ikey, ikey);
++		if (ret)
++			goto clear_ikey;
++	}
++	ret = xa_alloc(&offload->flows, &id, entry, xa_limit_32b, GFP_KERNEL);
++	if (ret)
++		goto clear_ikey;
++	ret = rhashtable_insert_fast(&offload->key_flows, &entry->key_node,
++				     zx279133_flow_key_ht_params);
++	if (ret)
++		goto erase_cookie;
++
++	/* Pin partially programmed entries until the worker can invalidate them. */
++	*cookie = id;
++	ret = zx279133_flow_table_write(offload, entry, table,
++					entry->full ? ARRAY_SIZE(table) : ARRAY_SIZE(ikey) * 2);
++	if (ret)
++		entry->stale = true;
++	__module_get(THIS_MODULE);
++	mutex_unlock(&offload->lock);
++	return ret;
++
++erase_cookie:
++	xa_erase(&offload->flows, id);
++clear_ikey:
++	if (!entry->full) {
++		memset(ikey, 0, sizeof(ikey));
++		zte_nppt_ikey_write(offload->np, entry->ikey, ikey);
++	}
++	if (entry->host && zte_nppt_host_put(offload->np, entry->host))
++		dev_warn(offload->dev, "Host cleanup retained a hardware resource\n");
++put_wanid:
++	zte_nppt_wanid_put(offload->np, entry->wanid, entry->snat);
++put_stat:
++	__clear_bit(entry->stat, offload->stat_used);
++put_age:
++	__clear_bit(entry->age, offload->age_used);
++put_storage:
++	if (!entry->full)
++		__clear_bit(entry->ikey, offload->ikey_used);
++	zx279133_flow_slot_release(offload, entry);
++put_vlans:
++	if (entry->vlan_out && zte_nppt_vlan_put(offload->np, entry->vlan_out))
++		zte_nppt_vlan_abandon(offload->np, entry->vlan_out);
++	if (entry->vlan_in && zte_nppt_vlan_put(offload->np, entry->vlan_in))
++		zte_nppt_vlan_abandon(offload->np, entry->vlan_in);
++free_entry:
++	mutex_unlock(&offload->lock);
++	kfree(entry);
++	return ret;
++}
++
++static int zx279133_flow_destroy(struct zx279133_flow_offload *offload,
++				 unsigned long cookie,
++				 struct zx279133_flow_counters *stats)
++{
++	struct zx279133_flow_entry *entry;
++	int ret = -ENOENT;
++
++	mutex_lock(&offload->lock);
++	entry = xa_load(&offload->flows, cookie);
++	if (entry)
++		ret = zx279133_flow_entry_remove(offload, entry, cookie, stats, false);
++	mutex_unlock(&offload->lock);
++	return ret;
++}
++
++static int zx279133_flow_stats(struct zx279133_flow_offload *offload,
++			       unsigned long cookie,
++			       struct zx279133_flow_counters *stats)
++{
++	struct zx279133_flow_entry *entry;
++	int ret = -ENOENT;
++
++	mutex_lock(&offload->lock);
++	entry = xa_load(&offload->flows, cookie);
++	if (entry && entry->retired) {
++		ret = zx279133_flow_entry_remove(offload, entry, cookie, stats, false);
++		if (!ret)
++			ret = -ENOENT;
++	} else if (entry) {
++		ret = entry->stale ? -EIO :
++			zx279133_flow_counter_collect(offload, entry, stats);
++	}
++	mutex_unlock(&offload->lock);
++	return ret;
++}
++
++static int zx279133_flow_retire(struct zx279133_flow_offload *offload)
++{
++	struct zx279133_flow_entry *entry;
++	unsigned long index;
++	int ret = 0;
++
++	mutex_lock(&offload->lock);
++	xa_for_each(&offload->flows, index, entry) {
++		if (zx279133_flow_entry_remove(offload, entry, index, NULL, true)) {
++			dev_warn(offload->dev, "failed to invalidate NPPT rule %lu\n", index);
++			ret = -EIO;
++		}
++	}
++	mutex_unlock(&offload->lock);
++	return ret;
++}
++
++static void zx279133_offload_release(struct kref *ref)
++{
++	struct zx279133_flow_offload *offload =
++		container_of(ref, struct zx279133_flow_offload, ref);
++
++	rhashtable_destroy(&offload->key_flows);
++	xa_destroy(&offload->flows);
++	bitmap_free(offload->ddr_used);
++	zte_nppt_put(offload->np);
++	kfree(offload);
++}
++
++#ifdef CONFIG_DEBUG_FS
++/* One line per hardware flow, with the SDT29 counters read live. */
++static int zx279133_flows_show(struct seq_file *s, void *unused)
++{
++	struct zx279133_flow_offload *offload = s->private;
++	struct zx279133_flow_entry *entry;
++	unsigned long index;
++	u64 packets, bytes;
++	int ret;
++
++	ret = zte_nppt_try_begin(offload->np);
++	if (ret)
++		return ret;
++	mutex_lock(&offload->lock);
++	xa_for_each(&offload->flows, index, entry) {
++		if (entry->retired) {
++			seq_printf(s, "%16phN retired packets %llu ip_bytes %llu\n",
++				   entry->key, entry->final_stats.packets,
++				   entry->final_stats.bytes);
++			continue;
++		}
++		seq_printf(s, "%16phN %s %s wanid %u pppoe %d snat %d age %u wan_vlan %d%s",
++			   entry->key, entry->upstream ? "up" : "down",
++			   entry->full ? "full" : "multi", entry->wanid,
++			   entry->pppoe, entry->snat, entry->age, entry->wan_vlan,
++			   entry->stale ? " quarantined" : "");
++		if (entry->in_ddr)
++			seq_printf(s, " ddr %u", entry->ddr_bucket);
++		else
++			seq_printf(s, " zcam %u/%u/%u", entry->zblock,
++				   entry->zcell, entry->zaddr);
++		if (!zte_nppt_stats_read(offload->np, entry->stat,
++					      &packets, &bytes))
++			seq_printf(s, " stat %u packets %llu bytes %llu",
++				   entry->stat, packets, bytes);
++		seq_putc(s, '\n');
++	}
++	zte_nppt_hosts_show(offload->np, s);
++	mutex_unlock(&offload->lock);
++	zte_nppt_end(offload->np);
++
++	return 0;
++}
++DEFINE_SHOW_ATTRIBUTE(zx279133_flows);
++
++static int zx279133_flows_debugfs_init(struct zx279133_flow_offload *offload)
++{
++	char name[80];
++
++	snprintf(name, sizeof(name), "zx279133-flows-%s", dev_name(offload->dev));
++	offload->debugfs = debugfs_create_file(name, 0400, NULL, offload,
++					      &zx279133_flows_fops);
++	return 0;
++}
++#else
++static int zx279133_flows_debugfs_init(struct zx279133_flow_offload *offload)
++{
++	return 0;
++}
++#endif
++
++#include "zx279133-offload-natflow.h"
++
++static void *zx279133_offload_attach(struct zte_nppt *np, struct device *dev)
++{
++	struct zx279133_flow_offload *offload;
++	struct zte_nppt_info info;
++	int ret;
++
++	zte_nppt_get_info(np, &info);
++	if (info.api_version != ZTE_NPPT_API_VERSION ||
++	    info.ikey_depth != ZX279133_FAST_IKEY_DEPTH ||
++	    info.stat_depth != ZX279133_FAST_STAT_DEPTH ||
++	    info.age_depth != ZX279133_FAST_AGE_DEPTH ||
++	    info.ddr_bytes != ZTE_NPPT_DDR_BYTES)
++		return ERR_PTR(-EPROTONOSUPPORT);
++	offload = kzalloc(sizeof(*offload), GFP_KERNEL);
++	if (!offload)
++		return ERR_PTR(-ENOMEM);
++	offload->np = np;
++	offload->dev = dev;
++	kref_init(&offload->ref);
++	offload->ddr_used = bitmap_zalloc(ZX279133_DDR_BUCKETS, GFP_KERNEL);
++	if (!offload->ddr_used) {
++		ret = -ENOMEM;
++		goto free;
++	}
++	mutex_init(&offload->lock);
++	xa_init_flags(&offload->flows, XA_FLAGS_ALLOC1);
++	ret = rhashtable_init(&offload->key_flows, &zx279133_flow_key_ht_params);
++	if (ret)
++		goto bitmap;
++	zte_nppt_get(np);
++	zx279133_flows_debugfs_init(offload);
++	zx279133_natflow_attach(offload);
++	return offload;
++bitmap:
++	bitmap_free(offload->ddr_used);
++free:
++	kfree(offload);
++	return ERR_PTR(ret);
++}
++
++static bool zx279133_offload_active(void *priv)
++{
++	struct zx279133_flow_offload *offload = priv;
++	struct zx279133_flow_entry *entry;
++	unsigned long index;
++	bool active = false;
++
++	mutex_lock(&offload->lock);
++	xa_for_each(&offload->flows, index, entry) {
++		if (!entry->retired) {
++			active = true;
++			break;
++		}
++	}
++	mutex_unlock(&offload->lock);
++	return active;
++}
++
++static int zx279133_offload_reset(void *priv)
++{
++	return zx279133_flow_retire(priv);
++}
++
++static int zx279133_offload_detach(void *priv)
++{
++	struct zx279133_flow_offload *offload = priv;
++	struct zte_nppt_info info;
++	int ret;
++
++	WRITE_ONCE(offload->detached, true);
++	zx279133_natflow_detach(offload);
++	/* The supplier holds datapath_lock, so no rule can be installed. */
++	zte_nppt_get_info(offload->np, &info);
++	ret = info.ready ? zx279133_flow_retire(offload) :
++			   zx279133_offload_active(offload) ? -EIO : 0;
++	debugfs_remove(offload->debugfs);
++	if (ret) {
++		dev_err(offload->dev, "uncleared NPPT rules remain quarantined\n");
++		return ret;
++	}
++	kref_put(&offload->ref, zx279133_offload_release);
++	return 0;
++}
++
++static const struct zte_nppt_client_ops zx279133_offload_ops = {
++	.attach = zx279133_offload_attach,
++	.detach = zx279133_offload_detach,
++	.active = zx279133_offload_active,
++	.reset = zx279133_offload_reset,
++};
++
++static int __init zx279133_fnoffload_init(void)
++{
++	return zte_nppt_register_client(&zx279133_offload_ops);
++}
++
++static void __exit zx279133_fnoffload_exit(void)
++{
++	cancel_delayed_work_sync(&zx279133_natflow_work);
++	zte_nppt_unregister_client(&zx279133_offload_ops);
++}
++
++module_init(zx279133_fnoffload_init);
++module_exit(zx279133_fnoffload_exit);
++MODULE_DESCRIPTION("ZTE ZX279133 NPPT hardware NAT for natflow");
++MODULE_LICENSE("GPL");
+--- /dev/null
++++ b/drivers/net/ethernet/zte/zx279133-offload-natflow.h
+@@ -0,0 +1,378 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/* Included by zx279133-offload.c. */
++
++#define ZX279133_NATFLOW_MAX (ZX279133_FAST_STAT_DEPTH / 2)
++#define ZX279133_NATFLOW_IDLE (8 * HZ)
++
++struct zx279133_natflow_pair {
++	struct list_head list;
++	struct zte_nppt_natflow_request req;
++	struct zx279133_flow_offload *offload;
++	struct zte_nppt_natflow_stats final;
++	unsigned long cookie[2];
++	unsigned long lastused;
++	bool removing;
++};
++
++static DEFINE_SPINLOCK(zx279133_natflow_queue_lock);
++static DEFINE_MUTEX(zx279133_natflow_lock);
++static LIST_HEAD(zx279133_natflow_pending);
++static LIST_HEAD(zx279133_natflow_pairs);
++static struct zx279133_flow_offload *zx279133_natflow_engine;
++static unsigned int zx279133_natflow_count;
++static bool zx279133_natflow_flushing;
++static void zx279133_natflow_poll(struct work_struct *work);
++static DECLARE_DELAYED_WORK(zx279133_natflow_work, zx279133_natflow_poll);
++
++static void zx279133_natflow_attach(struct zx279133_flow_offload *offload)
++{
++	spin_lock_bh(&zx279133_natflow_queue_lock);
++	if (!zx279133_natflow_engine)
++		zx279133_natflow_engine = offload;
++	spin_unlock_bh(&zx279133_natflow_queue_lock);
++}
++
++static void zx279133_natflow_detach(struct zx279133_flow_offload *offload)
++{
++	spin_lock_bh(&zx279133_natflow_queue_lock);
++	if (zx279133_natflow_engine == offload)
++		zx279133_natflow_engine = NULL;
++	spin_unlock_bh(&zx279133_natflow_queue_lock);
++}
++
++static int zte_nppt_natflow_submit(const struct zte_nppt_natflow_request *req)
++{
++	struct zx279133_natflow_pair *pair;
++	int ret = 0;
++
++	if (!req || !req->notify || !req->dev[0] || !req->dev[1] ||
++	    req->dev[0] == req->dev[1] ||
++	    (req->tuple[0].proto != IPPROTO_TCP && req->tuple[0].proto != IPPROTO_UDP) ||
++	    req->tuple[0].proto != req->tuple[1].proto)
++		return -EINVAL;
++
++	pair = kzalloc_obj(*pair, GFP_ATOMIC);
++	if (!pair)
++		return -ENOMEM;
++	pair->req = *req;
++
++	spin_lock_bh(&zx279133_natflow_queue_lock);
++	if (!zx279133_natflow_engine || zx279133_natflow_flushing) {
++		ret = -EAGAIN;
++	} else if (zx279133_natflow_count == ZX279133_NATFLOW_MAX) {
++		ret = -ENOSPC;
++	} else {
++		pair->offload = zx279133_natflow_engine;
++		kref_get(&pair->offload->ref);
++		dev_hold(req->dev[0]);
++		dev_hold(req->dev[1]);
++		zx279133_natflow_count++;
++		list_add_tail(&pair->list, &zx279133_natflow_pending);
++		queue_delayed_work(system_unbound_wq, &zx279133_natflow_work, 0);
++	}
++	spin_unlock_bh(&zx279133_natflow_queue_lock);
++	if (ret)
++		kfree(pair);
++	return ret;
++}
++
++static int zx279133_natflow_notify(struct zx279133_natflow_pair *pair,
++				   enum zte_nppt_natflow_event event,
++				   const struct zte_nppt_natflow_stats *stats)
++{
++	int ret;
++
++	local_bh_disable();
++	rcu_read_lock();
++	ret = pair->req.notify(pair->req.context, event, stats);
++	rcu_read_unlock();
++	local_bh_enable();
++	return ret;
++}
++
++static void zx279133_natflow_rollback(struct zx279133_natflow_pair *pair)
++{
++	int d;
++
++	for (d = 0; d < 2; d++) {
++		struct zx279133_flow_counters stats = {};
++		int ret;
++
++		if (!pair->cookie[d])
++			continue;
++		ret = zx279133_flow_destroy(pair->offload, pair->cookie[d], &stats);
++		if (!ret || ret == -ENOENT)
++			pair->cookie[d] = 0;
++		pair->final.bytes[d] += stats.bytes;
++		pair->final.packets[d] += stats.packets;
++	}
++}
++
++static int zx279133_natflow_vlan(struct zx279133_flow_offload *offload,
++				 struct zx279133_flow_spec *spec, u16 from, u16 to)
++{
++	struct zx279133_vlan_plan *vlan = &spec->data.vlan;
++
++	if (!from && !to)
++		return 0;
++	if (!zx279133_vlan_enabled(offload->np) ||
++	    from >= VLAN_VID_MASK || to >= VLAN_VID_MASK ||
++	    (from && spec->ingress == ZX279133_FLOW_PORT_WAN &&
++	     !zx279133_wan_vlan_enabled(offload->np)))
++		return -EOPNOTSUPP;
++
++	vlan->tagged = from != 0;
++	vlan->vid = from;
++	vlan->tci = to;
++	if (from && to)
++		vlan->edit = ZX_VLAN_REPLACE;
++	else
++		vlan->edit = from ? ZX_VLAN_POP : ZX_VLAN_PUSH;
++	return 0;
++}
++
++static int zx279133_natflow_specs(struct zx279133_flow_offload *offload,
++				  const struct zte_nppt_natflow_request *req,
++				  struct zx279133_flow_spec spec[2])
++{
++	struct zte_nppt *np = offload->np;
++	u16 port[2] = {}, pppoe_sid;
++	bool vlan = req->path[0].vlan_id || req->path[1].vlan_id;
++	int d, ret, upstream;
++
++	for (d = 0; d < 2; d++) {
++		const struct zte_nppt_natflow_path *path = &req->path[d];
++		struct net_device *dev = req->dev[!d];
++		unsigned int mtu = READ_ONCE(dev->mtu);
++
++		if (!netif_running(dev) || !netif_carrier_ok(dev) ||
++		    !net_eq(dev_net(dev), &init_net) || is_vlan_dev(dev) ||
++		    mtu != ETH_DATA_LEN || path->mtu < ETH_MIN_MTU ||
++		    path->mtu > mtu ||
++		    req->eth[d].h_proto != htons(ETH_P_IP) ||
++		    !is_valid_ether_addr(req->eth[d].h_source) ||
++		    !is_valid_ether_addr(req->eth[d].h_dest))
++			return -EOPNOTSUPP;
++
++		spec[!d].ingress = zte_nppt_dev_port(np, dev, &port[!d]);
++		if (!port[!d] ||
++		    (spec[!d].ingress != ZX279133_FLOW_PORT_LAN &&
++		     !zte_nppt_is_wan(np, dev)))
++			return -EOPNOTSUPP;
++		if (path->pppoe_sid &&
++		    (vlan || path->pppoe_sid == U16_MAX ||
++		     !zte_nppt_is_wan(np, dev) || path->mtu > mtu - PPPOE_SES_HLEN))
++			return -EOPNOTSUPP;
++	}
++	if (spec[0].ingress == spec[1].ingress)
++		return -EOPNOTSUPP;
++	upstream = spec[0].ingress == ZX279133_FLOW_PORT_LAN ? 0 : 1;
++	pppoe_sid = req->path[upstream].pppoe_sid;
++
++	for (d = 0; d < 2; d++) {
++		const struct zte_nppt_natflow_tuple *in = &req->tuple[d];
++		const struct zte_nppt_natflow_tuple *reverse = &req->tuple[!d];
++
++		spec[d].egress = spec[!d].ingress;
++		spec[d].gemport = port[!d];
++		spec[d].ip_proto = in->proto;
++		spec[d].pppoe_sid = pppoe_sid;
++		spec[d].mtu = req->path[d].mtu;
++		spec[d].data.eth = req->eth[d];
++		spec[d].data.tuple = (struct zx279133_flow_tuple) {
++			.src_addr = in->src, .dst_addr = in->dst,
++			.src_port = in->sport, .dst_port = in->dport,
++		};
++		spec[d].xlate = (struct zx279133_flow_tuple) {
++			.src_addr = reverse->dst, .dst_addr = reverse->src,
++			.src_port = reverse->dport, .dst_port = reverse->sport,
++		};
++		ret = zx279133_natflow_vlan(offload, &spec[d],
++					    req->path[!d].vlan_id, req->path[d].vlan_id);
++		if (ret)
++			return ret;
++	}
++
++	return 0;
++}
++
++/* The request carries both directions, including the WAN encapsulation. */
++static int zx279133_natflow_install(struct zx279133_natflow_pair *pair)
++{
++	struct zx279133_flow_offload *offload = pair->offload;
++	struct zte_nppt *np = offload->np;
++	const struct zte_nppt_natflow_request *req = &pair->req;
++	struct zx279133_flow_spec spec[2] = {};
++	int d, i, first, ret;
++
++	ret = zte_nppt_begin(np);
++	if (ret)
++		return ret;
++	ret = -EOPNOTSUPP;
++	if (READ_ONCE(offload->detached) || zte_nppt_flow_ready(np))
++		goto out;
++	ret = zx279133_natflow_specs(offload, req, spec);
++	if (ret)
++		goto out;
++
++	first = spec[0].ingress == ZX279133_FLOW_PORT_LAN ? 0 : 1;
++	for (i = 0; i < 2; i++) {
++		d = first ^ i;
++		ret = zx279133_flow_install(offload, &spec[d], &pair->cookie[d]);
++		if (ret) {
++			zx279133_natflow_rollback(pair);
++			break;
++		}
++	}
++out:
++	zte_nppt_end(np);
++	return ret;
++}
++
++/* Read/remove both directions even when the first reports an error. If the
++ * supplier already retired the rules, those reads touch only cached deltas.
++ */
++static int zx279133_natflow_collect(struct zx279133_natflow_pair *pair,
++				    bool remove,
++				    struct zte_nppt_natflow_stats *stats)
++{
++	struct zx279133_flow_offload *offload = pair->offload;
++	int begin, d, ret = 0;
++
++	begin = zte_nppt_begin(offload->np);
++	for (d = 0; d < 2; d++) {
++		unsigned long cookie = pair->cookie[d];
++		struct zx279133_flow_counters sample = {};
++		struct zx279133_flow_entry *entry;
++		int err;
++
++		if (!cookie)
++			continue;
++		if (!begin) {
++			err = remove ? zx279133_flow_destroy(offload, cookie, &sample) :
++				       zx279133_flow_stats(offload, cookie, &sample);
++		} else {
++			mutex_lock(&offload->lock);
++			entry = xa_load(&offload->flows, cookie);
++			if (!entry)
++				err = -ENOENT;
++			else if (entry->retired)
++				err = zx279133_flow_entry_remove(offload, entry, cookie,
++								 &sample, false) ?: -ENOENT;
++			else
++				err = begin;
++			mutex_unlock(&offload->lock);
++		}
++		stats->bytes[d] += sample.bytes;
++		stats->packets[d] += sample.packets;
++		if (remove && (!err || err == -ENOENT))
++			pair->cookie[d] = 0;
++		else if (err)
++			ret = err;
++	}
++	if (!begin)
++		zte_nppt_end(offload->np);
++	return ret;
++}
++
++static bool zx279133_natflow_remove(struct zx279133_natflow_pair *pair, bool disconnect)
++{
++	bool retry;
++
++	pair->removing = true;
++	if (pair->cookie[0] || pair->cookie[1])
++		zx279133_natflow_collect(pair, true, &pair->final);
++	retry = pair->cookie[0] || pair->cookie[1];
++	if (pair->req.notify && (!retry || disconnect)) {
++		zx279133_natflow_notify(pair, ZTE_NPPT_NATFLOW_RELEASE, &pair->final);
++		pair->req.notify = NULL;
++	}
++	if (retry) {
++		dev_warn_ratelimited(pair->offload->dev, "retrying NPPT natflow invalidation\n");
++		return false;
++	}
++
++	list_del(&pair->list);
++	dev_put(pair->req.dev[0]);
++	dev_put(pair->req.dev[1]);
++	kref_put(&pair->offload->ref, zx279133_offload_release);
++	kfree(pair);
++	spin_lock_bh(&zx279133_natflow_queue_lock);
++	zx279133_natflow_count--;
++	spin_unlock_bh(&zx279133_natflow_queue_lock);
++	return true;
++}
++
++static void zx279133_natflow_poll(struct work_struct *work)
++{
++	struct zx279133_natflow_pair *pair, *next;
++
++	mutex_lock(&zx279133_natflow_lock);
++	spin_lock_bh(&zx279133_natflow_queue_lock);
++	list_splice_tail_init(&zx279133_natflow_pending, &zx279133_natflow_pairs);
++	spin_unlock_bh(&zx279133_natflow_queue_lock);
++
++	list_for_each_entry_safe(pair, next, &zx279133_natflow_pairs, list) {
++		struct zte_nppt_natflow_stats stats = {};
++		int ret;
++
++		if (pair->removing ||
++		    zx279133_natflow_notify(pair, ZTE_NPPT_NATFLOW_CHECK, NULL)) {
++			zx279133_natflow_remove(pair, false);
++			continue;
++		}
++		if (!pair->lastused) {
++			ret = zx279133_natflow_install(pair);
++			if (ret || zx279133_natflow_notify(pair, ZTE_NPPT_NATFLOW_READY, NULL))
++				zx279133_natflow_remove(pair, false);
++			else
++				pair->lastused = jiffies ?: 1;
++			continue;
++		}
++
++		ret = zx279133_natflow_collect(pair, false, &stats);
++		if (stats.packets[0] || stats.packets[1]) {
++			pair->lastused = jiffies ?: 1;
++			if (zx279133_natflow_notify(pair, ZTE_NPPT_NATFLOW_STATS, &stats))
++				ret = -ESTALE;
++		}
++		if (ret || time_after_eq(jiffies, pair->lastused + ZX279133_NATFLOW_IDLE))
++			zx279133_natflow_remove(pair, false);
++	}
++
++	spin_lock_bh(&zx279133_natflow_queue_lock);
++	if (zx279133_natflow_count && !zx279133_natflow_flushing)
++		queue_delayed_work(system_unbound_wq, &zx279133_natflow_work, HZ);
++	spin_unlock_bh(&zx279133_natflow_queue_lock);
++	mutex_unlock(&zx279133_natflow_lock);
++}
++
++static int zte_nppt_natflow_flush(bool disconnect)
++{
++	struct zx279133_natflow_pair *pair, *next;
++	int ret = 0;
++
++	mutex_lock(&zx279133_natflow_lock);
++	spin_lock_bh(&zx279133_natflow_queue_lock);
++	zx279133_natflow_flushing = true;
++	list_splice_tail_init(&zx279133_natflow_pending, &zx279133_natflow_pairs);
++	spin_unlock_bh(&zx279133_natflow_queue_lock);
++
++	list_for_each_entry_safe(pair, next, &zx279133_natflow_pairs, list)
++		if (!zx279133_natflow_remove(pair, disconnect))
++			ret = -EIO;
++
++	spin_lock_bh(&zx279133_natflow_queue_lock);
++	zx279133_natflow_flushing = false;
++	if (zx279133_natflow_count)
++		queue_delayed_work(system_unbound_wq, &zx279133_natflow_work, HZ);
++	spin_unlock_bh(&zx279133_natflow_queue_lock);
++	mutex_unlock(&zx279133_natflow_lock);
++	return ret;
++}
++const struct zte_nppt_natflow_api zte_nppt_natflow_api = {
++	.version = ZTE_NPPT_NATFLOW_API_VERSION,
++	.submit = zte_nppt_natflow_submit,
++	.flush = zte_nppt_natflow_flush,
++};
++EXPORT_SYMBOL_GPL(zte_nppt_natflow_api);
+--- /dev/null
++++ b/drivers/net/ethernet/zte/zx279133-policy.h
+@@ -0,0 +1,31 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#ifndef _ZX279133_POLICY_H
++#define _ZX279133_POLICY_H
++#include <linux/types.h>
++
++/* Policy normalization independent of MMIO and Linux object lifetimes. */
++enum zx279133_vlan_edit { ZX_VLAN_KEEP, ZX_VLAN_PUSH, ZX_VLAN_POP, ZX_VLAN_REPLACE };
++
++struct zx279133_vlan_plan {
++	u16 vid;
++	u16 tci;
++	u8 edit;
++	bool tagged;
++};
++
++/* OEM fast response edit bits. Classification must be checked independently. */
++static inline void zx279133_vlan_response(u8 *fast, const struct zx279133_vlan_plan *p)
++{
++	if (!p->edit)
++		return;
++	fast[30] = (fast[30] & 0x3f) | p->edit << 6;
++	fast[24] = p->tci;
++	fast[25] = p->tci >> 8;
++	/* Native response abs(delta)/2; POP sign is carried by the edit opcode. */
++	fast[16] = p->edit == ZX_VLAN_REPLACE ? 0 : 2;
++	fast[17] = 0;
++	fast[18] = 0;
++	fast[19] = 0;
++}
++
++#endif
+--- /dev/null
++++ b/include/linux/zte_nppt_natflow.h
+@@ -0,0 +1,68 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#ifndef _LINUX_ZTE_NPPT_NATFLOW_H
++#define _LINUX_ZTE_NPPT_NATFLOW_H
++
++#include <linux/if_ether.h>
++#include <linux/types.h>
++
++#define ZTE_NPPT_NATFLOW_API_VERSION 2
++
++struct net_device;
++
++struct zte_nppt_natflow_tuple {
++	__be32 src, dst;
++	__be16 sport, dport;
++	u8 proto;
++};
++
++enum zte_nppt_natflow_event {
++	ZTE_NPPT_NATFLOW_CHECK,
++	ZTE_NPPT_NATFLOW_READY,
++	ZTE_NPPT_NATFLOW_STATS,
++	ZTE_NPPT_NATFLOW_RELEASE,
++};
++
++struct zte_nppt_natflow_stats {
++	u64 bytes[2];
++	u64 packets[2];
++};
++
++/* Egress encapsulation of tuple[d], also seen at ingress of tuple[!d].
++ * mtu is the inner IPv4 MTU. VLAN IDs and PPPoE session IDs are in host order;
++ * zero means absent. VLAN uses a single 802.1Q tag.
++ */
++struct zte_nppt_natflow_path {
++	u16 mtu;
++	u16 vlan_id;
++	u16 pppoe_sid;
++};
++
++struct zte_nppt_natflow_request {
++	struct zte_nppt_natflow_tuple tuple[2];
++	struct net_device *dev[2];	/* Ingress of tuple[d]. */
++	struct ethhdr eth[2];		/* Egress MACs and inner EtherType. */
++	struct zte_nppt_natflow_path path[2];
++	void *context;
++	int (*notify)(void *context, enum zte_nppt_natflow_event event,
++		      const struct zte_nppt_natflow_stats *stats);
++};
++
++struct zte_nppt_natflow_api {
++	unsigned int version;
++	/* Atomic. A successful submit holds both devices and transfers context
++	 * until one RELEASE notification. Callbacks run under RCU with BH
++	 * disabled, outside NPPT hardware locks. CHECK and READY can veto a
++	 * rule pair. STATS and RELEASE carry IP-layer deltas.
++	 */
++	int (*submit)(const struct zte_nppt_natflow_request *request);
++	/* Sleepable. Quiesce submitters before draining the hardware rules.
++	 * On -EIO, entries remain quarantined and their removal is retried.
++	 * Disconnect only at client teardown, to release all its callbacks
++	 * even when the hardware could not be drained.
++	 */
++	int (*flush)(bool disconnect);
++};
++
++extern const struct zte_nppt_natflow_api zte_nppt_natflow_api;
++
++#endif

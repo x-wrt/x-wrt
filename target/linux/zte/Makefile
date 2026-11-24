@@ -7,6 +7,7 @@ BOARDNAME:=ZTE SoCs
 SUBTARGETS:=zx279133
 FEATURES:=dt gpio ramdisk squashfs usb
 KERNEL_PATCHVER:=7.3
+LINUX_RELEASE:=3
 
 include $(INCLUDE_DIR)/target.mk
 ZX279133_NPU_FIRMWARE := $(TOPDIR)/package/firmware/zte/files/zx279133-npu.bin

@@ -1,0 +1,33 @@
+Subject: net: zte: key the WANID profiles by inner IPv4 MTU
+
+diff --git a/drivers/net/ethernet/zte/zx279133-np.c b/drivers/net/ethernet/zte/zx279133-np.c
+index c981dcb..2f05f57 100644
+--- a/drivers/net/ethernet/zte/zx279133-np.c
++++ b/drivers/net/ethernet/zte/zx279133-np.c
+@@ -656,6 +656,7 @@ int zx279133_program_wanid_cpu_mac(struct zx279133_eth *eth, const u8 *addr)
+ 	return zx279133_program_one_wanid_cpu_mac(eth, 16, addr);
+ }
+ 
++#define ZX279133_WANID_MTU		GENMASK(15, 0)
+ #define ZX279133_WANID_PPPOE_SID	GENMASK(31, 16)
+ #define ZX279133_WANID_PPPOE_MODE	GENMASK(27, 26)
+ 
+@@ -668,6 +669,10 @@ static int zx279133_wanid_write(struct zx279133_eth *eth, unsigned int wanid,
+ 	memcpy(data, base, sizeof(data));
+ 	data[0] &= ~ZX279133_WANID_PPPOE_SID;
+ 	data[0] |= FIELD_PREP(ZX279133_WANID_PPPOE_SID, profile->sid);
++	if (profile->mtu) {
++		data[0] &= ~ZX279133_WANID_MTU;
++		data[0] |= FIELD_PREP(ZX279133_WANID_MTU, profile->mtu);
++	}
+ 	if (profile->sip)
+ 		data[1] = profile->sip;
+ 	data[2] = get_unaligned_be32(profile->mac + 2);
+@@ -690,6 +695,7 @@ static bool zx279133_wanid_fits(const struct zx279133_wanid_slot *slot,
+ 	return ether_addr_equal(slot->profile.mac, profile->mac) &&
+ 	       slot->profile.pppoe == profile->pppoe &&
+ 	       slot->profile.sid == profile->sid &&
++	       slot->profile.mtu == profile->mtu &&
+ 	       (!profile->sip || !slot->snat_users ||
+ 		slot->profile.sip == profile->sip);
+ }
