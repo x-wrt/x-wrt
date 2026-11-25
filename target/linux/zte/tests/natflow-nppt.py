@@ -5,6 +5,7 @@
 import argparse
 import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import tempfile
@@ -46,7 +47,15 @@ api = "include/linux/zte_nppt_natflow.h"
 worker = "drivers/net/ethernet/zte/zx279133-offload-natflow.h"
 policy = without_includes(added_file(base_patch, "/zx279133-policy.h"))
 driver = added_file(base_patch, "/zx279133-offload.c")
-encoding = "\n".join(function(driver, signature) for signature in (
+flow_spec = "\n".join(function(driver, f"struct {name} {{") + ";" for name in (
+    "zx279133_flow_endpoint",
+    "zx279133_flow_spec",
+))
+lan_lan_param, = re.findall(r"^static bool lan_lan_offload\b[^\n]*;$", driver, re.M)
+interfaces, = patches.glob("320-*.patch")
+encoding = "\n".join(re.findall(r"^\+(#define ZX279133_WANID_PPPOE_(?:POP|PUSH)\s+\d+)$",
+                               interfaces.read_text(), re.M)) + "\n"
+encoding += "\n".join(function(driver, signature) for signature in (
     "static void zx279133_put_ipv4",
     "static void zx279133_fast_response_build",
     "static u64 zx279133_flow_ip_bytes",
@@ -81,8 +90,27 @@ with tempfile.TemporaryDirectory(prefix="zte-natflow-test-") as temp:
     tmp = Path(temp)
     source = mock.replace("/* NPPT API */", without_includes(added_file(base_patch, api)))
     source = source.replace("/* NPPT VLAN POLICY */", policy)
+    source = source.replace("/* NPPT FLOW SPEC */", flow_spec + "\n" + lan_lan_param)
     source = source.replace("/* NPPT ENCODING */", encoding)
     source = source.replace("/* NPPT WORKER */", without_includes(added_file(base_patch, worker)))
+    port_driver = tmp / "drivers/net/ethernet/zte"
+    port_driver.mkdir(parents=True)
+    for name, number in (("zx279133.h", "320"), ("zx279133-np.c", "340"),
+                         ("zx279133-offload-api.c", "370")):
+        port_patch, = patches.glob(f"{number}-*.patch")
+        (port_driver / name).write_text(added_file(port_patch.read_text(), f"/{name}"))
+    recovery_patch = patches / "491-net-zx279133-wan-role-recovery.patch"
+    subprocess.run(["patch", "--batch", "--silent", "--fuzz=0", "-p1"],
+                   cwd=tmp, input=recovery_patch.read_bytes(), check=True)
+    port_api = (port_driver / "zx279133-offload-api.c").read_text()
+    ports = [function(port_api, signature) for signature in (
+        "static enum zx279133_flow_port\nzx279133_flow_dev_port(",
+        "enum zx279133_flow_port zte_nppt_dev_port(",
+        "bool zte_nppt_is_wan(",
+    )]
+    ports += [function((port_driver / "zx279133-np.c").read_text(),
+                       "int zx279133_lan_vport_wan_set(")]
+    source = source.replace("/* NPPT PORT ROLES */", "\n".join(ports))
     source = source.replace("/* NATFLOW BINDING */", binding)
     source = source.replace("/* NATFLOW PATH */", frontend)
     cfile = tmp / "test.c"

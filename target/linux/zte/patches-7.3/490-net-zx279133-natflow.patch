@@ -30,7 +30,7 @@ Publish paired rules only to natflow through its asynchronous API.
 +fnoffload-y := zx279133-offload.o
 --- /dev/null
 +++ b/drivers/net/ethernet/zte/zx279133-offload.c
-@@ -0,0 +1,951 @@
+@@ -0,0 +1,950 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/* ZTE ZX279133 NPPT paired IPv4 NAT rule engine. */
 +
@@ -53,6 +53,10 @@ Publish paired rules only to natflow through its asynchronous API.
 +#include <linux/zte_nppt_offload.h>
 +
 +#include "zx279133-policy.h"
++
++static bool lan_lan_offload;
++module_param(lan_lan_offload, bool, 0444);
++MODULE_PARM_DESC(lan_lan_offload, "Enable experimental untagged LAN-to-LAN IPv4 NAT");
 +
 +static bool vlan_offload;
 +module_param(vlan_offload, bool, 0444);
@@ -107,15 +111,20 @@ Publish paired rules only to natflow through its asynchronous API.
 +	struct zx279133_vlan_plan vlan;
 +};
 +
++struct zx279133_flow_endpoint {
++	enum zx279133_flow_port type;
++	u16 id;
++};
++
 +struct zx279133_flow_spec {
 +	struct zx279133_flow_data data;
 +	struct zx279133_flow_tuple xlate;
-+	enum zx279133_flow_port ingress;
-+	enum zx279133_flow_port egress;
-+	u16 gemport;
++	struct zx279133_flow_endpoint ingress;
++	struct zx279133_flow_endpoint egress;
 +	u16 pppoe_sid;
 +	u16 mtu;
 +	u8 ip_proto;
++	u8 pppoe_action;
 +};
 +
 +struct zx279133_flow_counters {
@@ -145,7 +154,7 @@ Publish paired rules only to natflow through its asynchronous API.
 +	bool snat;
 +	bool pppoe;
 +	bool wan_vlan;
-+	bool upstream;
++	bool lan_ingress;
 +	bool full;
 +	bool in_ddr;
 +};
@@ -364,25 +373,25 @@ Publish paired rules only to natflow through its asynchronous API.
 +}
 +
 +static void zx279133_fast_response_build(u8 *fast,
-+					 const struct zx279133_flow_data *data,
-+					 const struct zx279133_flow_tuple *xlate,
-+					 enum zx279133_flow_port ingress,
-+					 u16 gemport, u16 ikey, u16 stat,
-+					 bool pppoe, u8 wanid)
++					 const struct zx279133_flow_spec *spec,
++					 u16 ikey, u16 stat, u8 wanid)
 +{
++	const struct zx279133_flow_data *data = &spec->data;
++	const struct zx279133_flow_tuple *xlate = &spec->xlate;
++	enum zx279133_flow_port ingress = spec->ingress.type;
 +	int i;
 +
 +	/* The response stores MAC addresses and IPv4 values least-significant
 +	 * byte first, exactly as np.ko's fast_hashinfo_set() emits them.
 +	 */
 +	memset(fast, 0, ZX279133_FAST_DATA_SIZE);
-+	if (pppoe)
-+		put_unaligned(4, (u32 *)(fast + 16));
++	if (spec->pppoe_action)
++		put_unaligned(PPPOE_SES_HLEN / 2, (u32 *)(fast + 16));
 +	put_unaligned(stat, (u16 *)(fast + 2));
 +	for (i = 0; i < ETH_ALEN; i++)
 +		fast[8 + i] = data->eth.h_dest[ETH_ALEN - 1 - i];
 +
-+	put_unaligned(gemport, (u16 *)(fast + 20));
++	put_unaligned(spec->egress.id, (u16 *)(fast + 20));
 +	/* Bits 4:0 select the WANID entry that supplies the source MAC. */
 +	fast[23] = wanid;
 +	put_unaligned(ikey, (u16 *)(fast + 26));
@@ -391,16 +400,10 @@ Publish paired rules only to natflow through its asynchronous API.
 +	if (ingress == ZX279133_FLOW_PORT_LAN) {
 +		/*
 +		 * The LAN entry program has already removed the RTL8372N
-+		 * transport tag. In the default response only a PPPoE push changes
-+		 * its length (eight bytes, stored halved); a requested user VLAN
-+		 * push is applied below.
-+		 * wan_mode (bit 1) sends it out the WAN path, where the push
-+		 * takes the session from the WANID entry and the frame leaves
-+		 * by the port at byte 20. Without it the egress
-+		 * port is cleared and the frame is lost, whichever port it is
-+		 * for.
++		 * transport tag. wan_mode (bit 1) selects the PPU path that
++		 * forwards to the port at byte 20, including a switch port.
++		 * A PPPoE push on this path takes the session from WANID.
 +		 */
-+		put_unaligned(pppoe ? 4 : 0, (u32 *)(fast + 16));
 +		fast[29] |= BIT(1);
 +	}
 +	/*
@@ -486,7 +489,7 @@ Publish paired rules only to natflow through its asynchronous API.
 +	bytes[63] = ZX279133_FAST_FULL_FOOTER;
 +}
 +
-+/* The counters observe bytes on the WAN wire, including the MAC and FCS. */
++/* Mixed-port rules count the WAN wire length, including the MAC and FCS. */
 +static u64 zx279133_flow_ip_bytes(const struct zx279133_flow_entry *entry,
 +				  u64 packets, u64 bytes)
 +{
@@ -626,12 +629,12 @@ Publish paired rules only to natflow through its asynchronous API.
 +	zx279133_fast_key_build(entry->key, &data->tuple, spec->ip_proto);
 +	if (data->vlan.tagged)
 +		zx279133_fast_key_vid(entry->key, data->vlan.vid);
-+	entry->upstream = spec->ingress == ZX279133_FLOW_PORT_LAN;
++	entry->lan_ingress = spec->ingress.type == ZX279133_FLOW_PORT_LAN;
 +	entry->snat = spec->xlate.src_addr != data->tuple.src_addr;
-+	entry->pppoe = spec->pppoe_sid != 0;
-+	entry->wan_vlan = entry->upstream ? vlan_egress != 0 : data->vlan.tagged;
++	entry->pppoe = spec->pppoe_action != 0;
++	entry->wan_vlan = entry->lan_ingress ? vlan_egress != 0 : data->vlan.tagged;
 +	/* Use a full entry for PPPoE pop, which cannot use the LAN IKEY format. */
-+	entry->full = entry->pppoe && !entry->upstream;
++	entry->full = spec->pppoe_action == ZX279133_WANID_PPPOE_POP;
 +
 +	mutex_lock(&offload->lock);
 +	if (rhashtable_lookup_fast(&offload->key_flows, entry->key,
@@ -672,25 +675,21 @@ Publish paired rules only to natflow through its asynchronous API.
 +	profile.mtu = spec->mtu;
 +	if (entry->snat)
 +		profile.sip = be32_to_cpu(spec->xlate.src_addr);
-+	if (entry->pppoe) {
-+		profile.pppoe = entry->upstream ? ZX279133_WANID_PPPOE_PUSH :
-+						ZX279133_WANID_PPPOE_POP;
-+		if (entry->upstream)
-+			profile.sid = spec->pppoe_sid;
-+	}
-+	ret = zte_nppt_wanid_get(offload->np, !entry->upstream, &profile, &entry->wanid);
++	profile.pppoe = spec->pppoe_action;
++	if (profile.pppoe == ZX279133_WANID_PPPOE_PUSH)
++		profile.sid = spec->pppoe_sid;
++	ret = zte_nppt_wanid_get(offload->np, !entry->lan_ingress, &profile, &entry->wanid);
 +	if (ret)
 +		goto put_stat;
-+	if (spec->egress == ZX279133_FLOW_PORT_LAN) {
-+		entry->host = zte_nppt_host_get(offload->np, data->eth.h_dest, spec->gemport);
++	if (spec->egress.type == ZX279133_FLOW_PORT_LAN) {
++		entry->host = zte_nppt_host_get(offload->np, data->eth.h_dest, spec->egress.id);
 +		if (IS_ERR(entry->host)) {
 +			ret = PTR_ERR(entry->host);
 +			goto put_wanid;
 +		}
 +	}
-+	zx279133_fast_response_build(fast, data, &spec->xlate, spec->ingress,
-+				     spec->gemport, entry->ikey, entry->stat,
-+				     entry->pppoe, entry->wanid);
++	zx279133_fast_response_build(fast, spec, entry->ikey, entry->stat,
++				     entry->wanid);
 +	if (entry->full) {
 +		zx279133_fast_full_table_build(table, fast, entry->key, entry->age);
 +	} else {
@@ -835,7 +834,7 @@ Publish paired rules only to natflow through its asynchronous API.
 +			continue;
 +		}
 +		seq_printf(s, "%16phN %s %s wanid %u pppoe %d snat %d age %u wan_vlan %d%s",
-+			   entry->key, entry->upstream ? "up" : "down",
++			   entry->key, entry->lan_ingress ? "up" : "down",
 +			   entry->full ? "full" : "multi", entry->wanid,
 +			   entry->pppoe, entry->snat, entry->age, entry->wan_vlan,
 +			   entry->stale ? " quarantined" : "");
@@ -984,7 +983,7 @@ Publish paired rules only to natflow through its asynchronous API.
 +MODULE_LICENSE("GPL");
 --- /dev/null
 +++ b/drivers/net/ethernet/zte/zx279133-offload-natflow.h
-@@ -0,0 +1,378 @@
+@@ -0,0 +1,399 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +/* Included by zx279133-offload.c. */
 +
@@ -1104,7 +1103,7 @@ Publish paired rules only to natflow through its asynchronous API.
 +		return 0;
 +	if (!zx279133_vlan_enabled(offload->np) ||
 +	    from >= VLAN_VID_MASK || to >= VLAN_VID_MASK ||
-+	    (from && spec->ingress == ZX279133_FLOW_PORT_WAN &&
++	    (from && spec->ingress.type == ZX279133_FLOW_PORT_WAN &&
 +	     !zx279133_wan_vlan_enabled(offload->np)))
 +		return -EOPNOTSUPP;
 +
@@ -1122,68 +1121,88 @@ Publish paired rules only to natflow through its asynchronous API.
 +				  const struct zte_nppt_natflow_request *req,
 +				  struct zx279133_flow_spec spec[2])
 +{
++	struct zx279133_flow_endpoint endpoint[2] = {};
 +	struct zte_nppt *np = offload->np;
-+	u16 port[2] = {}, pppoe_sid;
 +	bool vlan = req->path[0].vlan_id || req->path[1].vlan_id;
-+	int d, ret, upstream;
++	int d, ret;
 +
 +	for (d = 0; d < 2; d++) {
-+		const struct zte_nppt_natflow_path *path = &req->path[d];
-+		struct net_device *dev = req->dev[!d];
++		struct zx279133_flow_endpoint *port = &endpoint[d];
++		const struct zte_nppt_natflow_path *path = &req->path[!d];
++		const struct ethhdr *eth = &req->eth[!d];
++		struct net_device *dev = req->dev[d];
 +		unsigned int mtu = READ_ONCE(dev->mtu);
 +
 +		if (!netif_running(dev) || !netif_carrier_ok(dev) ||
 +		    !net_eq(dev_net(dev), &init_net) || is_vlan_dev(dev) ||
 +		    mtu != ETH_DATA_LEN || path->mtu < ETH_MIN_MTU ||
 +		    path->mtu > mtu ||
-+		    req->eth[d].h_proto != htons(ETH_P_IP) ||
-+		    !is_valid_ether_addr(req->eth[d].h_source) ||
-+		    !is_valid_ether_addr(req->eth[d].h_dest))
++		    eth->h_proto != htons(ETH_P_IP) ||
++		    !is_valid_ether_addr(eth->h_source) ||
++		    !is_valid_ether_addr(eth->h_dest))
 +			return -EOPNOTSUPP;
 +
-+		spec[!d].ingress = zte_nppt_dev_port(np, dev, &port[!d]);
-+		if (!port[!d] ||
-+		    (spec[!d].ingress != ZX279133_FLOW_PORT_LAN &&
-+		     !zte_nppt_is_wan(np, dev)))
++		port->type = zte_nppt_dev_port(np, dev, &port->id);
++		if (!port->id || port->type == ZX279133_FLOW_PORT_NONE)
++			return -EOPNOTSUPP;
++		/* A WAN-type DSA port carries its own transport VID internally. */
++		if (path->vlan_id && port->type == ZX279133_FLOW_PORT_WAN &&
++		    !zte_nppt_is_wan(np, dev))
 +			return -EOPNOTSUPP;
 +		if (path->pppoe_sid &&
 +		    (vlan || path->pppoe_sid == U16_MAX ||
-+		     !zte_nppt_is_wan(np, dev) || path->mtu > mtu - PPPOE_SES_HLEN))
++		     port->type != ZX279133_FLOW_PORT_WAN ||
++		     path->mtu > mtu - PPPOE_SES_HLEN))
 +			return -EOPNOTSUPP;
 +	}
-+	if (spec[0].ingress == spec[1].ingress)
++	if (endpoint[0].id == endpoint[1].id)
 +		return -EOPNOTSUPP;
-+	upstream = spec[0].ingress == ZX279133_FLOW_PORT_LAN ? 0 : 1;
-+	pppoe_sid = req->path[upstream].pppoe_sid;
 +
 +	for (d = 0; d < 2; d++) {
 +		const struct zte_nppt_natflow_tuple *in = &req->tuple[d];
 +		const struct zte_nppt_natflow_tuple *reverse = &req->tuple[!d];
++		const struct zte_nppt_natflow_path *from = &req->path[!d];
++		const struct zte_nppt_natflow_path *to = &req->path[d];
++		struct zx279133_flow_spec *rule = &spec[d];
 +
-+		spec[d].egress = spec[!d].ingress;
-+		spec[d].gemport = port[!d];
-+		spec[d].ip_proto = in->proto;
-+		spec[d].pppoe_sid = pppoe_sid;
-+		spec[d].mtu = req->path[d].mtu;
-+		spec[d].data.eth = req->eth[d];
-+		spec[d].data.tuple = (struct zx279133_flow_tuple) {
++		rule->ingress = endpoint[d];
++		rule->egress = endpoint[!d];
++		rule->ip_proto = in->proto;
++		rule->mtu = to->mtu;
++		rule->data.eth = req->eth[d];
++		rule->data.tuple = (struct zx279133_flow_tuple) {
 +			.src_addr = in->src, .dst_addr = in->dst,
 +			.src_port = in->sport, .dst_port = in->dport,
 +		};
-+		spec[d].xlate = (struct zx279133_flow_tuple) {
++		rule->xlate = (struct zx279133_flow_tuple) {
 +			.src_addr = reverse->dst, .dst_addr = reverse->src,
 +			.src_port = reverse->dport, .dst_port = reverse->sport,
 +		};
-+		ret = zx279133_natflow_vlan(offload, &spec[d],
-+					    req->path[!d].vlan_id, req->path[d].vlan_id);
++
++		/* One WANID profile can only insert or remove PPPoE. */
++		if (from->pppoe_sid && to->pppoe_sid)
++			return -EOPNOTSUPP;
++		if (to->pppoe_sid) {
++			rule->pppoe_action = ZX279133_WANID_PPPOE_PUSH;
++			rule->pppoe_sid = to->pppoe_sid;
++		} else if (from->pppoe_sid) {
++			rule->pppoe_action = ZX279133_WANID_PPPOE_POP;
++		}
++
++		ret = zx279133_natflow_vlan(offload, rule, from->vlan_id,
++					    to->vlan_id);
 +		if (ret)
 +			return ret;
 +	}
 +
++	/* The available PPU programs have no verified WAN-to-WAN path. */
++	if (endpoint[0].type == endpoint[1].type &&
++	    (endpoint[0].type == ZX279133_FLOW_PORT_WAN ||
++	     !lan_lan_offload || vlan))
++		return -EOPNOTSUPP;
 +	return 0;
 +}
 +
-+/* The request carries both directions, including the WAN encapsulation. */
 +static int zx279133_natflow_install(struct zx279133_natflow_pair *pair)
 +{
 +	struct zx279133_flow_offload *offload = pair->offload;
@@ -1202,7 +1221,8 @@ Publish paired rules only to natflow through its asynchronous API.
 +	if (ret)
 +		goto out;
 +
-+	first = spec[0].ingress == ZX279133_FLOW_PORT_LAN ? 0 : 1;
++	/* Install the LAN ingress rule first for mixed-port pairs. */
++	first = spec[0].ingress.type == ZX279133_FLOW_PORT_LAN ? 0 : 1;
 +	for (i = 0; i < 2; i++) {
 +		d = first ^ i;
 +		ret = zx279133_flow_install(offload, &spec[d], &pair->cookie[d]);
@@ -1399,7 +1419,7 @@ Publish paired rules only to natflow through its asynchronous API.
 +#endif
 --- /dev/null
 +++ b/include/linux/zte_nppt_natflow.h
-@@ -0,0 +1,68 @@
+@@ -0,0 +1,72 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +#ifndef _LINUX_ZTE_NPPT_NATFLOW_H
 +#define _LINUX_ZTE_NPPT_NATFLOW_H
@@ -1439,10 +1459,14 @@ Publish paired rules only to natflow through its asynchronous API.
 +	u16 pppoe_sid;
 +};
 +
++/* Direction d enters dev[d] and leaves dev[!d]. On egress, the IPv4 tuple
++ * is the reversal of tuple[!d] with the MACs and encapsulation below.
++ * The backend resolves devices to ports and selects the hardware actions.
++ */
 +struct zte_nppt_natflow_request {
-+	struct zte_nppt_natflow_tuple tuple[2];
-+	struct net_device *dev[2];	/* Ingress of tuple[d]. */
-+	struct ethhdr eth[2];		/* Egress MACs and inner EtherType. */
++	struct zte_nppt_natflow_tuple tuple[2];	/* Ingress tuples. */
++	struct net_device *dev[2];
++	struct ethhdr eth[2];			/* Egress MACs and inner EtherType. */
 +	struct zte_nppt_natflow_path path[2];
 +	void *context;
 +	int (*notify)(void *context, enum zte_nppt_natflow_event event,

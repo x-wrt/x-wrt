@@ -29,6 +29,12 @@ typedef uint32_t __be32;
 #define VLAN_HLEN 4
 #define VLAN_VID_MASK 4095
 #define BIT(n) (1U << (n))
+#define test_bit(n, p) (!!(*(p) & BIT(n)))
+#define set_bit(n, p) (*(p) |= BIT(n))
+#define clear_bit(n, p) (*(p) &= ~BIT(n))
+#define ZX279133_LAN_TRANSPORT_VID_MIN 59
+#define ZX279133_LAN_VPORT_FIRST ZX279133_LAN_TRANSPORT_VID_MIN
+#define ZX279133_LAN_VPORT_LAST 62
 #define ZX279133_FAST_DATA_SIZE 32
 #define be32_to_cpu(value) ntohl(value)
 #define put_unaligned(value, ptr) do { \
@@ -100,11 +106,12 @@ static void list_splice_tail_init(struct list_head *source, struct list_head *de
 
 struct work_struct;
 struct kref { int refs; };
-struct zte_nppt { bool locked, lan_vlan, wan_vlan; };
+struct zte_nppt { bool locked, lan_vlan, wan_vlan; struct zx279133_eth *eth; };
 struct net_device_ops;
 struct net_device {
-	bool wan, vlan, stopped;
-	int refs, mtu, type;
+	bool bridged, vlan, stopped;
+	u16 switch_vid;
+	int refs, mtu, type, ifindex, iflink;
 	const struct net_device_ops *netdev_ops;
 	struct net_device *macvlan_lower;
 	u8 dev_addr[ETH_ALEN];
@@ -113,6 +120,7 @@ struct ethhdr { u8 h_dest[6], h_source[6]; __be16 h_proto; };
 
 #define netif_running(dev) (!(dev)->stopped)
 #define netif_carrier_ok(dev) (true)
+#define netif_is_bridge_port(dev) ((dev)->bridged)
 #define netif_is_macvlan(dev) ((dev)->macvlan_lower != NULL)
 #define get_macvlan_real_dev(dev) ((dev)->macvlan_lower)
 #define net_eq(a, b) (true)
@@ -123,7 +131,8 @@ struct ethhdr { u8 h_dest[6], h_source[6]; __be16 h_proto; };
 #define kref_get(ref) (++(ref)->refs)
 #define kref_put(ref, release) assert(--(ref)->refs >= 1)
 
-enum zx279133_flow_port { ZX279133_FLOW_PORT_LAN, ZX279133_FLOW_PORT_WAN };
+enum zx279133_flow_port { ZX279133_FLOW_PORT_NONE, ZX279133_FLOW_PORT_LAN,
+			 ZX279133_FLOW_PORT_WAN };
 
 struct zx279133_flow_tuple {
 	__be32 src_addr, dst_addr;
@@ -138,13 +147,7 @@ struct zx279133_flow_data {
 	struct zx279133_vlan_plan vlan;
 };
 
-struct zx279133_flow_spec {
-	enum zx279133_flow_port ingress, egress;
-	u16 gemport, pppoe_sid, mtu;
-	u8 ip_proto;
-	struct zx279133_flow_tuple xlate;
-	struct zx279133_flow_data data;
-};
+/* NPPT FLOW SPEC */
 
 struct zx279133_flow_counters { u64 bytes, packets; };
 struct zx279133_flow_entry {
@@ -160,7 +163,17 @@ struct zx279133_flow_offload {
 	bool detached;
 };
 
-static struct zte_nppt np = { .lan_vlan = true, .wan_vlan = true };
+struct zx279133_eth {
+	struct net_device *ndev, *lan_ndev;
+	unsigned long lan_wan_vports, lan_vport_uncertain, wire_wan_vports;
+	bool hardware_prepared;
+};
+
+static struct net_device lan, wan;
+static struct net_device lan_conduit = { .ifindex = 7 };
+static struct zx279133_eth eth = { .ndev = &wan, .lan_ndev = &lan_conduit,
+				   .hardware_prepared = true };
+static struct zte_nppt np = { .lan_vlan = true, .wan_vlan = true, .eth = &eth };
 static struct zx279133_flow_offload offload = { .ref = { 1 }, .np = &np };
 static unsigned int installed, removed;
 static bool fail_reply, fail_delete, fail_write;
@@ -186,16 +199,46 @@ static int zte_nppt_flow_ready(struct zte_nppt *hw)
 	return 0;
 }
 
-static bool zte_nppt_is_wan(struct zte_nppt *hw, struct net_device *dev)
+static int dev_get_iflink(struct net_device *dev)
 {
-	return dev->wan;
+	return dev->iflink;
 }
 
-static int zte_nppt_dev_port(struct zte_nppt *hw, struct net_device *dev, u16 *port)
+static u16 zx279133_tx_port = 1;
+
+static int zx279133_flow_lan_vid(struct zx279133_eth *hw, struct net_device *dev,
+				u16 *vid)
 {
-	*port = dev->wan ? 1 : 205;
-	return dev->wan ? ZX279133_FLOW_PORT_WAN : ZX279133_FLOW_PORT_LAN;
+	if (!dev->switch_vid)
+		return -EOPNOTSUPP;
+	*vid = dev->switch_vid;
+	return 0;
 }
+
+static int reset_error;
+static unsigned int mode_write_failures;
+
+static int zx279133_flow_offload_reset(struct zx279133_eth *hw)
+{
+	return reset_error;
+}
+
+static int zx279133_lan_vport_mode_write(struct zx279133_eth *hw, u16 vid, bool wan)
+{
+	unsigned int bit = vid - ZX279133_LAN_VPORT_FIRST;
+
+	if (wan)
+		set_bit(bit, &hw->wire_wan_vports);
+	else
+		clear_bit(bit, &hw->wire_wan_vports);
+	if (mode_write_failures) {
+		mode_write_failures--;
+		return -EIO;
+	}
+	return 0;
+}
+
+/* NPPT PORT ROLES */
 
 static bool zx279133_vlan_enabled(struct zte_nppt *hw)
 {
@@ -210,30 +253,30 @@ static bool zx279133_wan_vlan_enabled(struct zte_nppt *hw)
 static int zx279133_flow_install(struct zx279133_flow_offload *o,
 				 const struct zx279133_flow_spec *spec, unsigned long *cookie)
 {
-	bool wan = spec->ingress == ZX279133_FLOW_PORT_WAN;
+	bool wan = spec->ingress.type == ZX279133_FLOW_PORT_WAN;
+	bool reply = spec->data.tuple.src_port == htons(443);
 	unsigned long id;
 
-	assert(o->np->locked && spec->gemport);
-	assert(spec->ingress != spec->egress && spec->ip_proto == IPPROTO_TCP);
-	assert(spec->data.tuple.src_port == htons(wan ? 443 : 1234));
-	assert(spec->xlate.dst_port == htons(wan ? 1234 : 443));
-	assert(spec->xlate.src_port == htons(wan ? 443 : 5678));
-	if (wan && fail_reply)
+	assert(o->np->locked && spec->ingress.id && spec->egress.id);
+	assert(spec->ingress.id != spec->egress.id);
+	assert(spec->ip_proto == IPPROTO_TCP || spec->ip_proto == IPPROTO_UDP);
+	assert(spec->data.tuple.src_port == htons(reply ? 443 : 1234));
+	assert(spec->xlate.dst_port == htons(reply ? 1234 : 443));
+	assert(spec->xlate.src_port == htons(reply ? 443 : 5678));
+	if (reply && fail_reply)
 		return -ENOSPC;
 	for (id = 1; id < 64 && o->flows[id]; id++)
 		;
 	assert(id < 64 && !*cookie);
 	*cookie = id;
 	o->flows[id] = calloc(1, sizeof(*o->flows[id]));
-	programmed[wan] = *spec;
-	o->flows[id]->pppoe = spec->pppoe_sid != 0;
+	programmed[reply] = *spec;
+	o->flows[id]->pppoe = spec->pppoe_action != 0;
 	o->flows[id]->wan_vlan = wan ? spec->data.vlan.tagged : spec->data.vlan.tci != 0;
-	zx279133_fast_response_build(actions[wan], &spec->data, &spec->xlate,
-				     spec->ingress, spec->gemport, 1, id,
-				     spec->pppoe_sid != 0, 1);
-	assert(actions[wan][29] & BIT(4));
+	zx279133_fast_response_build(actions[reply], spec, 1, id, 1);
+	assert(actions[reply][29] & BIT(4));
 	installed++;
-	return wan && fail_write ? -EIO : 0;
+	return reply && fail_write ? -EIO : 0;
 }
 
 static int zx279133_flow_stats(struct zx279133_flow_offload *o, unsigned long cookie,
@@ -338,8 +381,9 @@ static int notify(void *context, enum zte_nppt_natflow_event event,
 #define FF_ETH_P_8021Q 0
 #define DEV_PATH_PPPOE 1
 
-static struct net_device lan = { .refs = 1, .mtu = ETH_DATA_LEN, .type = ARPHRD_ETHER };
-static struct net_device wan = { .wan = true, .refs = 1, .mtu = ETH_DATA_LEN, .type = ARPHRD_ETHER };
+static struct net_device lan = { .refs = 1, .mtu = ETH_DATA_LEN, .type = ARPHRD_ETHER,
+				 .switch_vid = 59, .iflink = 7 };
+static struct net_device wan = { .refs = 1, .mtu = ETH_DATA_LEN, .type = ARPHRD_ETHER };
 
 struct net_device_path_ctx {
 	const struct net_device *dev;
@@ -557,7 +601,9 @@ static void test_encap(void)
 	zx279133_natflow_poll(NULL);
 	assert(pppoe.ready == 1 && installed == before + 2);
 	assert(programmed[0].pppoe_sid == 101 && programmed[0].mtu == 1492);
-	assert(programmed[1].pppoe_sid == 101 && programmed[1].mtu == 1500);
+	assert(programmed[1].mtu == 1500);
+	assert(programmed[0].pppoe_action == ZX279133_WANID_PPPOE_PUSH);
+	assert(programmed[1].pppoe_action == ZX279133_WANID_PPPOE_POP);
 	assert(actions[0][16] == 4 && actions[1][16] == 4);
 	assert((actions[0][29] & BIT(1)) && !(actions[1][29] & BIT(1)));
 	sample(0, 126, 1);
@@ -626,6 +672,173 @@ static void test_encap(void)
 	assert(actions[0][30] >> 6 == ZX_VLAN_REPLACE && actions[0][24] == 200);
 	assert(actions[1][30] >> 6 == ZX_VLAN_REPLACE && actions[1][24] == 100);
 	assert(!zte_nppt_natflow_flush(false));
+}
+
+static void test_second_wan(void)
+{
+	struct net_device second = { .refs = 1, .mtu = ETH_DATA_LEN,
+				     .type = ARPHRD_ETHER, .switch_vid = 62,
+				     .iflink = 7 };
+	struct client invalid = {};
+	struct zte_nppt_natflow_request req;
+	unsigned int before;
+	int reverse, pppoe;
+
+	assert(!zx279133_lan_vport_wan_set(&eth, second.switch_vid, true));
+	for (reverse = 0; reverse < 2; reverse++) {
+		for (pppoe = 0; pppoe < 2; pppoe++) {
+			struct client user = {};
+			u64 overhead = ETH_HLEN + ETH_FCS_LEN + pppoe * PPPOE_SES_HLEN;
+
+			req = request(&user, reverse);
+			req.dev[!reverse] = &second;
+			if (pppoe) {
+				req.path[reverse].mtu = 1492;
+				req.path[reverse].pppoe_sid = 207;
+			}
+			before = installed;
+			assert(!zte_nppt_natflow_submit(&req));
+			zx279133_natflow_poll(NULL);
+			assert(user.ready == 1 && installed == before + 2);
+			assert(programmed[0].egress.id == second.switch_vid);
+			assert(programmed[1].egress.id == lan.switch_vid);
+			assert(programmed[0].pppoe_sid == req.path[reverse].pppoe_sid);
+			assert(programmed[0].pppoe_action == pppoe * ZX279133_WANID_PPPOE_PUSH);
+			assert(programmed[1].pppoe_action == pppoe * ZX279133_WANID_PPPOE_POP);
+			assert(actions[0][20] == second.switch_vid && actions[1][20] == lan.switch_vid);
+			assert(actions[0][16] == 4 * pppoe && actions[1][16] == 4 * pppoe);
+			sample(0, 100 + overhead, 1);
+			sample(1, 100 + overhead * 2, 2);
+			assert(!zte_nppt_natflow_flush(false));
+			assert(user.releases == 1 && user.bytes[0] == 100 && user.bytes[1] == 100);
+			assert(second.refs == 1 && lan.refs == 1);
+		}
+	}
+
+	before = installed;
+	req = request(&invalid, false);
+	req.dev[1] = &second;
+	assert(!zte_nppt_natflow_submit(&req));
+	assert(!zx279133_lan_vport_wan_set(&eth, second.switch_vid, false));
+	zx279133_natflow_poll(NULL);
+	assert(!invalid.ready && invalid.releases == 1 && installed == before);
+	assert(!zx279133_lan_vport_wan_set(&eth, second.switch_vid, true));
+
+	req.dev[0] = &wan;
+	assert(!zte_nppt_natflow_submit(&req));
+	zx279133_natflow_poll(NULL);
+	assert(!invalid.ready && invalid.releases == 2 && installed == before);
+
+	req.dev[0] = &lan;
+	req.path[0].vlan_id = 100;
+	assert(!zte_nppt_natflow_submit(&req));
+	zx279133_natflow_poll(NULL);
+	assert(!invalid.ready && invalid.releases == 3 && installed == before);
+
+	req.path[0].vlan_id = 0;
+	second.bridged = true;
+	assert(!zte_nppt_natflow_submit(&req));
+	zx279133_natflow_poll(NULL);
+	assert(!invalid.ready && invalid.releases == 4 && installed == before);
+	second.bridged = false;
+
+	reset_error = -EIO;
+	assert(zx279133_lan_vport_wan_set(&eth, second.switch_vid, false) == -EIO);
+	assert(eth.wire_wan_vports == eth.lan_wan_vports && !eth.lan_vport_uncertain);
+	reset_error = 0;
+	mode_write_failures = 1;
+	assert(zx279133_lan_vport_wan_set(&eth, second.switch_vid, false) == -EIO);
+	assert(eth.wire_wan_vports == eth.lan_wan_vports && !eth.lan_vport_uncertain);
+	mode_write_failures = 2;
+	assert(zx279133_lan_vport_wan_set(&eth, second.switch_vid, false) == -EIO);
+	assert(eth.lan_vport_uncertain);
+	assert(!zte_nppt_natflow_submit(&req));
+	zx279133_natflow_poll(NULL);
+	assert(!invalid.ready && invalid.releases == 5 && installed == before);
+	assert(!zx279133_lan_vport_wan_set(&eth, second.switch_vid, true));
+	assert(!eth.lan_vport_uncertain && eth.wire_wan_vports == eth.lan_wan_vports);
+	assert(!zte_nppt_natflow_submit(&req));
+	zx279133_natflow_poll(NULL);
+	assert(invalid.ready == 1 && installed == before + 2);
+	assert(!zte_nppt_natflow_flush(false));
+	assert(!zx279133_lan_vport_wan_set(&eth, second.switch_vid, false));
+	assert(second.refs == 1 && lan.refs == 1 && wan.refs == 1);
+}
+
+static void test_same_type_ports(void)
+{
+	struct net_device second = { .refs = 1, .mtu = ETH_DATA_LEN,
+				     .type = ARPHRD_ETHER, .switch_vid = 62,
+				     .iflink = 7 };
+	struct net_device alias = lan;
+	struct client unsupported = {};
+	struct zte_nppt_natflow_request req = request(&unsupported, false);
+	unsigned int before = installed;
+	int reverse;
+
+	req.dev[1] = &second;
+	assert(!zte_nppt_natflow_submit(&req));
+	zx279133_natflow_poll(NULL);
+	assert(!unsupported.ready && unsupported.releases == 1 && installed == before);
+
+	lan_lan_offload = true;
+	for (reverse = 0; reverse < 2; reverse++) {
+		struct client user = {};
+
+		req = request(&user, reverse);
+		req.dev[!reverse] = &second;
+		req.tuple[reverse].src = htonl(0xc0000201);
+		req.tuple[!reverse].dst = htonl(0xc6336401);
+		req.eth[reverse].h_dest[5] = 1;
+		req.eth[!reverse].h_dest[5] = 2;
+		if (reverse)
+			req.tuple[0].proto = req.tuple[1].proto = IPPROTO_UDP;
+		before = installed;
+		assert(!zte_nppt_natflow_submit(&req));
+		zx279133_natflow_poll(NULL);
+		assert(user.ready == 1 && installed == before + 2);
+		assert(programmed[0].ingress.type == ZX279133_FLOW_PORT_LAN);
+		assert(programmed[1].ingress.type == ZX279133_FLOW_PORT_LAN);
+		assert(programmed[0].egress.type == ZX279133_FLOW_PORT_LAN);
+		assert(programmed[1].egress.type == ZX279133_FLOW_PORT_LAN);
+		assert(programmed[0].ingress.id == lan.switch_vid);
+		assert(programmed[1].ingress.id == second.switch_vid);
+		assert(actions[0][20] == second.switch_vid && actions[1][20] == lan.switch_vid);
+		assert(actions[0][29] & BIT(7)); /* SNAT */
+		assert(actions[1][30] & BIT(0)); /* DNAT */
+		sample(0, 118, 1);
+		sample(1, 236, 2);
+		assert(!zte_nppt_natflow_flush(false));
+		assert(user.releases == 1 && user.packets[0] == 1 && user.packets[1] == 2);
+		assert(user.bytes[0] == 100 && user.bytes[1] == 200);
+	}
+
+	before = installed;
+	req = request(&unsupported, false);
+	req.dev[1] = &alias;
+	assert(!zte_nppt_natflow_submit(&req));
+	zx279133_natflow_poll(NULL);
+	assert(!unsupported.ready && unsupported.releases == 2 && installed == before);
+
+	req.dev[1] = &second;
+	req.path[0].vlan_id = 100;
+	assert(!zte_nppt_natflow_submit(&req));
+	zx279133_natflow_poll(NULL);
+	assert(!unsupported.ready && unsupported.releases == 3 && installed == before);
+
+	assert(!zx279133_lan_vport_wan_set(&eth, second.switch_vid, true));
+	req.dev[0] = &wan;
+	req.path[0].vlan_id = 0;
+	req.path[0].mtu = req.path[1].mtu = 1492;
+	req.path[0].pppoe_sid = 101;
+	req.path[1].pppoe_sid = 207;
+	assert(!zte_nppt_natflow_submit(&req));
+	zx279133_natflow_poll(NULL);
+	assert(!unsupported.ready && unsupported.releases == 4 && installed == before);
+
+	assert(!zx279133_lan_vport_wan_set(&eth, second.switch_vid, false));
+	assert(second.refs == 1 && alias.refs == 1);
+	lan_lan_offload = false;
 }
 
 int main(void)
@@ -708,10 +921,12 @@ int main(void)
 	test_optional_binding();
 	test_path_learning();
 	test_encap();
+	test_second_wan();
+	test_same_type_ports();
 
 	zx279133_natflow_detach(&offload);
 	assert(submit(&ignored, false) == -EAGAIN);
 	assert(lan.refs == 1 && wan.refs == 1 && installed == removed);
-	puts("NPPT optional binding, lifecycle, rollback, PPPoE/VLAN rules and directional counters passed");
+	puts("NPPT binding, lifecycle, rollback, PPPoE/VLAN, port pairs and directional counters passed");
 	return 0;
 }

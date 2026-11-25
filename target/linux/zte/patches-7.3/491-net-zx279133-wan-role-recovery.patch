@@ -1,0 +1,95 @@
+Subject: net: zte: guard NPPT rules during switch port mode recovery
+
+--- a/drivers/net/ethernet/zte/zx279133.h
++++ b/drivers/net/ethernet/zte/zx279133.h
+@@ -625,6 +625,7 @@
+ 	 * from ZX279133_LAN_TRANSPORT_VID_MIN; written under datapath_lock.
+ 	 */
+ 	unsigned long lan_wan_vports;
++	unsigned long lan_vport_uncertain;
+ 	struct zte_nppt *flow_offload;
+ 	struct zx279133_lan_service lan_service;
+ 	struct zx279133_netdev_stats stats;
+--- a/drivers/net/ethernet/zte/zx279133-np.c
++++ b/drivers/net/ethernet/zte/zx279133-np.c
+@@ -1298,25 +1298,28 @@
+ 		ret = zx279133_lan_vport_mode_write(eth, port, wan);
+ 		if (ret)
+ 			return ret;
++		clear_bit(port - ZX279133_LAN_VPORT_FIRST, &eth->lan_vport_uncertain);
+ 	}
+ 
+ 	return 0;
+ }
+ 
+ /*
+- * Switch one LAN port between LAN-type and WAN-type. Its offloaded flows were
+- * built for the old type, so they all go; nf_flow_table offers them again.
++ * Switch one LAN port between LAN-type and WAN-type after retiring the old
++ * hardware rules. Restore its previous mode on a partial write failure.
+  */
+ int zx279133_lan_vport_wan_set(struct zx279133_eth *eth, u16 vport, bool wan)
+ {
+ 	unsigned int bit = vport - ZX279133_LAN_VPORT_FIRST;
+ 	int ret = 0;
++	bool was_wan;
+ 
+ 	if (vport < ZX279133_LAN_VPORT_FIRST || vport > ZX279133_LAN_VPORT_LAST)
+ 		return -EINVAL;
+ 
+ 	mutex_lock(&eth->datapath_lock);
+-	if (test_bit(bit, &eth->lan_wan_vports) == wan)
++	was_wan = test_bit(bit, &eth->lan_wan_vports);
++	if (was_wan == wan && !test_bit(bit, &eth->lan_vport_uncertain))
+ 		goto out_unlock;
+ 	/* Rules contain the old port role. Do not change it on failed deletion. */
+ 	ret = zx279133_flow_offload_reset(eth);
+@@ -1324,13 +1327,19 @@
+ 		goto out_unlock;
+ 	if (eth->hardware_prepared) {
+ 		ret = zx279133_lan_vport_mode_write(eth, vport, wan);
+-		if (ret)
++		if (ret) {
++			if (zx279133_lan_vport_mode_write(eth, vport, was_wan))
++				set_bit(bit, &eth->lan_vport_uncertain);
++			else
++				clear_bit(bit, &eth->lan_vport_uncertain);
+ 			goto out_unlock;
++		}
+ 	}
+ 	if (wan)
+ 		set_bit(bit, &eth->lan_wan_vports);
+ 	else
+ 		clear_bit(bit, &eth->lan_wan_vports);
++	clear_bit(bit, &eth->lan_vport_uncertain);
+ out_unlock:
+ 	mutex_unlock(&eth->datapath_lock);
+ 	return ret;
+--- a/drivers/net/ethernet/zte/zx279133-offload-api.c
++++ b/drivers/net/ethernet/zte/zx279133-offload-api.c
+@@ -383,6 +383,7 @@
+ {
+ 	unsigned long wan_vports = READ_ONCE(eth->lan_wan_vports);
+ 	u16 vid = 0;
++	unsigned int bit;
+ 
+ 	if (!dev)
+ 		return ZX279133_FLOW_PORT_NONE;
+@@ -395,10 +396,14 @@
+ 	     dev_get_iflink(dev) != eth->lan_ndev->ifindex))
+ 		return ZX279133_FLOW_PORT_NONE;
+ 	if (zx279133_flow_lan_vid(eth, dev, &vid))
+-		vid = 0;
++		return ZX279133_FLOW_PORT_NONE;
++	bit = vid - ZX279133_LAN_TRANSPORT_VID_MIN;
++	if (test_bit(bit, &eth->lan_vport_uncertain))
++		return ZX279133_FLOW_PORT_NONE;
+ 	*gemport = vid;
+-	if (vid && wan_vports & BIT(vid - ZX279133_LAN_TRANSPORT_VID_MIN))
+-		return ZX279133_FLOW_PORT_WAN;
++	if (wan_vports & BIT(bit))
++		return netif_is_bridge_port(dev) ? ZX279133_FLOW_PORT_NONE :
++			ZX279133_FLOW_PORT_WAN;
+ 	return ZX279133_FLOW_PORT_LAN;
+ }
+ 
