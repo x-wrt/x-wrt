@@ -1,0 +1,637 @@
+From: homeiot <homeiot@local>
+Subject: [PATCH] MIPS: keep module trampolines in the caller's jump region
+
+The MIPS short-call module loader uses one separately allocated KSEG0
+trampoline table. On systems such as the MT7621 with 512 MiB of RAM, the
+table may be in 0x8xxxxxxx while the call is in 0x9xxxxxxx. JAL preserves
+the high bits of its delay slot address, so the relocated call can jump
+to unrelated memory.
+
+Reserve trampolines inside core and init text and keep each allocation
+within a single 256 MiB region. The normal module instruction cache flush
+now covers the generated code. Revalidate the jump region before writing
+the instruction and reject relocations without a reachable trampoline.
+
+Link: https://github.com/openwrt/openwrt/issues/25747
+Link: https://github.com/puxu-msft/openwrt/commit/a2514538776f1465896959638c883cb9a716785d
+---
+ arch/mips/include/asm/module.h |   7 +-
+ arch/mips/kernel/module.c      | 432 ++++++++++++++---------
+ 2 files changed, 268 insertions(+), 171 deletions(-)
+
+diff --git a/arch/mips/include/asm/module.h b/arch/mips/include/asm/module.h
+index 9dfc597..816d57d 100644
+--- a/arch/mips/include/asm/module.h
++++ b/arch/mips/include/asm/module.h
+@@ -13,10 +13,9 @@ struct mod_arch_specific {
+ 	const struct exception_table_entry *dbe_end;
+ 	struct mips_hi16 *r_mips_hi16_list;
+ 
+-	void *phys_plt_tbl;
+-	void *virt_plt_tbl;
+-	unsigned int phys_plt_offset;
+-	unsigned int virt_plt_offset;
++	/* Core and init PLTs. Keep the old module ELF layout on MIPS32 and MIPS64. */
++	unsigned long plt_shndx[2];
++	unsigned int plt_entries[2];
+ };
+ 
+ typedef uint8_t Elf64_Byte;		/* Type for a 8-bit quantity.  */
+diff --git a/arch/mips/kernel/module.c b/arch/mips/kernel/module.c
+index 9468711..d1a1bf3 100644
+--- a/arch/mips/kernel/module.c
++++ b/arch/mips/kernel/module.c
+@@ -19,8 +19,12 @@
+ #include <linux/string.h>
+ #include <linux/kernel.h>
+ #include <linux/spinlock.h>
++#include <linux/bitops.h>
+ #include <linux/jump_label.h>
++#include <linux/log2.h>
+ #include <linux/sizes.h>
++#include <linux/sort.h>
++#include <linux/unaligned.h>
+ #include <linux/vmalloc.h>
+ #include <asm/cpu-info.h>
+ #include <asm/jump_label.h>
+@@ -35,77 +39,164 @@ static LIST_HEAD(dbe_list);
+ static DEFINE_SPINLOCK(dbe_lock);
+ 
+ /*
+- * Get the potential max trampolines size required of the init and
+- * non-init sections. Only used if we cannot find enough contiguous
+- * physically mapped memory to put the module into.
++ * J and JAL can only reach targets in the same 256 MiB region as their
++ * delay slot. Reserve trampolines inside each module text allocation so
++ * they are reachable and included in the module instruction cache flush.
+  */
+-static unsigned int
+-get_plt_size(const Elf_Ehdr *hdr, const Elf_Shdr *sechdrs,
+-             const char *secstrings, unsigned int symindex, bool is_init)
++#define MIPS_PLT_ENTRY_WORDS	4
++#define MIPS_PLT_ENTRY_SIZE	(MIPS_PLT_ENTRY_WORDS * sizeof(u32))
++
++#define MIPS_JUMP_FIELD		GENMASK(25, 0)
++#define MIPS_JUMP_REGION_MASK	(~(SZ_256M - 1UL))
++
++enum { MIPS_PLT_CORE, MIPS_PLT_INIT, MIPS_PLT_AREAS };
++
++struct mips_plt_area {
++	u32 *slots;
++	unsigned int entries;
++};
++
++static bool mips_exec_section(const Elf_Shdr *s)
+ {
+-	unsigned long ret = 0;
+-	unsigned int i, j;
+-	Elf_Sym *syms;
++	return (s->sh_flags & (SHF_ALLOC | SHF_EXECINSTR)) ==
++	       (SHF_ALLOC | SHF_EXECINSTR);
++}
+ 
+-	/* Everything marked ALLOC (this includes the exported symbols) */
+-	for (i = 1; i < hdr->e_shnum; ++i) {
+-		unsigned int info = sechdrs[i].sh_info;
++static bool mips_init_section(const char *secstrings, const Elf_Shdr *s)
++{
++	return module_init_layout_section(secstrings + s->sh_name);
++}
+ 
+-		if (sechdrs[i].sh_type != SHT_REL
+-		    && sechdrs[i].sh_type != SHT_RELA)
+-			continue;
++static int mips_cmp_plt_key(const void *a, const void *b)
++{
++	u64 x = *(const u64 *)a;
++	u64 y = *(const u64 *)b;
+ 
+-		/* Not a valid relocation section? */
+-		if (info >= hdr->e_shnum)
+-			continue;
++	return x < y ? -1 : x > y;
++}
+ 
+-		/* Don't bother with non-allocated sections */
+-		if (!(sechdrs[info].sh_flags & SHF_ALLOC))
+-			continue;
++/* The REL addend is a word-scaled offset, signed for external symbols. */
++static long mips_r26_rel_addend(u32 insn, const Elf_Sym *sym)
++{
++	u32 offset = (insn & MIPS_JUMP_FIELD) << 2;
++
++	if (ELF_ST_BIND(sym->st_info) == STB_LOCAL)
++		return offset;
++	return sign_extend32(offset, 27);
++}
++
++static const Elf_Shdr *mips_plt_reloc_target(const Elf_Ehdr *hdr,
++					     const Elf_Shdr *sechdrs,
++					     const char *secstrings,
++					     const Elf_Shdr *rs, bool init)
++{
++	const Elf_Shdr *ts;
++
++	if ((rs->sh_type != SHT_REL && rs->sh_type != SHT_RELA) ||
++	    rs->sh_info >= hdr->e_shnum)
++		return NULL;
++	ts = &sechdrs[rs->sh_info];
++	if (!mips_exec_section(ts) || mips_init_section(secstrings, ts) != init)
++		return NULL;
++	return ts;
++}
++
++/*
++ * Reserve one entry per distinct symbol and addend that may need a PLT.
++ * Targets within the same text allocation are reachable directly.
++ */
++static int mips_count_plt_entries(const Elf_Ehdr *hdr, const Elf_Shdr *sechdrs,
++				  const char *secstrings, unsigned int symindex,
++				  bool init, unsigned int *entries)
++{
++	const Elf_Sym *syms = (void *)sechdrs[symindex].sh_addr;
++	unsigned int i, j, n = 0, max = 0, unique = 0;
++	u64 *keys;
++
++	*entries = 0;
++	for (i = 1; i < hdr->e_shnum; i++) {
++		const Elf_Shdr *rs = &sechdrs[i];
++		bool rela = rs->sh_type == SHT_RELA;
++		unsigned int count;
+ 
+-		/* If it's called *.init*, and we're not init, we're
+-                   not interested */
+-		if ((strstr(secstrings + sechdrs[i].sh_name, ".init") != 0)
+-		    != is_init)
++		if (!mips_plt_reloc_target(hdr, sechdrs, secstrings, rs, init))
+ 			continue;
++		count = rs->sh_size / (rela ? sizeof(Elf_Mips_Rela) : sizeof(Elf_Mips_Rel));
++		for (j = 0; j < count; j++) {
++			const Elf_Mips_Rel *rel = (void *)rs->sh_addr + j * sizeof(*rel);
++			const Elf_Mips_Rela *ra = (void *)rs->sh_addr + j * sizeof(*ra);
+ 
+-		syms = (Elf_Sym *) sechdrs[symindex].sh_addr;
+-		if (sechdrs[i].sh_type == SHT_REL) {
+-			Elf_Mips_Rel *rel = (void *) sechdrs[i].sh_addr;
+-			unsigned int size = sechdrs[i].sh_size / sizeof(*rel);
++			if ((rela ? ELF_MIPS_R_TYPE(*ra) : ELF_MIPS_R_TYPE(*rel)) == R_MIPS_26)
++				max++;
++		}
++	}
++	if (!max)
++		return 0;
+ 
+-			for (j = 0; j < size; ++j) {
+-				Elf_Sym *sym;
++	keys = kvmalloc_array(max, sizeof(*keys), GFP_KERNEL);
++	if (!keys)
++		return -ENOMEM;
+ 
+-				if (ELF_MIPS_R_TYPE(rel[j]) != R_MIPS_26)
+-					continue;
++	for (i = 1; i < hdr->e_shnum; i++) {
++		const Elf_Shdr *rs = &sechdrs[i];
++		const Elf_Shdr *ts = mips_plt_reloc_target(hdr, sechdrs, secstrings, rs, init);
++		bool rela = rs->sh_type == SHT_RELA;
++		unsigned int count;
+ 
+-				sym = syms + ELF_MIPS_R_SYM(rel[j]);
+-				if (!is_init && sym->st_shndx != SHN_UNDEF)
+-					continue;
++		if (!ts)
++			continue;
+ 
+-				ret += 4 * sizeof(int);
+-			}
+-		} else {
+-			Elf_Mips_Rela *rela = (void *) sechdrs[i].sh_addr;
+-			unsigned int size = sechdrs[i].sh_size / sizeof(*rela);
++		count = rs->sh_size / (rela ? sizeof(Elf_Mips_Rela) : sizeof(Elf_Mips_Rel));
++		for (j = 0; j < count; j++) {
++			const Elf_Mips_Rel *rel = (void *)rs->sh_addr + j * sizeof(*rel);
++			const Elf_Mips_Rela *ra = (void *)rs->sh_addr + j * sizeof(*ra);
++			const Elf_Sym *sym;
++			u32 addend;
+ 
+-			for (j = 0; j < size; ++j) {
+-				Elf_Sym *sym;
++			if ((rela ? ELF_MIPS_R_TYPE(*ra) : ELF_MIPS_R_TYPE(*rel)) != R_MIPS_26)
++				continue;
+ 
+-				if (ELF_MIPS_R_TYPE(rela[j]) != R_MIPS_26)
+-					continue;
++			sym = syms + (rela ? ELF_MIPS_R_SYM(*ra) : ELF_MIPS_R_SYM(*rel));
++			if (rela) {
++				addend = ra->r_addend;
++			} else {
++				if (ts->sh_type == SHT_NOBITS ||
++				    ts->sh_size < sizeof(u32) ||
++				    rel->r_offset > ts->sh_size - sizeof(u32)) {
++					kvfree(keys);
++					return -ENOEXEC;
++				}
++				addend = mips_r26_rel_addend(
++					get_unaligned((u32 *)(ts->sh_addr + rel->r_offset)), sym);
++			}
+ 
+-				sym = syms + ELF_MIPS_R_SYM(rela[j]);
+-				if (!is_init && sym->st_shndx != SHN_UNDEF)
+-					continue;
++			if (sym->st_shndx != SHN_UNDEF && sym->st_shndx < hdr->e_shnum) {
++				const Elf_Shdr *ss = &sechdrs[sym->st_shndx];
+ 
+-				ret += 4 * sizeof(int);
++				if (mips_exec_section(ss) &&
++				    mips_init_section(secstrings, ss) == init &&
++				    sym->st_value < ss->sh_size &&
++				    addend < ss->sh_size - sym->st_value)
++					continue;
+ 			}
++			if (n == max) {
++				kvfree(keys);
++				return -ENOEXEC;
++			}
++			keys[n++] = (u64)(sym - syms) << 32 | addend;
+ 		}
+ 	}
+ 
+-	return ret;
++	sort(keys, n, sizeof(*keys), mips_cmp_plt_key, NULL);
++	for (j = 0; j < n; j++)
++		if (!j || keys[j] != keys[j - 1])
++			unique++;
++	kvfree(keys);
++
++	if (unique > SZ_256M / MIPS_PLT_ENTRY_SIZE)
++		return -ENOEXEC;
++	*entries = unique;
++	return 0;
+ }
+ 
+ /*
+@@ -184,34 +275,38 @@ static void free_phys(void *ptr)
+ }
+ 
+ /*
+- * the vmalloc area starts at the start of a segment: stay in that segment,
+- * and fail once it is used up rather than go on to the next one
++ * The buddy allocator aligns module text to its block size. Match that
++ * alignment on the vmalloc fallback to keep text in one jump region.
+  */
+-static void *alloc_virt(unsigned long size)
++static void *alloc_virt(unsigned long size, bool module_text)
+ {
+-	unsigned long start = PAGE_ALIGN(VMALLOC_START + SZ_32K);
+-	unsigned long end = min(ALIGN(start, SZ_256M), VMALLOC_END);
++	unsigned long start = VMALLOC_START;
++	unsigned long end = VMALLOC_END;
+ 
+-	if (!cpu_has_epc_erratum())
++	if (cpu_has_epc_erratum()) {
++		start = PAGE_ALIGN(VMALLOC_START + SZ_32K);
++		end = min(ALIGN(start, SZ_256M), VMALLOC_END);
++	} else if (!module_text) {
+ 		return vmalloc(size);
++	}
+ 
+-	return __vmalloc_node_range(size, 1, start, end, GFP_KERNEL,
+-				    PAGE_KERNEL, 0, NUMA_NO_NODE,
+-				    __builtin_return_address(0));
++	return __vmalloc_node_range(size,
++				    module_text ? roundup_pow_of_two(size) : 1,
++				    start, end, GFP_KERNEL, PAGE_KERNEL, 0,
++				    NUMA_NO_NODE, __builtin_return_address(0));
+ }
+ 
+-void *arch_execmem_alloc(enum execmem_type type,
+-			 size_t size)
++void *arch_execmem_alloc(enum execmem_type type, size_t size)
+ {
++	bool module_text = !IS_ENABLED(CONFIG_64BIT) && type == EXECMEM_MODULE_TEXT;
+ 	void *ptr;
+ 
+-	ptr = alloc_phys(size);
++	if (module_text && size > SZ_256M)
++		return NULL;
+ 
+-	/* If we failed to allocate physically contiguous memory,
+-	 * fall back to regular vmalloc. The module loader code will
+-	 * create jump tables to handle long jumps */
++	ptr = alloc_phys(size);
+ 	if (!ptr)
+-		return alloc_virt(size);
++		return alloc_virt(size, module_text);
+ 
+ 	return ptr;
+ }
+@@ -237,36 +332,14 @@ void arch_execmem_free(void *ptr)
+ }
+ #endif
+ 
+-static void *__module_alloc(int size, bool phys)
+-{
+-	void *ptr;
+-
+-	if (phys)
+-		ptr = kmalloc(size, GFP_KERNEL);
+-	else
+-		ptr = vmalloc(size);
+-	return ptr;
+-}
+-
+-static void __module_free(void *ptr)
+-{
+-	if (is_phys_addr(ptr))
+-		kfree(ptr);
+-	else
+-		vfree(ptr);
+-}
+-
+ int module_frob_arch_sections(Elf_Ehdr *hdr, Elf_Shdr *sechdrs,
+ 			      char *secstrings, struct module *mod)
+ {
+-	unsigned int symindex = 0;
+-	unsigned int core_size, init_size;
+-	int i;
++	unsigned int i, k, symindex = 0;
++	int err;
+ 
+-	mod->arch.phys_plt_offset = 0;
+-	mod->arch.virt_plt_offset = 0;
+-	mod->arch.phys_plt_tbl = NULL;
+-	mod->arch.virt_plt_tbl = NULL;
++	memset(mod->arch.plt_shndx, 0, sizeof(mod->arch.plt_shndx));
++	memset(mod->arch.plt_entries, 0, sizeof(mod->arch.plt_entries));
+ 
+ 	if (IS_ENABLED(CONFIG_64BIT))
+ 		return 0;
+@@ -274,84 +347,127 @@ int module_frob_arch_sections(Elf_Ehdr *hdr, Elf_Shdr *sechdrs,
+ 	for (i = 1; i < hdr->e_shnum; i++)
+ 		if (sechdrs[i].sh_type == SHT_SYMTAB)
+ 			symindex = i;
+-
+-	core_size = get_plt_size(hdr, sechdrs, secstrings, symindex, false);
+-	init_size = get_plt_size(hdr, sechdrs, secstrings, symindex, true);
+-
+-	if ((core_size + init_size) == 0)
++	if (!symindex)
+ 		return 0;
+ 
+-	mod->arch.phys_plt_tbl = __module_alloc(core_size + init_size, 1);
+-	if (!mod->arch.phys_plt_tbl)
+-		return -ENOMEM;
++	for (k = 0; k < MIPS_PLT_AREAS; k++) {
++		bool init = k == MIPS_PLT_INIT;
++		unsigned int first = 0;
+ 
+-	mod->arch.virt_plt_tbl = __module_alloc(core_size + init_size, 0);
+-	if (!mod->arch.virt_plt_tbl) {
+-		__module_free(mod->arch.phys_plt_tbl);
+-		mod->arch.phys_plt_tbl = NULL;
+-		return -ENOMEM;
++		for (i = 1; i < hdr->e_shnum && !first; i++)
++			if (mips_exec_section(&sechdrs[i]) &&
++			    mips_init_section(secstrings, &sechdrs[i]) == init)
++				first = i;
++		if (!first)
++			continue;
++
++		err = mips_count_plt_entries(hdr, sechdrs, secstrings, symindex,
++					     init, &mod->arch.plt_entries[k]);
++		if (err)
++			return err;
++		mod->arch.plt_shndx[k] = first;
+ 	}
+ 
+ 	return 0;
+ }
+ 
++/* The loader lays out executable sections before other sections. */
++unsigned int arch_mod_section_prepend(struct module *mod, unsigned int section)
++{
++	unsigned int k;
++
++	for (k = 0; k < MIPS_PLT_AREAS; k++)
++		if (mod->arch.plt_entries[k] && mod->arch.plt_shndx[k] == section)
++			return mod->arch.plt_entries[k] * MIPS_PLT_ENTRY_SIZE;
++	return 0;
++}
++
+ static void apply_r_mips_32(u32 *location, u32 base, Elf_Addr v)
+ {
+ 	*location = base + v;
+ }
+ 
+-static Elf_Addr add_plt_entry_to(unsigned *plt_offset,
+-				 void *start, Elf_Addr v)
++static int mips_plt_area(struct module *me, const Elf_Shdr *sechdrs,
++			 unsigned int target_sec, struct mips_plt_area *plt)
+ {
+-	unsigned *tramp = start + *plt_offset;
+-	*plt_offset += 4 * sizeof(int);
++	unsigned long addr = sechdrs[target_sec].sh_addr, shaddr, start;
++	enum mod_mem_type type;
++	unsigned int k;
+ 
+-	/* adjust carry for addiu */
+-	if (v & 0x00008000)
+-		v += 0x10000;
++	plt->slots = NULL;
++	plt->entries = 0;
+ 
+-	tramp[0] = 0x3c190000 | (v >> 16);      /* lui t9, hi16 */
+-	tramp[1] = 0x27390000 | (v & 0xffff);   /* addiu t9, t9, lo16 */
+-	tramp[2] = 0x03200008;                  /* jr t9 */
+-	tramp[3] = 0x00000000;                  /* nop */
++	if (within_module_mem_type(addr, me, MOD_TEXT)) {
++		type = MOD_TEXT;
++		k = MIPS_PLT_CORE;
++	} else if (within_module_mem_type(addr, me, MOD_INIT_TEXT)) {
++		type = MOD_INIT_TEXT;
++		k = MIPS_PLT_INIT;
++	} else {
++		return 0;
++	}
++	if (!me->arch.plt_entries[k])
++		return 0;
++
++	/* Check that the reserved space precedes the first code section. */
++	shaddr = sechdrs[me->arch.plt_shndx[k]].sh_addr;
++	start = shaddr - me->arch.plt_entries[k] * MIPS_PLT_ENTRY_SIZE;
++	if (!within_module_mem_type(start, me, type) ||
++	    !within_module_mem_type(shaddr - 1, me, type)) {
++		pr_err("module %s: R_MIPS_26 trampolines outside the module text\n",
++		       me->name);
++		return -ENOEXEC;
++	}
+ 
+-	return (Elf_Addr) tramp;
++	plt->slots = (u32 *)start;
++	plt->entries = me->arch.plt_entries[k];
++	return 0;
+ }
+ 
+-static Elf_Addr add_plt_entry(struct module *me, void *location, Elf_Addr v)
++/* Share entries for the same target. Unused slots are zeroed by the loader. */
++static Elf_Addr mips_plt_entry(const struct mips_plt_area *plt, u32 target)
+ {
+-	if (is_phys_addr(location))
+-		return add_plt_entry_to(&me->arch.phys_plt_offset,
+-				me->arch.phys_plt_tbl, v);
+-	else
+-		return add_plt_entry_to(&me->arch.virt_plt_offset,
+-				me->arch.virt_plt_tbl, v);
++	const u32 entry[MIPS_PLT_ENTRY_WORDS] = {
++		0x3c190000 | (((target + 0x8000) >> 16) & 0xffff), /* lui t9, %hi */
++		0x27390000 | (target & 0xffff),			   /* addiu t9, t9, %lo */
++		0x03200008,					   /* jr t9 */
++		0x00000000,					   /* nop */
++	};
++	unsigned int i;
++
++	for (i = 0; i < plt->entries; i++) {
++		u32 *slot = plt->slots + i * MIPS_PLT_ENTRY_WORDS;
+ 
++		if (!slot[0]) {
++			memcpy(slot, entry, sizeof(entry));
++			return (Elf_Addr)slot;
++		}
++		if (slot[0] == entry[0] && slot[1] == entry[1])
++			return (Elf_Addr)slot;
++	}
++	return 0;
+ }
+ 
+-static int apply_r_mips_26(struct module *me, u32 *location, u32 base,
+-			   Elf_Addr v)
++static int apply_r_mips_26(struct module *me, u32 *location, Elf_Addr target,
++			   const struct mips_plt_area *plt)
+ {
+-	u32 ofs = base & 0x03ffffff;
++	/* The jump inherits its high bits from the delay slot address. */
++	unsigned long segment = ((unsigned long)location + 4) & MIPS_JUMP_REGION_MASK;
+ 
+-	if (v % 4) {
+-		pr_err("module %s: dangerous R_MIPS_26 relocation\n",
+-		       me->name);
++	if (target % 4) {
++		pr_err("module %s: dangerous R_MIPS_26 relocation\n", me->name);
+ 		return -ENOEXEC;
+ 	}
+ 
+-	if ((v & 0xf0000000) != (((unsigned long)location + 4) & 0xf0000000)) {
+-		v = add_plt_entry(me, location, v + (ofs << 2));
+-		if (!v) {
+-			pr_err("module %s: relocation overflow\n",
+-			       me->name);
++	if ((target & MIPS_JUMP_REGION_MASK) != segment) {
++		target = plt->slots ? mips_plt_entry(plt, target) : 0;
++		if (!target || (target & MIPS_JUMP_REGION_MASK) != segment) {
++			pr_err("module %s: R_MIPS_26 relocation overflow\n", me->name);
+ 			return -ENOEXEC;
+ 		}
+-		ofs = 0;
+ 	}
+ 
+-	*location = (*location & ~0x03ffffff) |
+-		    ((ofs + (v >> 2)) & 0x03ffffff);
++	*location = (*location & ~MIPS_JUMP_FIELD) | ((target >> 2) & MIPS_JUMP_FIELD);
+ 
+ 	return 0;
+ }
+@@ -556,6 +672,7 @@ static int apply_r_mips_highest(u32 *location, Elf_Addr v, bool rela)
+  * @base: the existing value at location for REL-style; 0 for RELA-style
+  * @v: the value of the reloc, with addend for RELA-style
+  * @rela: indication of is this a RELA (true) or REL (false) relocation
++ * @plt: R_MIPS_26 trampolines of the module text that @location is in
+  *
+  * Each implemented relocation function applies a particular type of
+  * relocation to the module @me. Relocs that may be found in either REL or RELA
+@@ -566,7 +683,7 @@ static int apply_r_mips_highest(u32 *location, Elf_Addr v, bool rela)
+  * Return: 0 upon success, else -ERRNO
+  */
+ static int reloc_handler(u32 type, struct module *me, u32 *location, u32 base,
+-			 Elf_Addr v, bool rela)
++			 Elf_Addr v, bool rela, const struct mips_plt_area *plt)
+ {
+ 	switch (type) {
+ 	case R_MIPS_NONE:
+@@ -575,7 +692,7 @@ static int reloc_handler(u32 type, struct module *me, u32 *location, u32 base,
+ 		apply_r_mips_32(location, base, v);
+ 		break;
+ 	case R_MIPS_26:
+-		return apply_r_mips_26(me, location, base, v);
++		return apply_r_mips_26(me, location, v, plt);
+ 	case R_MIPS_HI16:
+ 		return apply_r_mips_hi16(me, location, v, rela);
+ 	case R_MIPS_LO16:
+@@ -614,10 +731,15 @@ static int __apply_relocate(Elf_Shdr *sechdrs, const char *strtab,
+ 	Elf_Addr v;
+ 	int err = 0;
+ 	size_t reloc_sz;
++	struct mips_plt_area plt;
+ 
+ 	pr_debug("Applying relocate section %u to %u\n", relsec,
+ 	       sechdrs[relsec].sh_info);
+ 
++	err = mips_plt_area(me, sechdrs, sechdrs[relsec].sh_info, &plt);
++	if (err)
++		return err;
++
+ 	r.rel = (void *)sechdrs[relsec].sh_addr;
+ 	reloc_sz = rela ? sizeof(*r.rela) : sizeof(*r.rel);
+ 	me->arch.r_mips_hi16_list = NULL;
+@@ -647,10 +769,12 @@ static int __apply_relocate(Elf_Shdr *sechdrs, const char *strtab,
+ 		} else {
+ 			v = sym->st_value;
+ 			base = *location;
++			if (type == R_MIPS_26)
++				v += mips_r26_rel_addend(base, sym);
+ 			r.rel = &r.rel[1];
+ 		}
+ 
+-		err = reloc_handler(type, me, location, base, v, rela);
++		err = reloc_handler(type, me, location, base, v, rela, &plt);
+ 		if (err)
+ 			goto out;
+ 	}
+@@ -732,17 +856,6 @@ int module_finalize(const Elf_Ehdr *hdr,
+ 		spin_unlock_irq(&dbe_lock);
+ 	}
+ 
+-	/* Get rid of the fixup trampoline if we're running the module
+-	 * from physically mapped address space */
+-	if (me->arch.phys_plt_offset == 0) {
+-		__module_free(me->arch.phys_plt_tbl);
+-		me->arch.phys_plt_tbl = NULL;
+-	}
+-	if (me->arch.virt_plt_offset == 0) {
+-		__module_free(me->arch.virt_plt_tbl);
+-		me->arch.virt_plt_tbl = NULL;
+-	}
+-
+ 	/* the allocator above keeps module code out of the first 32 KiB */
+ 	WARN_ON(in_first_32k(me->mem[MOD_TEXT].base) ||
+ 		in_first_32k(me->mem[MOD_INIT_TEXT].base));
+@@ -750,21 +863,6 @@ int module_finalize(const Elf_Ehdr *hdr,
+ 	return 0;
+ }
+ 
+-void module_arch_freeing_init(struct module *mod)
+-{
+-	if (mod->state == MODULE_STATE_LIVE)
+-		return;
+-
+-	if (mod->arch.phys_plt_tbl) {
+-		__module_free(mod->arch.phys_plt_tbl);
+-		mod->arch.phys_plt_tbl = NULL;
+-	}
+-	if (mod->arch.virt_plt_tbl) {
+-		__module_free(mod->arch.virt_plt_tbl);
+-		mod->arch.virt_plt_tbl = NULL;
+-	}
+-}
+-
+ void module_arch_cleanup(struct module *mod)
+ {
+ 	spin_lock_irq(&dbe_lock);
