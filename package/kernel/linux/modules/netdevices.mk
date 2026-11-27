@@ -204,10 +204,10 @@ define KernelPackage/libphy
   TITLE:=PHY library
   KCONFIG:=CONFIG_PHYLIB \
 	   CONFIG_PHYLIB_LEDS=y \
-	   CONFIG_MDIO_BUS
+	   CONFIG_MDIO_BUS@lt7.3
   FILES:=$(LINUX_DIR)/drivers/net/phy/libphy.ko \
-    $(LINUX_DIR)/drivers/net/phy/mdio-bus.ko
-  AUTOLOAD:=$(call AutoLoad,15,libphy mdio-bus,1)
+    $(LINUX_DIR)/drivers/net/phy/mdio-bus.ko@lt7.3
+  AUTOLOAD:=$(call AutoLoad,15,libphy mdio-bus@lt7.3,1)
 endef
 
 define KernelPackage/libphy/description

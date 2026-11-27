@@ -1,0 +1,19 @@
+Subject: [PATCH] backports: include hex helpers with linux/kernel.h
+
+Linux 7.3 stopped including linux/hex.h from linux/kernel.h. Keep the
+previous header behavior for wireless backports that use helpers such
+as mac_pton().
+
+--- a/backport-include/linux/kernel.h
++++ b/backport-include/linux/kernel.h
+@@ -2,6 +2,10 @@
+ #define __BACKPORT_KERNEL_H
+ #include_next <linux/kernel.h>
+ #include <linux/version.h>
++
++#if LINUX_VERSION_IS_GEQ(7,3,0)
++#include <linux/hex.h>
++#endif
+ 
+ #if LINUX_VERSION_IS_LESS(4,17,0)
+ 

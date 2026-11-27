@@ -1,0 +1,15 @@
+Subject: [PATCH] nat46: include the DS field helpers directly
+
+Linux 7.3 no longer exposes ipv4_get_dsfield() and ipv6_get_dsfield()
+through the existing includes.
+
+--- a/nat46/modules/nat46-core.c
++++ b/nat46/modules/nat46-core.c
+@@ -16,6 +16,7 @@
+  */
+ 
+ #include <linux/version.h>
++#include <net/dsfield.h>
+ #include <net/route.h>
+ #if LINUX_VERSION_CODE < KERNEL_VERSION(4,19,0)
+ #include <net/ipv6.h>

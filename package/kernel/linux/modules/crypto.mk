@@ -344,20 +344,23 @@ $(eval $(call KernelPackage,crypto-gf128))
 
 
 define KernelPackage/crypto-ghash
-  TITLE:=GHASH digest CryptoAPI module
+  TITLE:=GHASH support
   DEPENDS:=+kmod-crypto-gf128 +kmod-crypto-hash
   KCONFIG:= \
-	CONFIG_CRYPTO_GHASH \
-	CONFIG_CRYPTO_GHASH_ARM_CE \
-	CONFIG_CRYPTO_GHASH_ARM64_CE
-  FILES:=$(LINUX_DIR)/crypto/ghash-generic.ko
-  AUTOLOAD:=$(call AutoLoad,09,ghash-generic)
+	CONFIG_CRYPTO_GHASH@lt7.3 \
+	CONFIG_CRYPTO_GHASH_ARM_CE@lt7.3 \
+	CONFIG_CRYPTO_GHASH_ARM64_CE@lt7.3 \
+	CONFIG_CRYPTO_LIB_GF128HASH@ge7.3
+  FILES:= \
+	$(LINUX_DIR)/crypto/ghash-generic.ko@lt7.3 \
+	$(LINUX_DIR)/lib/crypto/libgf128hash.ko@ge7.3
+  AUTOLOAD:=$(call AutoLoad,09,ghash-generic@lt7.3)
   $(call AddDepends/crypto)
 endef
 
 define KernelPackage/crypto-ghash/arm-ce
-  FILES+= $(LINUX_DIR)/arch/arm/crypto/ghash-arm-ce.ko
-  AUTOLOAD+=ghash-arm-ce
+  FILES+= $(LINUX_DIR)/arch/arm/crypto/ghash-arm-ce.ko@lt7.3
+  AUTOLOAD+=$(call version_filter,ghash-arm-ce@lt7.3)
 endef
 
 KernelPackage/crypto-ghash/imx/cortexa7=$(KernelPackage/crypto-ghash/arm-ce)
@@ -366,8 +369,8 @@ KernelPackage/crypto-ghash/ipq40xx=$(KernelPackage/crypto-ghash/arm-ce)
 KernelPackage/crypto-ghash/mvebu/cortexa9=$(KernelPackage/crypto-ghash/arm-ce)
 
 define KernelPackage/crypto-ghash/aarch64-ce
-  FILES+= $(LINUX_DIR)/arch/arm64/crypto/ghash-ce.ko
-  AUTOLOAD+=ghash-ce
+  FILES+= $(LINUX_DIR)/arch/arm64/crypto/ghash-ce.ko@lt7.3
+  AUTOLOAD+=$(call version_filter,ghash-ce@lt7.3)
 endef
 
 KernelPackage/crypto-ghash/qualcommax=$(KernelPackage/crypto-ghash/aarch64-ce)
@@ -825,9 +828,12 @@ $(eval $(call KernelPackage,crypto-sha1))
 define KernelPackage/crypto-sha3
   TITLE:=SHA3 digest CryptoAPI module
   DEPENDS:=+kmod-crypto-hash
-  KCONFIG:= CONFIG_CRYPTO_SHA3
-  FILES:=$(LINUX_DIR)/crypto/sha3_generic.ko
-  AUTOLOAD:=$(call AutoLoad,09,sha3_generic)
+  KCONFIG:=CONFIG_CRYPTO_SHA3
+  FILES:= \
+	$(LINUX_DIR)/crypto/sha3_generic.ko@lt7.3 \
+	$(LINUX_DIR)/crypto/sha3.ko@ge7.3 \
+	$(LINUX_DIR)/lib/crypto/libsha3.ko@ge7.3
+  AUTOLOAD:=$(call AutoLoad,09,sha3_generic@lt7.3 sha3@ge7.3)
   $(call AddDepends/crypto)
 endef
 

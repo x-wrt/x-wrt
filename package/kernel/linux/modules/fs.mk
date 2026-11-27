@@ -99,11 +99,12 @@ define KernelPackage/fs-smbfs-common
   SUBMENU:=$(FS_MENU)
   TITLE:=SMBFS common dependencies support
   HIDDEN:=1
-  DEPENDS:=+kmod-fs-netfs +kmod-nls-ucs2-utils
+  DEPENDS:=+kmod-fs-netfs +kmod-nls-ucs2-utils +LINUX_7_3:kmod-crypto-arc4
   KCONFIG:=\
 	CONFIG_SMBFS
   FILES:= \
-	$(LINUX_DIR)/fs/smb/common/cifs_md4.ko
+	$(LINUX_DIR)/fs/smb/common/cifs_md4.ko \
+	$(LINUX_DIR)/fs/smb/common/smb_compress.ko@ge7.3
 endef
 
 define KernelPackage/fs-smbfs-common/description
